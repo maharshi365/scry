@@ -11,7 +11,8 @@ use std::{
 
 impl State {
     pub(in crate::ui) fn observe_library_progress(&mut self) {
-        if let (Some(position), Some(duration)) = (self.sample.position_s, self.sample.duration_s)
+        if let (Some(position), Some(duration)) =
+            (self.player.sample.position_s, self.player.sample.duration_s)
             && position.is_finite()
             && duration.is_finite()
             && duration > 0.0
@@ -45,7 +46,7 @@ impl State {
 
     pub(in crate::ui) fn finish_library_progress(&mut self, successful: bool) {
         if successful
-            && self.playing
+            && self.player.playing
             && self.library.playing.as_ref().is_some_and(|media| {
                 matches!(media.key.kind, MediaKind::Movie | MediaKind::Episode)
             })

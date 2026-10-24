@@ -13,7 +13,7 @@ pub(super) fn scene_discover(s: &mut State) {
 
 fn discover(s: &mut State) -> serde_json::Result<()> {
     s.config_busy = false;
-    s.page = Page::Discover;
+    s.navigation.page = Page::Discover;
     s.addons = vec![serde_json::from_value(serde_json::json!({
         "manifest_url":"https://example.invalid/manifest.json",
         "manifest":{"id":"scene.catalog", "name":"Cinema collection", "catalogs":[
@@ -53,7 +53,7 @@ pub(super) fn scene_detail(s: &mut State) {
 }
 
 fn detail(s: &mut State) -> serde_json::Result<()> {
-    s.page = Page::Detail;
+    s.navigation.page = Page::Detail;
     s.config_busy = false;
     s.detail_namespace = "scene.catalog".into();
     s.detail = Some(serde_json::from_value(serde_json::json!({
@@ -76,7 +76,7 @@ fn detail(s: &mut State) -> serde_json::Result<()> {
 }
 
 pub(super) fn scene_library(s: &mut State) {
-    s.page = Page::Library;
+    s.navigation.page = Page::Library;
     s.config_busy = false;
     s.status = "Saved on this device.".into();
     s.library.snapshot = Some(Snapshot {

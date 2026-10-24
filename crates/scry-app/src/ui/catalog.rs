@@ -34,10 +34,10 @@ impl State {
 
     pub(super) fn choose_kind(&mut self, kind: &str) {
         self.remember();
-        if self.page == Page::Player {
+        if self.navigation.page == Page::Player {
             self.stop();
         }
-        self.page = Page::Discover;
+        self.navigation.page = Page::Discover;
         self.kind = kind.into();
         self.catalog = self.catalogs().into_iter().next();
         self.search = TextEdit::new("");
@@ -77,10 +77,10 @@ impl State {
 
     pub(super) fn submit_search(&mut self) {
         self.remember();
-        if self.page == Page::Player {
+        if self.navigation.page == Page::Player {
             self.stop();
         }
-        self.page = Page::Discover;
+        self.navigation.page = Page::Discover;
         self.detail_id += 1;
         self.stream_id += 1;
         self.fetch_catalog();
@@ -116,7 +116,7 @@ impl State {
         let Some(meta) = self.metas.get(index).cloned() else {
             return;
         };
-        self.anchor = Some(format!("title-{index}"));
+        self.navigation.anchor = Some(format!("title-{index}"));
         if let Some(addon) = self.providers.get(index) {
             let namespace = addon.manifest.id.clone();
             self.pending_episode = None;

@@ -1,20 +1,43 @@
 //! Native application setup, state initialization, and shutdown.
 use super::{
-    Page, State,
+    State,
     events::poll,
     library_view::LibraryUi,
-    navigation::on_key,
     scenes::{scene_detail, scene_discover, scene_library},
     shell::view,
+    shortcuts::{Focus, Registration, Scope, dispatch},
 };
 use crate::services::Services;
 use rune::{App, AppSpec, TextEdit};
 use scry_app::platform::{Host, VideoHost};
-use scry_playback::telemetry::Sample;
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
 };
+
+const SHORTCUTS: &[Registration] = &[
+    Registration {
+        scope: Scope::Screen,
+        handle: super::player::shortcuts::handle,
+    },
+    Registration {
+        scope: Scope::Screen,
+        handle: super::navigation::shortcuts::screen,
+    },
+    Registration {
+        scope: Scope::App,
+        handle: super::navigation::shortcuts::history,
+    },
+];
+
+pub(super) fn on_key(s: &mut State, event: &rune::KeyEvent, _: &mut rune::Tx) -> bool {
+    dispatch(s, event, Focus::Screen, SHORTCUTS)
+}
+
+pub(super) fn on_input_key(s: &mut State, event: &rune::KeyEvent, _: &mut rune::Tx) -> bool {
+    // Escape belongs to the editor, even when no feature handles it.
+    dispatch(s, event, Focus::TextInput, SHORTCUTS) || event.key == rune::Key::Escape
+}
 
 impl State {
     pub(super) fn new(host: Host, host_error: Arc<Mutex<Option<String>>>) -> Self {
@@ -39,7 +62,8 @@ impl State {
             host_error,
             services: None,
             events: None,
-            page: Page::Discover,
+            navigation: super::navigation::NavigationState::default(),
+            player: super::player::state::PlayerState::default(),
             addons: Vec::new(),
             config_busy: true,
             install: TextEdit::new(""),
@@ -50,12 +74,6 @@ impl State {
             catalog: None,
             metas: Arc::default(),
             providers: Arc::default(),
-            back: Vec::new(),
-            forward: Vec::new(),
-            route_key: 0,
-            next_route_key: 0,
-            anchor: None,
-            reveal: None,
             detail: None,
             selected_video_id: None,
             episode_offset: 0,
@@ -71,16 +89,6 @@ impl State {
             catalog_id: 0,
             detail_id: 0,
             stream_id: 0,
-            play_id: 0,
-            playing: false,
-            sample: Sample::default(),
-            report: None,
-            playing_title: String::new(),
-            playing_meta_id: None,
-            playing_video_id: None,
-            volume: 70,
-            muted: false,
-            seek_preview: None,
             startup_play: None,
             quit: None,
         }

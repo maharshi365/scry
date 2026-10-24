@@ -7,8 +7,8 @@ use scry_app::platform::VideoHost;
 use std::sync::Arc;
 
 pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
-    if let Some(anchor) = s.reveal.take() {
-        if s.page == Page::Discover
+    if let Some(anchor) = s.navigation.reveal.take() {
+        if s.navigation.page == Page::Discover
             && let Some(index) = anchor
                 .strip_prefix("title-")
                 .and_then(|index| index.parse::<usize>().ok())
@@ -35,8 +35,8 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
         } else {
             s.save_library_progress();
             s.library.playing = None;
-            s.playing_meta_id = None;
-            s.playing_video_id = None;
+            s.player.meta_id = None;
+            s.player.video_id = None;
             s.play_source(Source::Local(input.into()), "Local video".into());
         }
         changed = true;
@@ -69,7 +69,7 @@ fn apply(s: &mut State, event: Event) {
                             .any(|current| current.manifest.id == a.manifest.id)
                     }) {
                         s.catalog = s.catalogs().into_iter().next();
-                        if s.page == Page::Discover {
+                        if s.navigation.page == Page::Discover {
                             s.fetch_catalog();
                         }
                     }
@@ -77,7 +77,7 @@ fn apply(s: &mut State, event: Event) {
                 Err(error) => s.error = Some(error),
             }
         }
-        Event::Catalog(id, result) if id == s.catalog_id && s.page == Page::Discover => {
+        Event::Catalog(id, result) if id == s.catalog_id && s.navigation.page == Page::Discover => {
             s.loading = false;
             match result {
                 Ok(metas) => {
@@ -88,7 +88,7 @@ fn apply(s: &mut State, event: Event) {
             }
         }
         Event::Search(id, results, warnings, done)
-            if id == s.catalog_id && s.page == Page::Discover =>
+            if id == s.catalog_id && s.navigation.page == Page::Discover =>
         {
             s.loading = !done;
             s.providers = Arc::new(results.iter().map(|result| result.addon.clone()).collect());
@@ -100,7 +100,7 @@ fn apply(s: &mut State, event: Event) {
                 if done { "" } else { " · searching…" }
             );
         }
-        Event::Detail(id, result) if id == s.detail_id && s.page == Page::Detail => {
+        Event::Detail(id, result) if id == s.detail_id && s.navigation.page == Page::Detail => {
             s.loading = false;
             match result {
                 Ok((meta, namespace)) => {
@@ -111,7 +111,7 @@ fn apply(s: &mut State, event: Event) {
             }
         }
         Event::Streams(id, streams, warnings, done)
-            if id == s.stream_id && s.page == Page::Detail =>
+            if id == s.stream_id && s.navigation.page == Page::Detail =>
         {
             s.loading = !done;
             s.streams = streams;
@@ -125,13 +125,13 @@ fn apply(s: &mut State, event: Event) {
                 format!("{} streams", s.streams.len())
             };
         }
-        Event::Playing(id, path) if id == s.play_id => {
-            s.report = Some(path);
+        Event::Playing(id, path) if id == s.player.generation => {
+            s.player.report = Some(path);
             s.status = "Player connected · waiting for media…".into();
-            let volume = s.volume.to_string();
+            let volume = s.player.volume.to_string();
             s.command(&["set", "volume", &volume]);
         }
-        Event::Metrics(id, sample) if id == s.play_id => {
+        Event::Metrics(id, sample) if id == s.player.generation => {
             s.status = if sample.buffering {
                 "Buffering"
             } else if sample.paused {
@@ -142,22 +142,22 @@ fn apply(s: &mut State, event: Event) {
                 "Playing"
             }
             .into();
-            s.sample = sample;
+            s.player.sample = sample;
             s.observe_library_progress();
         }
-        Event::Stopped(id, error) if id == s.play_id => {
+        Event::Stopped(id, error) if id == s.player.generation => {
             s.finish_library_progress(error.is_none());
             s.library.playing = None;
             s.refresh_library();
-            s.playing = false;
-            s.seek_preview = None;
+            s.player.playing = false;
+            s.player.seek_preview = None;
             s.host.hide();
             s.status = "Playback stopped".into();
             if error.is_some() {
                 s.error = error;
             }
         }
-        Event::PlayerWarning(id, error) if id == s.play_id => s.error = Some(error),
+        Event::PlayerWarning(id, error) if id == s.player.generation => s.error = Some(error),
         _ => {}
     }
 }

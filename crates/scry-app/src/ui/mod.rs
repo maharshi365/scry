@@ -10,34 +10,22 @@ mod episodes;
 mod events;
 mod library_view;
 mod navigation;
-mod playback;
 mod player;
 mod scenes;
 mod shell;
+mod shortcuts;
 mod source_picker;
 
 use crate::services::{Event, Services};
 use library_view::LibraryUi;
-use navigation::Route;
+use navigation::{NavigationState, Page};
+use player::state::PlayerState;
 use rune::TextEdit;
 use scry_addons::{Addon, Catalog, Meta, Stream};
 use scry_app::platform::Host;
-use scry_playback::telemetry::Sample;
-use std::{
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 const EPISODES_PER_PAGE: usize = 100;
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-enum Page {
-    Discover,
-    Library,
-    Addons,
-    Detail,
-    Player,
-}
 
 #[expect(
     clippy::struct_excessive_bools,
@@ -58,7 +46,8 @@ pub struct State {
     host_error: Arc<Mutex<Option<String>>>,
     services: Option<Services>,
     events: Option<tokio::sync::mpsc::Receiver<Event>>,
-    page: Page,
+    navigation: NavigationState,
+    player: PlayerState,
     addons: Vec<Addon>,
     config_busy: bool,
     install: TextEdit,
@@ -69,12 +58,6 @@ pub struct State {
     catalog: Option<(Addon, Catalog)>,
     metas: Arc<Vec<Meta>>,
     providers: Arc<Vec<Addon>>,
-    back: Vec<Route>,
-    forward: Vec<Route>,
-    route_key: u64,
-    next_route_key: u64,
-    anchor: Option<String>,
-    reveal: Option<String>,
     detail: Option<Meta>,
     // Stable protocol ID (including season/episode suffix) for library integration.
     selected_video_id: Option<String>,
@@ -95,17 +78,6 @@ pub struct State {
     catalog_id: u64,
     detail_id: u64,
     stream_id: u64,
-    play_id: u64,
-    playing: bool,
-    sample: Sample,
-    report: Option<PathBuf>,
-    playing_title: String,
-    // Identity of the actual catalog playback, not the last detail page visited.
-    playing_meta_id: Option<(String, String)>,
-    playing_video_id: Option<String>,
-    volume: u32,
-    muted: bool,
-    seek_preview: Option<f64>,
     startup_play: Option<String>,
     quit: Option<rune::AppHandle<State>>,
 }

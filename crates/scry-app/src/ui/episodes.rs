@@ -95,7 +95,7 @@ impl State {
     }
 
     pub(super) fn select_episode(&mut self, index: usize) {
-        self.anchor = Some(format!("episode-{index}"));
+        self.navigation.anchor = Some(format!("episode-{index}"));
         if let Some(meta) = &self.detail
             && let Some(video) = meta.videos.get(index)
         {

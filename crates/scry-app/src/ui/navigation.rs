@@ -1,8 +1,41 @@
 //! Navigation history and keyboard shortcuts. Player routes restore their source page.
-use super::{Page, State};
-use rune::{TextEdit, Tx};
+use super::State;
+use rune::TextEdit;
 use scry_addons::{Addon, Catalog, Meta};
 use std::sync::Arc;
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(super) enum Page {
+    Discover,
+    Library,
+    Addons,
+    Detail,
+    Player,
+}
+
+pub(super) struct NavigationState {
+    pub page: Page,
+    pub back: Vec<Route>,
+    pub forward: Vec<Route>,
+    pub route_key: u64,
+    next_route_key: u64,
+    pub anchor: Option<String>,
+    pub reveal: Option<String>,
+}
+
+impl Default for NavigationState {
+    fn default() -> Self {
+        Self {
+            page: Page::Discover,
+            back: Vec::new(),
+            forward: Vec::new(),
+            route_key: 0,
+            next_route_key: 0,
+            anchor: None,
+            reveal: None,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub(super) struct Route {
@@ -31,14 +64,14 @@ pub(super) struct Route {
 
 impl State {
     pub(super) fn navigate(&mut self, page: Page) {
-        if self.page == page {
+        if self.navigation.page == page {
             return;
         }
         self.remember();
-        if self.page == Page::Player {
+        if self.navigation.page == Page::Player {
             self.stop();
         }
-        self.page = page;
+        self.navigation.page = page;
         self.detail_id += 1;
         self.stream_id += 1;
         self.catalog_id += 1;
@@ -54,14 +87,14 @@ impl State {
 
     fn route(&self) -> Route {
         Route {
-            page: if self.page == Page::Player {
+            page: if self.navigation.page == Page::Player {
                 if self.detail.is_some() {
                     Page::Detail
                 } else {
                     Page::Addons
                 }
             } else {
-                self.page
+                self.navigation.page
             },
             kind: self.kind.clone(),
             query: self.displayed_query.clone(),
@@ -75,46 +108,47 @@ impl State {
             episode_offset: self.episode_offset,
             episode_season: self.episode_season,
             loading: self.loading,
-            key: self.route_key,
-            anchor: self.anchor.clone(),
+            key: self.navigation.route_key,
+            anchor: self.navigation.anchor.clone(),
             status: self.status.clone(),
             warnings: self.warnings.clone(),
         }
     }
 
     pub(super) fn remember(&mut self) {
-        if self.back.len() == 32 {
-            self.back.remove(0);
+        if self.navigation.back.len() == 32 {
+            self.navigation.back.remove(0);
         }
-        self.back.push(self.route());
-        self.forward.clear();
-        self.next_route_key += 1;
-        self.route_key = self.next_route_key;
-        self.anchor = None;
+        let route = self.route();
+        self.navigation.back.push(route);
+        self.navigation.forward.clear();
+        self.navigation.next_route_key += 1;
+        self.navigation.route_key = self.navigation.next_route_key;
+        self.navigation.anchor = None;
     }
 
     pub(super) fn travel(&mut self, forward: bool) {
         let route = if forward {
-            self.forward.pop()
+            self.navigation.forward.pop()
         } else {
-            self.back.pop()
+            self.navigation.back.pop()
         };
         let Some(route) = route else {
             return;
         };
         let current = self.route();
         if forward {
-            self.back.push(current);
+            self.navigation.back.push(current);
         } else {
-            self.forward.push(current);
+            self.navigation.forward.push(current);
         }
-        if self.page == Page::Player {
+        if self.navigation.page == Page::Player {
             self.stop();
         }
         self.catalog_id += 1;
         self.detail_id += 1;
         self.stream_id += 1;
-        self.page = route.page;
+        self.navigation.page = route.page;
         self.kind = route.kind;
         self.displayed_query = route.query.clone();
         self.search = TextEdit::new(route.query);
@@ -128,9 +162,9 @@ impl State {
         self.episode_offset = route.episode_offset;
         self.episode_season = route.episode_season;
         self.season_menu_open = false;
-        self.route_key = route.key;
-        self.anchor = route.anchor;
-        self.reveal = self.anchor.clone();
+        self.navigation.route_key = route.key;
+        self.navigation.anchor = route.anchor;
+        self.navigation.reveal = self.navigation.anchor.clone();
         self.error = None;
         self.status = route.status;
         self.warnings = route.warnings;
@@ -138,7 +172,7 @@ impl State {
         self.stream_provider = None;
         self.source_menu_open = false;
         self.loading = false;
-        match self.page {
+        match self.navigation.page {
             Page::Discover if route.loading => self.fetch_catalog(),
             Page::Detail => {
                 if route.loading && self.selected_video_id.is_none() {
@@ -162,17 +196,4 @@ impl State {
     }
 }
 
-pub(super) fn on_key(s: &mut State, event: &rune::KeyEvent, _: &mut Tx) -> bool {
-    if event.mods.alt && event.key == rune::Key::Left {
-        s.travel(false);
-        true
-    } else if event.mods.alt && event.key == rune::Key::Right {
-        s.travel(true);
-        true
-    } else if event.key == rune::Key::Escape && matches!(s.page, Page::Detail | Page::Player) {
-        s.travel(false);
-        true
-    } else {
-        super::player::on_key(s, event)
-    }
-}
+pub(super) mod shortcuts;

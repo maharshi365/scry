@@ -16,7 +16,7 @@ use rune::{
 )]
 pub(super) fn discover(s: &State, cx: &Cx<State>) -> El {
     let t = tok::theme(true);
-    let viewport_key = format!("titles-scroll-{}", s.route_key);
+    let viewport_key = format!("titles-scroll-{}", s.navigation.route_key);
     let columns = cx
         .layout(&viewport_key)
         .map_or(3, |rect| poster_columns(rect[2]));
@@ -46,7 +46,7 @@ pub(super) fn discover(s: &State, cx: &Cx<State>) -> El {
         ));
     }
     for (row_index, metas) in s.metas.chunks(columns).enumerate() {
-        let route_key = s.route_key;
+        let route_key = s.navigation.route_key;
         let mut card_row = col()
             .key(format!("title-row-{row_index}"))
             .w_full()
@@ -66,7 +66,7 @@ pub(super) fn discover(s: &State, cx: &Cx<State>) -> El {
             });
         // Keep cheap row-sized placeholders for scroll geometry and history.
         // Only nearby rows need poster handles, text shaping and hit targets.
-        let nearby = if s.poster_route == s.route_key && s.poster_columns == columns {
+        let nearby = if s.poster_route == s.navigation.route_key && s.poster_columns == columns {
             s.poster_viewport
                 .zip(s.poster_rects.get(&row_index))
                 .is_none_or(|(viewport, rect)| {

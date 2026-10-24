@@ -29,9 +29,10 @@ impl State {
 
 pub(super) fn visible_artwork(s: &State) -> Vec<String> {
     let mut urls = Vec::new();
-    if s.page == Page::Discover {
+    if s.navigation.page == Page::Discover {
         for (index, meta) in s.metas.iter().enumerate() {
-            let visible = if s.poster_route == s.route_key && !s.poster_rects.is_empty() {
+            let visible = if s.poster_route == s.navigation.route_key && !s.poster_rects.is_empty()
+            {
                 s.poster_viewport
                     .zip(s.poster_rects.get(&(index / s.poster_columns)))
                     .is_some_and(|(viewport, rect)| {
@@ -50,7 +51,7 @@ pub(super) fn visible_artwork(s: &State) -> Vec<String> {
                 break;
             }
         }
-    } else if s.page == Page::Detail
+    } else if s.navigation.page == Page::Detail
         && let Some(url) = s.detail.as_ref().and_then(|meta| meta.poster.as_ref())
     {
         urls.push(url.clone());

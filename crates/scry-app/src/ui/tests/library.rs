@@ -5,7 +5,7 @@ fn rendered_detail_actions_persist_and_appear_in_the_library() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("library.sqlite3");
     let mut s = init();
-    s.page = Page::Detail;
+    s.navigation.page = Page::Detail;
     s.config_busy = false;
     s.detail_namespace = "provider".into();
     s.detail = Some(

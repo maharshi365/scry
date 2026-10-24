@@ -1,5 +1,5 @@
 //! Shared controls, colors, and display formatting.
-use super::{State, navigation::on_key};
+use super::{State, app::on_input_key};
 use rune::tok::{self, TextStyle, type_};
 use rune::{El, ScrollSpec, TextEdit, Tx, col, el, row, text, text_input};
 
@@ -83,13 +83,7 @@ pub(super) fn input(
                 .color(t.text)
                 .placeholder(placeholder, t.text_secondary)
                 .single_line()
-                .on_input_key(move |s: &mut State, event, tx| {
-                    if event.mods.alt && matches!(event.key, rune::Key::Left | rune::Key::Right) {
-                        return on_key(s, event, tx);
-                    }
-                    // Escape in an editor must not navigate away from the user's text.
-                    event.key == rune::Key::Escape
-                })
+                .on_input_key(on_input_key)
                 .on_submit(move |s: &mut State, _: &mut Tx| match key {
                     "search" => s.submit_search(),
                     "manifest" => s.install(s.install.text.clone()),

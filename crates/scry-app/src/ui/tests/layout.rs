@@ -27,7 +27,7 @@ fn sidebar_keeps_the_logo_and_wordmark_visible_at_minimum_window_size() {
 #[test]
 fn episode_wheel_is_bounded_and_sources_and_toolbar_stay_visible() {
     let mut state = init();
-    state.page = Page::Detail;
+    state.navigation.page = Page::Detail;
     state.detail = Some(series(250));
     let mut rt = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);

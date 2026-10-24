@@ -21,7 +21,7 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
         .min_w(0.0)
         .gap(10.0)
         .padding(20.0);
-    content = content.child(match s.page {
+    content = content.child(match s.navigation.page {
         Page::Discover => discover(s, cx),
         Page::Library => library_view::view(s),
         Page::Addons => addons(s),
@@ -39,7 +39,7 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
     if let Some(error) = &s.library.error {
         content = content.child(label(format!("Library: {error}")));
     }
-    if s.page == Page::Discover
+    if s.navigation.page == Page::Discover
         && let Some(warning) = s.warnings.first()
     {
         content = content.child(label(format!(
@@ -52,7 +52,7 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
             }
         )));
     }
-    if s.page != Page::Detail && !s.status.is_empty() {
+    if s.navigation.page != Page::Detail && !s.status.is_empty() {
         content = content.child(label(s.status.clone()).key("status"));
     }
     row()
@@ -98,7 +98,7 @@ fn sidebar(s: &State) -> El {
         ("nav-addons", "Add-ons", Page::Addons),
     ] {
         sidebar = sidebar.child(action(key, title, move |s| s.navigate(page)).w_full().fill(
-            if s.page == page {
+            if s.navigation.page == page {
                 rune::oklch(0.29, 0.05, 220.0)
             } else {
                 rune::oklch(0.145, 0.018, 240.0)
@@ -109,20 +109,24 @@ fn sidebar(s: &State) -> El {
                 .child(
                     action("movies", "Movies", |s| s.choose_kind("movie"))
                         .w_full()
-                        .fill(if s.page == Page::Discover && s.kind == "movie" {
-                            rune::oklch(0.25, 0.035, 220.0)
-                        } else {
-                            rune::oklch(0.145, 0.018, 240.0)
-                        }),
+                        .fill(
+                            if s.navigation.page == Page::Discover && s.kind == "movie" {
+                                rune::oklch(0.25, 0.035, 220.0)
+                            } else {
+                                rune::oklch(0.145, 0.018, 240.0)
+                            },
+                        ),
                 )
                 .child(
                     action("series", "TV shows", |s| s.choose_kind("series"))
                         .w_full()
-                        .fill(if s.page == Page::Discover && s.kind == "series" {
-                            rune::oklch(0.25, 0.035, 220.0)
-                        } else {
-                            rune::oklch(0.145, 0.018, 240.0)
-                        }),
+                        .fill(
+                            if s.navigation.page == Page::Discover && s.kind == "series" {
+                                rune::oklch(0.25, 0.035, 220.0)
+                            } else {
+                                rune::oklch(0.145, 0.018, 240.0)
+                            },
+                        ),
                 );
         }
     }
@@ -137,11 +141,16 @@ fn topbar(s: &State) -> El {
         .px(20.0)
         .gap(8.0)
         .center_y()
-        .child(history_button("nav-back", "←", !s.back.is_empty(), false))
+        .child(history_button(
+            "nav-back",
+            "←",
+            !s.navigation.back.is_empty(),
+            false,
+        ))
         .child(history_button(
             "nav-forward",
             "→",
-            !s.forward.is_empty(),
+            !s.navigation.forward.is_empty(),
             true,
         ))
         .child(input(

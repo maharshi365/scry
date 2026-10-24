@@ -1,10 +1,9 @@
 //! Cross-feature UI tests. Pure feature behavior stays with its owning module.
 use super::{
     Page, State,
-    app::init,
+    app::{init, on_key},
     artwork::visible_artwork,
     events::poll,
-    navigation::on_key,
     scenes::{scene_detail, scene_discover},
     shell::view,
 };

@@ -1,10 +1,15 @@
 //! Native video surface and playback controls.
+pub(crate) mod actions;
+mod session;
+pub(super) mod shortcuts;
+pub(crate) mod state;
 use super::{
     Page, State,
     components::{accent, action, clock, label, metric, panel},
 };
+use actions::PlayerAction;
 use rune::{
-    El, Icon, Key, KeyEvent, Phase, col, el, icon, row, text,
+    El, Icon, Phase, col, el, icon, row, text,
     tok::{self, TextStyle},
 };
 use scry_app::platform::VideoHost;
@@ -16,9 +21,9 @@ pub(super) fn player(s: &State, scale: f32) -> El {
         .w_full()
         .grow(1.0)
         .fill(rune::oklch(0.08, 0.0, 0.0));
-    if s.playing {
+    if s.player.playing {
         surface = surface.on_layout(move |s: &mut State, rect| {
-            if s.playing && s.page == Page::Player {
+            if s.player.playing && s.navigation.page == Page::Player {
                 s.host.place(rect, scale);
             }
         });
@@ -34,7 +39,7 @@ pub(super) fn player(s: &State, scale: f32) -> El {
                 .center_y()
                 .gap(16.0)
                 .child(
-                    text(s.playing_title.clone())
+                    text(s.player.title.clone())
                         .truncate()
                         .font(TextStyle::new(20.0, 550.0))
                         .color(t.text)
@@ -46,19 +51,28 @@ pub(super) fn player(s: &State, scale: f32) -> El {
         .child(controls(s))
         .child(label(format!(
             "cache {}s   ·   drops {}   ·   RAM {} MiB   ·   {}",
-            metric(s.sample.cache_s),
-            s.sample
+            metric(s.player.sample.cache_s),
+            s.player
+                .sample
                 .dropped_frames
                 .map_or_else(|| "—".into(), |n| n.to_string()),
-            s.sample
+            s.player
+                .sample
                 .resident_bytes
                 .map_or_else(|| "—".into(), |n| (n / 1024 / 1024).to_string()),
-            s.sample.hw_decoder.as_deref().unwrap_or("decoder pending")
+            s.player
+                .sample
+                .hw_decoder
+                .as_deref()
+                .unwrap_or("decoder pending")
         )))
 }
 
 fn timeline(s: &State) -> El {
-    let progress = match (s.seek_preview.or(s.sample.position_s), s.sample.duration_s) {
+    let progress = match (
+        s.player.seek_preview.or(s.player.sample.position_s),
+        s.player.sample.duration_s,
+    ) {
         (Some(position), Some(duration)) if duration.is_finite() && duration > 0.0 => {
             (position / duration).clamp(0.0, 1.0)
         }
@@ -68,43 +82,52 @@ fn timeline(s: &State) -> El {
         .w_full()
         .label("Seek through video")
         .on_drag(|s: &mut State, drag, _| {
-            if !s.playing || drag.w <= 0.0 {
+            if !s.player.playing || drag.w <= 0.0 {
                 return;
             }
-            let Some(duration) = s.sample.duration_s.filter(|n| n.is_finite() && *n > 0.0) else {
+            let Some(duration) = s
+                .player
+                .sample
+                .duration_s
+                .filter(|n| n.is_finite() && *n > 0.0)
+            else {
                 return;
             };
             let target = f64::from((drag.x / drag.w).clamp(0.0, 1.0)) * duration;
             if drag.phase == Phase::Up {
-                s.seek_to(target);
-                s.seek_preview = None;
+                s.player_action(PlayerAction::SeekTo(target));
+                s.player.seek_preview = None;
             } else {
-                s.seek_preview = Some(target);
+                s.player.seek_preview = Some(target);
             }
         })
 }
 
 fn controls(s: &State) -> El {
-    let position = s.seek_preview.or(s.sample.position_s);
+    let position = s.player.seek_preview.or(s.player.sample.position_s);
     let buttons = row()
         .gap(4.0)
         .center_y()
         .child(icon_button(
             "pause",
-            if s.sample.paused {
+            if s.player.sample.paused {
                 "Play (Space / K)"
             } else {
                 "Pause (Space / K)"
             },
-            if s.sample.paused { &PLAY } else { &PAUSE },
-            State::toggle_pause,
+            if s.player.sample.paused {
+                &PLAY
+            } else {
+                &PAUSE
+            },
+            |s| s.player_action(PlayerAction::TogglePause),
         ))
         .child(icon_button(
             "seek-back",
             "Back 10 seconds (J)",
             &BACK,
             |s| {
-                s.command(&["seek", "-10", "relative"]);
+                s.player_action(PlayerAction::SeekRelative(-10));
             },
         ))
         .child(icon_button(
@@ -112,33 +135,37 @@ fn controls(s: &State) -> El {
             "Forward 10 seconds (L)",
             &FORWARD,
             |s| {
-                s.command(&["seek", "10", "relative"]);
+                s.player_action(PlayerAction::SeekRelative(10));
             },
         ))
         .child(icon_button(
             "mute",
-            if s.muted { "Unmute (M)" } else { "Mute (M)" },
-            if s.muted || s.volume == 0 {
+            if s.player.muted {
+                "Unmute (M)"
+            } else {
+                "Mute (M)"
+            },
+            if s.player.muted || s.player.volume == 0 {
                 &MUTED
             } else {
                 &VOLUME
             },
-            State::toggle_mute,
+            |s| s.player_action(PlayerAction::ToggleMute),
         ))
         .child(
             rail(
                 "player-volume",
-                if s.muted {
+                if s.player.muted {
                     0.0
                 } else {
-                    f64::from(s.volume) / 100.0
+                    f64::from(s.player.volume) / 100.0
                 },
             )
             .w(64.0)
-            .label(format!("Volume {}% (↑ / ↓)", s.volume))
+            .label(format!("Volume {}% (↑ / ↓)", s.player.volume))
             .on_drag(|s: &mut State, drag, _| {
-                if s.playing && drag.w > 0.0 {
-                    s.set_volume(volume_at(drag.x / drag.w));
+                if s.player.playing && drag.w > 0.0 {
+                    s.player_action(PlayerAction::SetVolume(volume_at(drag.x / drag.w)));
                 }
             }),
         )
@@ -146,7 +173,7 @@ fn controls(s: &State) -> El {
             label(format!(
                 "{} / {}",
                 clock(position),
-                clock(s.sample.duration_s)
+                clock(s.player.sample.duration_s)
             ))
             .key("player-time"),
         )
@@ -156,13 +183,15 @@ fn controls(s: &State) -> El {
             "Cycle subtitles (C)",
             &CAPTIONS,
             |s| {
-                s.command(&["cycle", "sid"]);
+                s.player_action(PlayerAction::CycleSubtitles);
             },
         ))
         .child(icon_button("audio", "Cycle audio track", &AUDIO, |s| {
-            s.command(&["cycle", "aid"]);
+            s.player_action(PlayerAction::CycleAudio);
         }))
-        .child(icon_button("stop", "Stop playback", &STOP, State::stop));
+        .child(icon_button("stop", "Stop playback", &STOP, |s| {
+            s.player_action(PlayerAction::Stop);
+        }));
     col()
         .key("player-controls")
         .w_full()
@@ -190,7 +219,7 @@ fn icon_button(
         .radius(6.0)
         .hover(tok::theme(true).hover)
         .on_press(move |s: &mut State| {
-            if s.playing {
+            if s.player.playing {
                 f(s);
             }
         })
@@ -230,57 +259,6 @@ fn rail(key: &'static str, fraction: f64) -> El {
 )]
 fn volume_at(fraction: f32) -> u32 {
     (fraction.clamp(0.0, 1.0) * 100.0).round() as u32
-}
-
-impl State {
-    fn toggle_pause(&mut self) {
-        if !self.playing {
-            return;
-        }
-        self.sample.paused = !self.sample.paused;
-        self.command(&[
-            "set",
-            "pause",
-            if self.sample.paused { "yes" } else { "no" },
-        ]);
-    }
-
-    fn toggle_mute(&mut self) {
-        self.muted = !self.muted;
-        self.command(&["set", "mute", if self.muted { "yes" } else { "no" }]);
-    }
-
-    fn set_volume(&mut self, volume: u32) {
-        self.volume = volume.min(100);
-        self.muted = false;
-        self.command(&["set", "mute", "no"]);
-        self.command(&["set", "volume", &self.volume.to_string()]);
-    }
-
-    fn seek_to(&mut self, target: f64) {
-        self.sample.position_s = Some(target);
-        self.command(&["seek", &target.to_string(), "absolute"]);
-    }
-}
-
-pub(super) fn on_key(s: &mut State, event: &KeyEvent) -> bool {
-    let mods = event.mods;
-    if s.page != Page::Player || !s.playing || mods.alt || mods.ctrl || mods.cmd || mods.logo {
-        return false;
-    }
-    match &event.key {
-        Key::Text(key) if key == " " || key.eq_ignore_ascii_case("k") => s.toggle_pause(),
-        Key::Text(key) if key.eq_ignore_ascii_case("m") => s.toggle_mute(),
-        Key::Text(key) if key.eq_ignore_ascii_case("j") => s.command(&["seek", "-10", "relative"]),
-        Key::Text(key) if key.eq_ignore_ascii_case("l") => s.command(&["seek", "10", "relative"]),
-        Key::Text(key) if key.eq_ignore_ascii_case("c") => s.command(&["cycle", "sid"]),
-        Key::Left => s.command(&["seek", "-5", "relative"]),
-        Key::Right => s.command(&["seek", "5", "relative"]),
-        Key::Up => s.set_volume(s.volume.saturating_add(5)),
-        Key::Down => s.set_volume(s.volume.saturating_sub(5)),
-        _ => return false,
-    }
-    true
 }
 
 static PLAY: Icon = Icon {

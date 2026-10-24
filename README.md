@@ -158,6 +158,9 @@ The workspace shares dependency versions, one lockfile, and one target directory
 The app depends on all four service crates; torrents depends on add-ons. None of
 the service crates depends on the app or Rune.
 
+See [UI state and shortcut ownership](docs/ui-state.md) for feature APIs,
+binding registration, and the remaining state extraction work.
+
 ### macOS implementation path
 
 Implement `VideoHost` in `crates/scry-app/src/platform/macos.rs`, then select it with `cfg(target_os = "macos")`. Choose an appropriate NSView/libmpv render integration; do not assume a Windows window identifier works on macOS. Add native process counters in `crates/scry-playback/src/process/` and test resizing, Retina scaling, playback lifecycle, audio, and shutdown. Shared add-on and torrent services do not need OS-specific forks.

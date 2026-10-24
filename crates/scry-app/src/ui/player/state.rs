@@ -1,0 +1,34 @@
+//! Playback state shared by player views and other features.
+use scry_playback::telemetry::Sample;
+use std::path::PathBuf;
+
+pub(crate) struct PlayerState {
+    pub playing: bool,
+    pub sample: Sample,
+    pub report: Option<PathBuf>,
+    pub title: String,
+    // Identity of the actual playback, not the last detail page visited.
+    pub meta_id: Option<(String, String)>,
+    pub video_id: Option<String>,
+    pub volume: u32,
+    pub muted: bool,
+    pub seek_preview: Option<f64>,
+    pub generation: u64,
+}
+
+impl Default for PlayerState {
+    fn default() -> Self {
+        Self {
+            playing: false,
+            sample: Sample::default(),
+            report: None,
+            title: String::new(),
+            meta_id: None,
+            video_id: None,
+            volume: 70,
+            muted: false,
+            seek_preview: None,
+            generation: 0,
+        }
+    }
+}

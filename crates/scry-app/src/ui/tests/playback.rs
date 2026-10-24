@@ -4,7 +4,7 @@ use super::*;
 fn stale_catalog_and_playback_messages_do_not_replace_current_state() {
     let (mut s, tx) = state_with_events();
     s.catalog_id = 2;
-    s.play_id = 4;
+    s.player.generation = 4;
     s.status = "current".into();
     tx.try_send(Event::Catalog(1, Err("old catalog failed".into())))
         .unwrap();
@@ -18,7 +18,7 @@ fn stale_catalog_and_playback_messages_do_not_replace_current_state() {
 #[test]
 fn stream_failure_keeps_successful_sources_visible() {
     let (mut s, tx) = state_with_events();
-    s.page = Page::Detail;
+    s.navigation.page = Page::Detail;
     s.stream_id = 7;
     let stream: Stream =
         serde_json::from_value(serde_json::json!({"url":"https://example.com/video"})).unwrap();
@@ -84,8 +84,8 @@ fn unsupported_source_card_cannot_start_playback() {
     let mut rt = rune::Runtime::new(state, view, (1000.0, 800.0), rune::Env::default());
     rt.frame(0.0);
     tap(&mut rt, "stream-0");
-    assert_eq!(rt.state.page, Page::Detail);
-    assert!(!rt.state.playing);
-    assert_eq!(rt.state.play_id, 0);
+    assert_eq!(rt.state.navigation.page, Page::Detail);
+    assert!(!rt.state.player.playing);
+    assert_eq!(rt.state.player.generation, 0);
     assert!(rt.state.error.is_none());
 }

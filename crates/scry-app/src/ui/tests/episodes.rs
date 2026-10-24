@@ -22,7 +22,7 @@ fn episode_201_is_reachable_and_selection_uses_its_absolute_identity() {
 #[test]
 fn season_selector_filters_and_sorts_episodes_without_changing_protocol_identity() {
     let mut state = init();
-    state.page = Page::Detail;
+    state.navigation.page = Page::Detail;
     state.detail = Some(multi_season_series());
     assert_eq!(state.seasons(), [Some(1), Some(2), Some(0), None]);
     assert_eq!(state.visible_episode_indices(), [4, 2]);
@@ -57,7 +57,7 @@ fn season_selector_filters_and_sorts_episodes_without_changing_protocol_identity
 #[test]
 fn changing_season_rejects_old_streams_and_history_restores_the_season() {
     let (mut state, tx) = state_with_events();
-    state.page = Page::Detail;
+    state.navigation.page = Page::Detail;
     state.detail = Some(multi_season_series());
     state.select_episode(4);
     let old_id = state.stream_id;

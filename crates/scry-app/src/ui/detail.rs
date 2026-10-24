@@ -138,7 +138,7 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
         .child(scroll(
             format!(
                 "episodes-scroll-{}-{}-{:?}",
-                s.route_key,
+                s.navigation.route_key,
                 range.start,
                 s.active_season()
             ),

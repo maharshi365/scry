@@ -309,7 +309,10 @@ pub(super) fn view(s: &State) -> El {
         .min_h(0.0)
         .gap(12.0)
         .child(header)
-        .child(scroll(format!("sources-scroll-{}", s.route_key), list))
+        .child(scroll(
+            format!("sources-scroll-{}", s.navigation.route_key),
+            list,
+        ))
 }
 
 #[cfg(test)]

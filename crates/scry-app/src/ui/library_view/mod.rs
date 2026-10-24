@@ -594,18 +594,18 @@ mod tests {
         s.detail = Some(meta("tt123"));
         s.library.playing = s.library_media();
         s.detail = Some(meta("tt456"));
-        s.sample.position_s = Some(95.0);
-        s.sample.duration_s = Some(100.0);
+        s.player.sample.position_s = Some(95.0);
+        s.player.sample.duration_s = Some(100.0);
         s.observe_library_progress();
-        s.sample = Sample::default();
+        s.player.sample = Sample::default();
         s.observe_library_progress();
         assert_eq!(
             s.library.playing.as_ref().unwrap().key,
             MediaKey::new("imdb", MediaKind::Movie, "tt123")
         );
         assert_eq!(s.library.last_sample, Some((95.0, 100.0)));
-        s.sample.duration_s = Some(f64::INFINITY);
-        s.sample.position_s = Some(8.0);
+        s.player.sample.duration_s = Some(f64::INFINITY);
+        s.player.sample.position_s = Some(8.0);
         s.observe_library_progress();
         assert_eq!(s.library.last_sample, Some((95.0, 100.0)));
     }
@@ -722,9 +722,9 @@ mod tests {
             s.library.worker = Some(Worker::start(path.clone(), Arc::new(|| {})).unwrap());
             s.detail = Some(meta("tt123"));
             s.library.playing = s.library_media();
-            s.playing = true;
-            s.sample.position_s = Some(3.0);
-            s.sample.duration_s = Some(10.0);
+            s.player.playing = true;
+            s.player.sample.position_s = Some(3.0);
+            s.player.sample.duration_s = Some(10.0);
             s.library.last_sample = Some((3.0, 10.0));
             if outcome == "stop" {
                 s.stop();
@@ -732,13 +732,13 @@ mod tests {
             let (tx, rx) = tokio::sync::mpsc::channel(1);
             s.events = Some(rx);
             tx.try_send(Event::Stopped(
-                s.play_id,
+                s.player.generation,
                 (outcome == "failure").then(|| "failed".into()),
             ))
             .unwrap();
             poll(&mut s, 0.0, &mut Tx::default());
-            assert_eq!(s.sample.position_s, Some(3.0), "{outcome}");
-            assert_eq!(s.sample.duration_s, Some(10.0), "{outcome}");
+            assert_eq!(s.player.sample.position_s, Some(3.0), "{outcome}");
+            assert_eq!(s.player.sample.duration_s, Some(10.0), "{outcome}");
             let close = s.take_library_shutdown();
             std::thread::spawn(close).join().unwrap();
             let library = scry_library::Library::open(path).unwrap();
@@ -763,12 +763,12 @@ mod tests {
         s.detail = Some(meta("tt123"));
         s.detail_namespace = "provider".into();
         s.library.playing = s.library_media();
-        s.playing_meta_id = Some(("movie".into(), "tt123".into()));
+        s.player.meta_id = Some(("movie".into(), "tt123".into()));
         s.direct = TextEdit::new("https://example.com/video.mp4");
         s.play_direct();
         assert!(s.library.playing.is_none());
-        assert!(s.playing_meta_id.is_none());
-        assert!(s.playing_video_id.is_none());
+        assert!(s.player.meta_id.is_none());
+        assert!(s.player.video_id.is_none());
     }
 
     #[test]
