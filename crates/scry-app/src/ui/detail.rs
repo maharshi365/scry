@@ -89,7 +89,7 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
     for index in s.visible_episode_indices() {
         let video = &meta.videos[index];
         let selected = s.selected_video_id.as_deref() == Some(video.id.as_str());
-        let mut status = row().w_full().center_y().gap(6.0).child(
+        let mut status = row().w_full().h(22.0).center_y().gap(6.0).child(
             text(format!("EPISODE {}", video.episode.unwrap_or(0)))
                 .grow(1.0)
                 .font(type_::BADGE)
@@ -159,6 +159,7 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
                     } else {
                         video.title.trim().to_owned()
                     })
+                    .key(format!("episode-title-{index}"))
                     .wrap()
                     .font(type_::ITEM)
                     .color(if video.title.trim().is_empty() {

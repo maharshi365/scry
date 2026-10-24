@@ -110,6 +110,21 @@ It registers missing episodes, sets each manual override, and clears that episod
 resume state. It is not limited by the visible episode page and leaves other
 seasons unchanged. Invalid batches are rolled back in full.
 
+`sync_episode_releases` stores the provider's dated episode inventory for saved
+shows in `episode_releases`, preserving watched overrides and playback progress.
+The feature's schema migration adds only that table and its release-date index;
+existing library membership and watch state are unchanged. Metadata fetch failures
+leave the last known inventory in place. Refreshing metadata can remove outdated
+release entries without deleting episode history.
+
+`list_up_next(now, page)` returns unwatched saved movies and dated episodes of
+saved shows whose release time has passed. A watched show-level override hides
+its episodes. It includes partial playback and returns each item's own saved
+progress. Membership, watched, and release filters apply before pagination.
+Episodes are ordered within their show by season and episode number, with specials
+and unnumbered entries last. No partial episode-page registration is used to
+decide the complete list. The stored inventory remains available offline.
+
 ## Storage and concurrency
 
 The app stores installed add-ons and library state together in `scry.sqlite3` in

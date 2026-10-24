@@ -228,7 +228,16 @@ mod tests {
                 metadata_known: false,
             },
         ] {
-            assert!(apply(&mut library, Command::ReconcileSeries(request)).is_err());
+            assert!(
+                apply(
+                    &mut library,
+                    Command::ReconcileSeries {
+                        request,
+                        releases: vec![]
+                    }
+                )
+                .is_err()
+            );
         }
     }
 

@@ -1,6 +1,70 @@
 use super::*;
 
 #[test]
+fn watched_episode_badges_do_not_move_episode_cards_or_titles() {
+    let mut s = init();
+    s.navigation.page = Page::Detail;
+    s.detail = Some(series(3));
+    s.detail.as_mut().unwrap().videos[0].title =
+        "A long episode name that wraps onto multiple lines in the episode list".into();
+    let key = s.visible_episode_keys()[0].clone();
+    s.selected_video_id = Some(key.id.clone());
+    s.library.snapshot = Some(crate::library_worker::Snapshot {
+        selected_state: Some(crate::library_worker::SelectedState {
+            key: key.clone(),
+            watched: scry_library::WatchedState {
+                watched: false,
+                manual_override: None,
+            },
+            watchlist: true,
+            progress: Some(scry_library::Progress {
+                position_seconds: 30.0,
+                duration_seconds: 100.0,
+            }),
+        }),
+        episode_states: vec![],
+    });
+    let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
+    for _ in 0..30 {
+        rt.frame(1.0 / 60.0);
+    }
+    let before: Vec<_> = (0..3)
+        .map(|index| rect(&rt, &format!("episode-{index}")))
+        .collect();
+    let title = rect(&rt, "episode-title-0");
+    let sources = rect(&rt, "sources-scroll-0");
+    rt.update(|s, _| {
+        s.library.snapshot = Some(crate::library_worker::Snapshot {
+            selected_state: Some(crate::library_worker::SelectedState {
+                key: key.clone(),
+                watched: scry_library::WatchedState {
+                    watched: true,
+                    manual_override: Some(true),
+                },
+                watchlist: true,
+                progress: None,
+            }),
+            episode_states: vec![(
+                key,
+                scry_library::WatchedState {
+                    watched: true,
+                    manual_override: Some(true),
+                },
+            )],
+        });
+    });
+    for _ in 0..30 {
+        rt.frame(1.0 / 60.0);
+    }
+    assert!(rt.find("episode-watched-0").is_some());
+    assert_eq!(rect(&rt, "episode-title-0"), title);
+    assert_eq!(rect(&rt, "sources-scroll-0"), sources);
+    for (index, bounds) in before.into_iter().enumerate() {
+        assert_eq!(rect(&rt, &format!("episode-{index}")), bounds);
+    }
+}
+
+#[test]
 fn sidebar_keeps_only_a_compact_logo_at_minimum_window_size() {
     let mut rt = rune::Runtime::new(init(), view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);

@@ -68,6 +68,14 @@ pub struct Progress {
     pub duration_seconds: f64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EpisodeRelease {
+    pub media: Media,
+    pub released_at: i64,
+    pub season: Option<u32>,
+    pub episode: Option<u32>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WatchedState {
     pub watched: bool,

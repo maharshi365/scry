@@ -3,11 +3,18 @@ use scry_library::{Media, MediaKey, MediaKind, Progress, WatchedState};
 
 #[derive(Clone, Debug)]
 pub enum Command {
+    UpNext {
+        generation: u64,
+        offset: u32,
+    },
     TrackedSeries {
         generation: u64,
         offset: u32,
     },
-    ReconcileSeries(SeriesRequest),
+    ReconcileSeries {
+        request: SeriesRequest,
+        releases: Vec<scry_library::EpisodeRelease>,
+    },
     SetEpisodesWatched {
         parent: Media,
         episodes: Vec<Media>,
@@ -90,12 +97,18 @@ pub struct Snapshot {
 
 #[derive(Debug)]
 pub enum Event {
+    UpNext {
+        generation: u64,
+        items: Vec<(Media, Option<Progress>)>,
+        has_more: bool,
+    },
     TrackedSeries {
         generation: u64,
         items: Vec<Media>,
     },
     SeriesReconciled {
         changed: bool,
+        inventory_changed: bool,
     },
     SeriesStates {
         generation: u64,

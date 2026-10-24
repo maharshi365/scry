@@ -11,6 +11,19 @@ pub(in crate::ui) struct PosterUi {
 }
 
 impl State {
+    pub(in crate::ui) fn apply_up_next_entries(
+        &mut self,
+        items: Vec<(Media, Option<scry_library::Progress>)>,
+    ) {
+        self.library.up_next = items;
+        self.library.up_next_loaded = true;
+        self.sync_library_posters();
+        if self.navigation.page == crate::ui::Page::Watching {
+            self.poster_rects.clear();
+            self.poster_viewport = None;
+        }
+        self.refresh_artwork();
+    }
     pub(in crate::ui) fn apply_library_entries(&mut self, items: Vec<Media>) {
         self.library.entries = Some(items);
         self.sync_library_posters();
@@ -46,6 +59,7 @@ impl State {
                 .watching
                 .iter()
                 .map(|(media, _)| media)
+                .chain(self.library.up_next.iter().map(|(media, _)| media))
                 .collect(),
             _ => Vec::new(),
         }
@@ -66,6 +80,7 @@ impl State {
             .iter()
             .flatten()
             .chain(self.library.watching.iter().map(|(media, _)| media))
+            .chain(self.library.up_next.iter().map(|(media, _)| media))
             .map(|m| Self::poster_key(m).clone())
             .collect();
         self.library
@@ -160,6 +175,11 @@ impl State {
                 || self
                     .library
                     .watching
+                    .iter()
+                    .any(|(m, _)| *Self::poster_key(m) == key)
+                || self
+                    .library
+                    .up_next
                     .iter()
                     .any(|(m, _)| *Self::poster_key(m) == key)
             {

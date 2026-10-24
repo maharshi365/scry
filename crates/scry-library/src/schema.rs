@@ -59,6 +59,15 @@ diesel::table! {
         manifest_json -> Text,
     }
 }
+diesel::table! {
+    episode_releases (media_id) {
+        media_id -> BigInt,
+        released_at -> BigInt,
+        season -> Nullable<BigInt>,
+        episode -> Nullable<BigInt>,
+    }
+}
+diesel::joinable!(episode_releases -> media (media_id));
 diesel::joinable!(watchlist -> media (media_id));
 diesel::joinable!(playlist_items -> media (media_id));
 diesel::joinable!(playlist_items -> playlists (playlist_id));
@@ -73,5 +82,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     progress,
     watched,
     viewing,
-    addons
+    addons,
+    episode_releases
 );

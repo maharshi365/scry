@@ -32,6 +32,15 @@ scan checks tracked shows even when the current filter hides them; explicit
 show-level watched/unwatched overrides take priority. Season context actions
 capture all of a season's episodes and apply one atomic database command. Context
 menu options use borderless ghost buttons; the outer menu retains its panel edge.
+Episode status rows and the details status line reserve badge height, so marking
+an episode watched does not resize its card or move surrounding panels.
+
+Currently watching and What to watch next share one scroll viewport and the same
+virtualized card renderer. Their row keys are separate. The next section has
+independent 200-item pagination and explicit item-level progress; it never uses
+the parent show's summary bar for an episode. Cards retain the episode's identity
+when opening details, while artwork comes from the parent series. Saved show
+metadata is registered on the database worker independently of episode browsing.
 Episode posters come from their parent series without changing resume identity.
 Poster metadata is loaded only for visible cards, in batches of at most
 12 with four provider requests in flight. It uses the same bounded image cache

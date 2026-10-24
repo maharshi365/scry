@@ -9,13 +9,26 @@ use scry_library::{Library, MAX_PAGE_SIZE, MediaKind, Page, WatchedState};
 )]
 pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
     match command {
+        Command::UpNext { generation, offset } => {
+            let now = chrono::Utc::now().timestamp();
+            let items = library.list_up_next(now, Page::new(MAX_PAGE_SIZE, offset)?)?;
+            let has_more = items.len() == MAX_PAGE_SIZE as usize
+                && !library
+                    .list_up_next(now, Page::new(1, offset.saturating_add(MAX_PAGE_SIZE))?)?
+                    .is_empty();
+            return Ok(Event::UpNext {
+                generation,
+                items,
+                has_more,
+            });
+        }
         Command::TrackedSeries { generation, offset } => {
             return Ok(Event::TrackedSeries {
                 generation,
                 items: library.list_tracked_series(Page::new(12, offset)?)?,
             });
         }
-        Command::ReconcileSeries(request) => {
+        Command::ReconcileSeries { request, releases } => {
             anyhow::ensure!(
                 request.released.len() <= 50_000
                     && request.metadata_known
@@ -26,12 +39,20 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
                         .all(|key| key.kind == MediaKind::Episode),
                 "Invalid reconciliation request"
             );
-            let changed = if library.get_media(&request.key)?.is_some() {
-                library.reconcile_series(&request.key, &request.released)?
+            let (changed, inventory_changed) = if library.get_media(&request.key)?.is_some() {
+                let inventory_changed = library.is_in_watchlist(&request.key)?
+                    && library.sync_episode_releases(&request.key, &releases)?;
+                (
+                    library.reconcile_series(&request.key, &request.released)?,
+                    inventory_changed,
+                )
             } else {
-                false
+                (false, false)
             };
-            return Ok(Event::SeriesReconciled { changed });
+            return Ok(Event::SeriesReconciled {
+                changed,
+                inventory_changed,
+            });
         }
         Command::SetEpisodesWatched {
             parent,

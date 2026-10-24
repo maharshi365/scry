@@ -33,6 +33,13 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
             tx.scroll_into_view(format!("library-row-{}", index / columns));
         } else if s.navigation.page == Page::Watching
             && let Some(index) = anchor
+                .strip_prefix("up-next-open-")
+                .and_then(|index| index.parse::<usize>().ok())
+        {
+            let columns = s.poster_viewport.map_or(3, |rect| poster_columns(rect[2]));
+            tx.scroll_into_view(format!("up-next-row-{}", index / columns));
+        } else if s.navigation.page == Page::Watching
+            && let Some(index) = anchor
                 .strip_prefix("watching-open-")
                 .and_then(|index| index.parse::<usize>().ok())
         {
@@ -243,8 +250,8 @@ fn apply_detail(s: &mut State, meta: Meta) {
     }
     s.selected_video_id.clone_from(&episode);
     s.detail = Some(meta);
-    s.remember_series_detail();
     s.register_library_detail();
+    s.remember_series_detail();
     s.status = "Choose an episode to find streams.".into();
     if movie {
         s.find_streams(kind, id);

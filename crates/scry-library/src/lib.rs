@@ -5,6 +5,7 @@ mod models;
 mod playback;
 mod playlists;
 mod schema;
+mod up_next;
 
 pub use app_storage::AddonRecord;
 pub use models::*;
@@ -108,6 +109,9 @@ impl Library {
         schema::addons::table
             .limit(0)
             .load::<(String, i64, String, String)>(connection)?;
+        schema::episode_releases::table
+            .limit(0)
+            .load::<(i64, i64, Option<i64>, Option<i64>)>(connection)?;
         ensure!(
             diesel::sql_query("PRAGMA foreign_key_check")
                 .load::<ForeignKeyViolation>(connection)?

@@ -55,6 +55,7 @@ Player shortcuts apply only during playback and do not intercept text input.
 ## Your local library
 
 - The app starts on **Currently watching**. Open a title to select a source and resume its saved position.
+- **What to watch next**, below Currently watching, lists unwatched movies and known released episodes from saved library titles. Partly watched cards show that movie's or episode's own progress. The list uses 200-item pages and keeps known release metadata for offline use; future and undated episodes are not listed.
 - Open a title and choose **Add to library** to track it, or **Mark watched** to set its status. Right-click titles for quick actions; right-click the page to refresh provider data.
 - **Library** has **To watch** and **Watched** lists, with Movies selected by default and a TV series filter. There are no playlist controls.
 - Progress saves every 12 seconds and on Stop/close. More than 70% of the duration accumulated as playback marks the item watched; seeking does not count.

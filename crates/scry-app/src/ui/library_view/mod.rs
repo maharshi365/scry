@@ -34,6 +34,10 @@ pub(super) struct LibraryUi {
     pub(in crate::ui) entries: Option<Vec<Media>>,
     pub(in crate::ui) posters: posters::PosterUi,
     pub watching: Vec<(Media, scry_library::Progress)>,
+    pub(in crate::ui) up_next: Vec<(Media, Option<scry_library::Progress>)>,
+    pub(in crate::ui) up_next_offset: u32,
+    pub(in crate::ui) up_next_loaded: bool,
+    pub(in crate::ui) up_next_has_more: bool,
     pub(in crate::ui) movies: movie_status::MovieUi,
     pub(in crate::ui) series: series_status::SeriesUi,
     pub(in crate::ui) tracking: tracking::TrackingUi,
@@ -61,6 +65,10 @@ impl Default for LibraryUi {
             entries: None,
             posters: posters::PosterUi::default(),
             watching: Vec::new(),
+            up_next: Vec::new(),
+            up_next_offset: 0,
+            up_next_loaded: false,
+            up_next_has_more: false,
             movies: movie_status::MovieUi::default(),
             series: series_status::SeriesUi::default(),
             tracking: tracking::TrackingUi::default(),
@@ -199,6 +207,12 @@ impl State {
                             self.library.offset
                         },
                     })
+                })
+                .and_then(|()| {
+                    worker.send(Command::UpNext {
+                        generation,
+                        offset: self.library.up_next_offset,
+                    })
                 });
             if let Err(error) = result {
                 self.library.error = Some(error.to_string());
@@ -276,10 +290,32 @@ impl State {
         let mut refresh = false;
         for event in events {
             match event {
+                DbEvent::UpNext {
+                    generation,
+                    items,
+                    has_more,
+                } if generation == self.library.generation => {
+                    if items.is_empty() && self.library.up_next_offset > 0 {
+                        self.library.up_next_offset =
+                            self.library.up_next_offset.saturating_sub(200);
+                        if let Some(worker) = &self.library.worker {
+                            let _ = worker.send(Command::UpNext {
+                                generation,
+                                offset: self.library.up_next_offset,
+                            });
+                        }
+                    } else {
+                        self.library.up_next_has_more = has_more;
+                        self.apply_up_next_entries(items);
+                    }
+                }
                 DbEvent::TrackedSeries { generation, items } => {
                     self.apply_tracked_series(generation, items);
                 }
-                DbEvent::SeriesReconciled { changed } => refresh |= changed,
+                DbEvent::SeriesReconciled {
+                    changed,
+                    inventory_changed,
+                } => refresh |= changed || inventory_changed,
                 DbEvent::SeriesStates {
                     generation,
                     states,
@@ -314,7 +350,10 @@ impl State {
                         self.fetch_calendar();
                     }
                 }
-                DbEvent::Browse { .. } | DbEvent::Overview { .. } | DbEvent::Flushed(_) => {}
+                DbEvent::UpNext { .. }
+                | DbEvent::Browse { .. }
+                | DbEvent::Overview { .. }
+                | DbEvent::Flushed(_) => {}
                 DbEvent::Changed => {
                     let requested = self.library.pending.pop_front().unwrap_or(false);
                     refresh |= requested;
@@ -377,17 +416,18 @@ pub(super) fn detail_actions(s: &State) -> El {
         .filter(|v| v.key == media.key);
     let in_watchlist = state.is_some_and(|v| v.watchlist);
     let watched = state.is_some_and(|v| v.watched.watched);
-    let mut body = col().gap(8.0);
+    let mut status = row().h(22.0).gap(8.0).center_y();
     if watched {
-        body = body.child(row().child(watched_badge("library-watched-status")));
+        status = status.child(watched_badge("library-watched-status"));
     }
     if let Some(progress) = state.and_then(|v| v.progress) {
-        body = body.child(label(format!(
+        status = status.child(label(format!(
             "Saved: {} / {}",
             clock(Some(progress.position_seconds)),
             clock(Some(progress.duration_seconds))
         )));
     }
+    let mut body = col().gap(8.0).child(status);
     let a = media.clone();
     let b = media.clone();
     let c = media.clone();
@@ -571,33 +611,10 @@ fn library_empty(s: &State) -> El {
 }
 
 pub(super) fn watching(s: &State, cx: &rune::Cx<State>) -> El {
-    let mut body = col()
+    let body = col()
         .w_full()
         .gap(12.0)
         .child(heading("Currently watching"));
-    if s.library.watching.is_empty() {
-        if s.library.offset == 0 {
-            return body.grow(1.0).min_h(0.0).child(empty_state(
-                "watching-empty",
-                "Nothing in progress",
-                "Start a movie or series to save your place here.",
-                &icons::PLAY,
-                row()
-                    .gap(10.0)
-                    .child(
-                        Button::new("watching-browse-movies", "Browse movies")
-                            .variant(Variant::Primary)
-                            .on_press(|s: &mut State| {
-                                s.choose_kind("movie");
-                            }),
-                    )
-                    .child(action("watching-browse-series", "TV series", |s| {
-                        s.choose_kind("series");
-                    })),
-            ));
-        }
-        body = body.child(label("No more titles on this page."));
-    }
     let mut pages = row().gap(8.0);
     if s.library.offset > 0 {
         pages = pages.child(action("watching-prev", "Previous", |s| {
@@ -615,6 +632,48 @@ pub(super) fn watching(s: &State, cx: &rune::Cx<State>) -> El {
         .min_h(0.0)
         .child(super::poster_grid::view(s, cx))
         .child(pages)
+}
+
+pub(super) fn watching_empty() -> El {
+    empty_state(
+        "watching-empty",
+        "Nothing in progress",
+        "Start a movie or series to save your place here.",
+        &icons::PLAY,
+        row()
+            .gap(10.0)
+            .child(
+                Button::new("watching-browse-movies", "Browse movies")
+                    .variant(Variant::Primary)
+                    .on_press(|s: &mut State| s.choose_kind("movie")),
+            )
+            .child(action("watching-browse-series", "TV series", |s| {
+                s.choose_kind("series");
+            })),
+    )
+    .grow(0.0)
+    .h(306.0)
+    .min_h(306.0)
+    .py(24.0)
+}
+
+pub(super) fn up_next_pages(s: &State) -> El {
+    let mut pages = row().gap(8.0);
+    if s.library.up_next_offset > 0 {
+        pages = pages.child(action("up-next-prev", "Previous", |s| {
+            s.library.up_next_offset = s.library.up_next_offset.saturating_sub(200);
+            s.navigation.reveal = Some("up-next-heading".into());
+            s.refresh_library();
+        }));
+    }
+    if s.library.up_next_has_more {
+        pages = pages.child(action("up-next-next", "Next", |s| {
+            s.library.up_next_offset = s.library.up_next_offset.saturating_add(200);
+            s.navigation.reveal = Some("up-next-heading".into());
+            s.refresh_library();
+        }));
+    }
+    pages
 }
 
 #[cfg(test)]

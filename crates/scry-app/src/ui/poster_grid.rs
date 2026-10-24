@@ -1,9 +1,15 @@
 //! One virtualized poster grid for catalogs, search, Library, and Currently watching.
 use super::{
     Page, State,
-    artwork::{POSTER_CARD_HEIGHT, POSTER_GAP, poster, poster_columns, poster_overlay},
+    artwork::{
+        POSTER_CARD_HEIGHT, POSTER_GAP, poster, poster_columns, poster_overlay,
+        poster_status_overlay,
+    },
     design::tokens::{accent, panel, theme, type_},
-    primitives::{surface::scroll, text::label},
+    primitives::{
+        surface::scroll,
+        text::{heading, label},
+    },
 };
 use rune::{Cx, El, col, text};
 use scry_library::{Media, MediaKey, MediaKind};
@@ -14,6 +20,13 @@ struct Entry {
     poster: Option<String>,
     media: Option<Media>,
     identity: Option<MediaKey>,
+    overlay: Overlay,
+}
+
+#[derive(Clone, Copy)]
+enum Overlay {
+    Summary,
+    Item(Option<scry_library::Progress>),
 }
 
 fn entries(s: &State) -> Vec<Entry> {
@@ -26,7 +39,10 @@ fn entries(s: &State) -> Vec<Entry> {
                 let info = s.library_poster(media);
                 let subtitle = if s.navigation.page == Page::Watching
                     && media.key.kind == MediaKind::Episode
-                    && s.library.watching[index].1.position_seconds == 0.0
+                    && s.library
+                        .watching
+                        .get(index)
+                        .is_some_and(|(_, progress)| progress.position_seconds == 0.0)
                 {
                     "Next episode".into()
                 } else {
@@ -38,6 +54,13 @@ fn entries(s: &State) -> Vec<Entry> {
                     poster: info.and_then(|p| p.poster.clone()),
                     media: Some(media.clone()),
                     identity: Some(State::poster_key(media).clone()),
+                    overlay: if s.navigation.page == Page::Watching
+                        && index >= s.library.watching.len()
+                    {
+                        Overlay::Item(s.library.up_next[index - s.library.watching.len()].1)
+                    } else {
+                        Overlay::Summary
+                    },
                 }
             })
             .collect();
@@ -50,6 +73,7 @@ fn entries(s: &State) -> Vec<Entry> {
             poster: meta.poster.clone(),
             media: None,
             identity: s.result_media(index).map(|m| m.key),
+            overlay: Overlay::Summary,
             subtitle: if s.displayed_query.is_empty() {
                 meta.year.clone()
             } else {
@@ -151,12 +175,20 @@ fn visible_urls<'a>(s: &State, posters: impl Iterator<Item = Option<&'a String>>
 pub(super) fn visible(s: &State, index: usize) -> bool {
     if s.poster_route == s.navigation.route_key && !s.poster_rects.is_empty() {
         s.poster_viewport
-            .zip(s.poster_rects.get(&(index / s.poster_columns)))
+            .zip(s.poster_rects.get(&row_index(s, index, s.poster_columns)))
             .is_some_and(|(viewport, rect)| {
                 rect[1] < viewport[1] + viewport[3] && rect[1] + rect[3] > viewport[1]
             })
     } else {
         index < 12
+    }
+}
+
+fn row_index(s: &State, index: usize, columns: usize) -> usize {
+    if s.navigation.page == Page::Watching && index >= s.library.watching.len() {
+        s.library.watching.len().div_ceil(columns) + (index - s.library.watching.len()) / columns
+    } else {
+        index / columns
     }
 }
 
@@ -171,11 +203,63 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> El {
         .layout(&viewport_key)
         .map_or(3, |rect| poster_columns(rect[2]));
     let entries = entries(s);
+    let cards = if s.navigation.page == Page::Watching {
+        let split = s.library.watching.len();
+        let current = if split == 0 && !s.library.up_next.is_empty() {
+            label("Nothing in progress.").key("watching-empty")
+        } else if split == 0 {
+            super::library_view::watching_empty()
+        } else {
+            rows(s, &entries[..split], columns, 0, prefix)
+        };
+        let mut sections = col()
+            .w_full()
+            .gap(18.0)
+            .child(current)
+            .child(heading("What to watch next").key("up-next-heading"));
+        if s.library.up_next.is_empty() {
+            sections = sections.child(label(
+                if !s.library.up_next_loaded && s.library.worker.is_some() {
+                    "Loading your library…"
+                } else {
+                    "No unwatched movies or released episodes in your library."
+                },
+            ));
+        } else {
+            sections = sections.child(rows(
+                s,
+                &entries[split..],
+                columns,
+                split.div_ceil(columns),
+                "up-next",
+            ));
+        }
+        sections.child(super::library_view::up_next_pages(s))
+    } else {
+        rows(s, &entries, columns, 0, prefix)
+    };
+    scroll(viewport_key, cards).on_layout(|s: &mut State, rect| {
+        s.poster_viewport = Some(rect);
+        s.refresh_artwork();
+        s.request_library_posters();
+        s.request_movie_states();
+        s.request_series_states();
+    })
+}
+
+fn rows(
+    s: &State,
+    entries: &[Entry],
+    columns: usize,
+    row_offset: usize,
+    prefix: &'static str,
+) -> El {
     let mut cards = col()
         .key(format!("{prefix}-cards"))
         .gap(POSTER_GAP)
         .w_full();
     for (row_index, entries) in entries.chunks(columns).enumerate() {
+        let layout_index = row_offset + row_index;
         let route_key = s.navigation.route_key;
         let mut card_row = col()
             .key(format!("{prefix}-row-{row_index}"))
@@ -189,7 +273,7 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> El {
                 }
                 s.poster_route = route_key;
                 s.poster_columns = columns;
-                s.poster_rects.insert(row_index, rect);
+                s.poster_rects.insert(layout_index, rect);
                 s.refresh_artwork();
                 s.request_library_posters();
                 s.request_movie_states();
@@ -197,28 +281,22 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> El {
             });
         let nearby = if s.poster_route == route_key && s.poster_columns == columns {
             s.poster_viewport
-                .zip(s.poster_rects.get(&row_index))
-                .is_none_or(|(viewport, rect)| {
+                .zip(s.poster_rects.get(&layout_index))
+                .map_or(layout_index < 4, |(viewport, rect)| {
                     rect[1] < viewport[1] + viewport[3] * 2.0
                         && rect[1] + rect[3] > viewport[1] - viewport[3]
                 })
         } else {
-            row_index < 4
+            layout_index < 4
         };
         if nearby {
             for (column, entry) in entries.iter().enumerate() {
-                card_row = card_row.child(card(s, entry, row_index * columns + column));
+                card_row = card_row.child(card(s, entry, row_index * columns + column, prefix));
             }
         }
         cards = cards.child(card_row);
     }
-    scroll(viewport_key, cards).on_layout(|s: &mut State, rect| {
-        s.poster_viewport = Some(rect);
-        s.refresh_artwork();
-        s.request_library_posters();
-        s.request_movie_states();
-        s.request_series_states();
-    })
+    cards
 }
 
 fn prefix(s: &State) -> &'static str {
@@ -229,8 +307,7 @@ fn prefix(s: &State) -> &'static str {
     }
 }
 
-fn card(s: &State, entry: &Entry, index: usize) -> El {
-    let prefix = prefix(s);
+fn card(s: &State, entry: &Entry, index: usize, prefix: &str) -> El {
     let key = if entry.media.is_some() {
         format!("{prefix}-open-{index}")
     } else {
@@ -262,13 +339,18 @@ fn card(s: &State, entry: &Entry, index: usize) -> El {
         .on_secondary_press(move |s: &mut State, p, _| {
             s.open_title_menu(p, menu.clone().or_else(|| s.result_media(index)));
         })
-        .child(poster_overlay(
-            s,
-            poster(s, &entry.title, entry.poster.as_deref(), index),
-            entry.identity.as_ref(),
-            &format!("{prefix}-poster-{index}"),
-            246.0,
-        ))
+        .child({
+            let surface = poster(s, &entry.title, entry.poster.as_deref(), index);
+            let key = format!("{prefix}-poster-{index}");
+            match entry.overlay {
+                Overlay::Summary => {
+                    poster_overlay(s, surface, entry.identity.as_ref(), &key, 246.0)
+                }
+                Overlay::Item(progress) => {
+                    poster_status_overlay(surface, &key, 246.0, false, progress)
+                }
+            }
+        })
         .child(
             col()
                 .gap(5.0)

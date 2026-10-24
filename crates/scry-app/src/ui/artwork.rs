@@ -146,6 +146,17 @@ pub(super) fn poster_overlay(
     } else {
         s.movie_status(media)
     };
+    poster_status_overlay(surface, key, height, watched, progress)
+}
+
+pub(super) fn poster_status_overlay(
+    surface: El,
+    key: &str,
+    height: f32,
+    watched: bool,
+    progress: Option<scry_library::Progress>,
+) -> El {
+    let surface = surface.key(key);
     if watched {
         return surface.child(
             row()

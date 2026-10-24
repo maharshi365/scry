@@ -25,6 +25,7 @@ mod playback;
 mod player;
 mod presentation;
 mod series;
+mod up_next;
 
 fn rect(rt: &rune::Runtime<State>, key: &str) -> [f32; 4] {
     rt.elements()

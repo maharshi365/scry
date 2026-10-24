@@ -1,5 +1,8 @@
 //! Refresh tracked shows even when the active Library filter hides them.
-use super::{Media, MediaKey, State, series_status::released_episodes};
+use super::{
+    Media, MediaKey, State,
+    series_status::{episode_inventory, released_episodes},
+};
 use crate::library_worker::{Command, SeriesRequest};
 use chrono::Utc;
 use scry_addons::Meta;
@@ -116,14 +119,17 @@ impl State {
         }
     }
 
-    fn reconcile_series_metadata(&mut self, key: &MediaKey, meta: &Meta) {
+    pub(super) fn reconcile_series_metadata(&mut self, key: &MediaKey, meta: &Meta) {
         if let Some(worker) = &self.library.worker
             && worker
-                .send(Command::ReconcileSeries(SeriesRequest {
-                    key: key.clone(),
-                    released: released_episodes(key, meta, Utc::now()),
-                    metadata_known: true,
-                }))
+                .send(Command::ReconcileSeries {
+                    request: SeriesRequest {
+                        key: key.clone(),
+                        released: released_episodes(key, meta, Utc::now()),
+                        metadata_known: true,
+                    },
+                    releases: episode_inventory(key, meta),
+                })
                 .is_err()
         {
             self.library.tracking.rerun = true;
@@ -148,6 +154,11 @@ impl State {
         tracking.busy = false;
         if std::mem::take(&mut tracking.rerun) {
             self.request_series_tracking(true);
+        } else if let Some(worker) = &self.library.worker {
+            let _ = worker.send(Command::UpNext {
+                generation: self.library.generation,
+                offset: self.library.up_next_offset,
+            });
         }
     }
 }

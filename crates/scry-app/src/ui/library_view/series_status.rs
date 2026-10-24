@@ -23,15 +23,11 @@ pub(super) fn released_episodes(key: &MediaKey, meta: &Meta, now: DateTime<Utc>)
     let mut released = Vec::new();
     let mut seen = HashSet::new();
     for video in &meta.videos {
-        let aired = video.released.as_deref().is_some_and(|value| {
-            DateTime::parse_from_rfc3339(value).map_or_else(
-                |_| {
-                    chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
-                        .is_ok_and(|date| date <= now.date_naive())
-                },
-                |date| date <= now,
-            )
-        });
+        let aired = video
+            .released
+            .as_deref()
+            .and_then(release_timestamp)
+            .is_some_and(|date| date <= now.timestamp());
         if aired && !video.id.trim().is_empty() {
             let episode = super::key(&key.namespace, MediaKind::Episode, &video.id);
             if seen.insert(episode.clone()) {
@@ -40,6 +36,56 @@ pub(super) fn released_episodes(key: &MediaKey, meta: &Meta, now: DateTime<Utc>)
         }
     }
     released
+}
+
+fn release_timestamp(value: &str) -> Option<i64> {
+    DateTime::parse_from_rfc3339(value)
+        .map(|date| date.timestamp())
+        .ok()
+        .or_else(|| {
+            chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+                .ok()?
+                .and_hms_opt(0, 0, 0)
+                .map(|date| date.and_utc().timestamp())
+        })
+}
+
+pub(super) fn episode_inventory(key: &MediaKey, meta: &Meta) -> Vec<scry_library::EpisodeRelease> {
+    let mut seen = HashSet::new();
+    meta.videos
+        .iter()
+        .filter_map(|video| {
+            let released_at = video.released.as_deref().and_then(release_timestamp)?;
+            if video.id.trim().is_empty() {
+                return None;
+            }
+            let episode_key = super::key(&key.namespace, MediaKind::Episode, &video.id);
+            if !seen.insert(episode_key.clone()) {
+                return None;
+            }
+            let title = format!(
+                "{} · S{} E{} · {}",
+                meta.name,
+                video.season.unwrap_or(0),
+                video.episode.unwrap_or(0),
+                if video.title.trim().is_empty() {
+                    &video.id
+                } else {
+                    &video.title
+                }
+            );
+            Some(scry_library::EpisodeRelease {
+                media: super::Media {
+                    key: episode_key,
+                    title,
+                    parent: Some(key.clone()),
+                },
+                released_at,
+                season: video.season,
+                episode: video.episode,
+            })
+        })
+        .collect()
 }
 
 impl State {
@@ -150,6 +196,9 @@ impl State {
         for (key, meta) in found {
             if visible.contains(&key) {
                 let meta = meta.filter(|m| m.kind == "series" && m.id == key.id);
+                if let Some(meta) = &meta {
+                    self.reconcile_series_metadata(&key, meta);
+                }
                 self.library
                     .series
                     .details
@@ -171,10 +220,12 @@ impl State {
     pub(in crate::ui) fn remember_series_detail(&mut self) {
         if let Some(meta) = self.detail.as_ref().filter(|meta| meta.kind == "series") {
             let key = super::key(&self.detail_namespace, MediaKind::Series, &meta.id);
+            let meta = meta.clone();
+            self.reconcile_series_metadata(&key, &meta);
             self.library
                 .series
                 .details
-                .insert(key, (Some(meta.clone()), Instant::now()));
+                .insert(key, (Some(meta), Instant::now()));
         }
     }
 
