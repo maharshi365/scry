@@ -145,7 +145,7 @@ fn setup(s: &mut State, wake: rune::Waker) {
     s.player_artwork = crate::artwork::Artwork::start_player(&wake).ok();
     match Services::start(wake.clone()) {
         Ok((services, events)) => {
-            let path = services.data_dir().join("library.sqlite3");
+            let path = services.data_dir().join(scry_library::DATABASE_NAME);
             let result = std::fs::create_dir_all(services.data_dir())
                 .map_err(anyhow::Error::from)
                 .and_then(|()| crate::library_worker::Worker::start(path, wake));

@@ -110,7 +110,7 @@ fn type_filter_is_applied_before_pagination() -> anyhow::Result<()> {
 }
 
 #[test]
-fn migration_preserves_v1_library_without_guessing_watched_time() -> anyhow::Result<()> {
+fn migrations_run_once_and_preserve_saved_state_on_reopen() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("library.db");
     let item = movie("saved");
@@ -118,16 +118,13 @@ fn migration_preserves_v1_library_without_guessing_watched_time() -> anyhow::Res
         let mut db = Library::open(&path)?;
         db.upsert_media(&item)?;
         db.add_to_watchlist(&item.key)?;
-        db.save_progress(&item.key, 50.0, 100.0)?;
+        db.record_playback(&item.key, 50.0, 100.0, 50.0)?;
     }
-    let raw = rusqlite::Connection::open(&path)?;
-    raw.execute_batch("DROP TABLE viewing; PRAGMA user_version=1;")?;
-    drop(raw);
     let mut db = Library::open(path)?;
     assert!(db.is_in_watchlist(&item.key)?);
     assert_eq!(db.list_currently_watching(Page::default())?[0].0, item);
     db.record_playback(&item.key, 80.0, 100.0, 30.0)?;
-    assert!(!db.watched_state(&item.key)?.watched);
+    assert!(db.watched_state(&item.key)?.watched);
     Ok(())
 }
 

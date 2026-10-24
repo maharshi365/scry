@@ -91,7 +91,7 @@ pub(super) fn addons(s: &State) -> El {
             .child(action("addons-supported-tab","Supported",|s|s.addon_installed_tab=false))
             .child(action("addons-installed-tab",format!("Installed · {}",s.addons.len()),|s|s.addon_installed_tab=true)))
         .child(scroll("addons-scroll",list))
-        .child(label("Configured URLs may contain credentials. They are stored locally as plaintext. Do not share addons.json."))
+        .child(label("Configured URLs may contain credentials. They are stored locally as plaintext. Do not share the app database."))
         .child(heading("Direct play"))
         .child(row().gap(8.0).child(input("direct-url",&s.direct,"HTTP / HTTPS video URL…",|s|&mut s.direct))
             .child(action("play-direct","Play URL",State::play_direct)))

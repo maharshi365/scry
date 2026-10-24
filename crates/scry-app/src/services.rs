@@ -135,22 +135,9 @@ impl Services {
         let (inbox, config, data) = (self.inbox.clone(), self.config.clone(), self.data.clone());
         self.runtime.spawn(async move {
             let result: Result<Vec<Addon>> = async {
-                std::fs::create_dir_all(&data)?;
-                let path = data.join("addons.json");
-                let addons: Vec<Addon> = match std::fs::read(&path) {
-                    Ok(bytes) => serde_json::from_slice(&bytes).context(
-                        "Cannot read add-ons configuration; original file was not changed",
-                    )?,
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                        let addons: Vec<Addon> = Vec::new();
-                        save(&data, &addons)?;
-                        addons
-                    }
-                    Err(_) => bail!("Cannot open add-ons configuration"),
-                };
-                if addons.len() > 32 {
-                    bail!("At most 32 installed add-ons are supported");
-                }
+                let addons = tokio::task::spawn_blocking(move || load(&data))
+                    .await
+                    .context("Cannot load add-ons configuration")??;
                 *config.lock().await = addons.clone();
                 Ok(addons)
             }
@@ -178,7 +165,7 @@ impl Services {
                     bail!("Remove an add-on before installing more (limit: 32)");
                 }
                 next.push(addon);
-                save(&data, &next)?;
+                persist(data, next.clone()).await?;
                 current.clone_from(&next);
                 Ok(next)
             }
@@ -195,7 +182,7 @@ impl Services {
             let mut current = config.lock().await;
             let mut next = current.clone();
             next.retain(|a| a.manifest.id != id);
-            let result = save(&data, &next).map(|()| {
+            let result = persist(data, next.clone()).await.map(|()| {
                 current.clone_from(&next);
                 next
             });
@@ -522,12 +509,52 @@ impl Drop for Services {
     }
 }
 
-fn save(data: &std::path::Path, addons: &[Addon]) -> Result<()> {
+fn database(data: &std::path::Path) -> Result<scry_library::Library> {
     std::fs::create_dir_all(data)?;
-    let temp = data.join("addons.pending.json");
-    std::fs::write(&temp, serde_json::to_vec_pretty(addons)?)
-        .context("Cannot save add-ons configuration")?;
-    std::fs::rename(temp, data.join("addons.json")).context("Cannot replace add-ons configuration")
+    scry_library::Library::open(data.join(scry_library::DATABASE_NAME))
+}
+
+fn load(data: &std::path::Path) -> Result<Vec<Addon>> {
+    let records = database(data)?.load_addons()?;
+    if records.len() > 32 {
+        bail!("At most 32 installed add-ons are supported");
+    }
+    records
+        .into_iter()
+        .map(|record| {
+            let manifest: scry_addons::Manifest = serde_json::from_str(&record.manifest_json)
+                .context("Cannot read stored add-on manifest")?;
+            if manifest.id != record.id {
+                bail!("Stored add-on identity does not match its manifest");
+            }
+            Ok(Addon {
+                manifest_url: record.manifest_url,
+                manifest,
+            })
+        })
+        .collect()
+}
+
+fn save(data: &std::path::Path, addons: &[Addon]) -> Result<()> {
+    let records = addons
+        .iter()
+        .map(|addon| {
+            Ok(scry_library::AddonRecord {
+                id: addon.manifest.id.clone(),
+                manifest_url: addon.manifest_url.clone(),
+                manifest_json: serde_json::to_string(&addon.manifest)?,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    database(data)?
+        .replace_addons(&records)
+        .context("Cannot save add-ons configuration")
+}
+
+async fn persist(data: PathBuf, addons: Vec<Addon>) -> Result<()> {
+    tokio::task::spawn_blocking(move || save(&data, &addons))
+        .await
+        .context("Cannot save add-ons configuration")?
 }
 
 fn direct_url(stream: &Stream) -> Result<Option<String>> {
@@ -735,25 +762,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn config_replacement_persists_removal_without_a_pending_file() {
-        let data = std::env::temp_dir()
-            .join("opencode")
-            .join(format!("scry-config-test-{}", uuid::Uuid::new_v4()));
+    fn config_replacement_persists_removal_in_sqlite() {
+        let directory = tempfile::tempdir().unwrap();
+        let data = directory.path();
         let addon: Addon = serde_json::from_value(serde_json::json!({
             "manifest_url":"https://example.com/private-token/manifest.json",
             "manifest":{"id":"example", "name":"Example"}
         }))
         .unwrap();
-        save(&data, &[addon]).unwrap();
-        let first: Vec<Addon> =
-            serde_json::from_slice(&std::fs::read(data.join("addons.json")).unwrap()).unwrap();
+        save(data, &[addon]).unwrap();
+        let first = load(data).unwrap();
         assert_eq!(first[0].manifest.id, "example");
-        save(&data, &[]).unwrap();
-        let removed: Vec<Addon> =
-            serde_json::from_slice(&std::fs::read(data.join("addons.json")).unwrap()).unwrap();
+        assert_eq!(
+            first[0].manifest_url,
+            "https://example.com/private-token/manifest.json"
+        );
+        save(data, &[]).unwrap();
+        let removed = load(data).unwrap();
         assert!(removed.is_empty());
+        assert!(data.join(scry_library::DATABASE_NAME).exists());
+        assert!(!data.join("addons.json").exists());
         assert!(!data.join("addons.pending.json").exists());
-        std::fs::remove_file(data.join("addons.json")).unwrap();
-        std::fs::remove_dir(data).unwrap();
     }
 }

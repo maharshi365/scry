@@ -93,15 +93,39 @@ not infer series completeness from a partial episode catalog.
 
 ## Storage and concurrency
 
-Connections use WAL, foreign keys, and a five-second busy timeout. Multi-statement
-writes use immediate transactions. All values are bound SQL parameters. New,
-empty databases receive schema version 2. The approved v1-to-v2 migration adds
-a `viewing` table for actual playback time, activity, and resume ordering. It
-preserves existing records and starts accumulated time at zero: a seek position
-is not evidence of time watched. Schemas are checked against required table/index
-definitions and foreign keys. Unknown versions and nonempty unversioned
-databases are rejected. SQLite in-memory databases use SQLite's memory journal instead of WAL.
-Do not open arbitrary third-party databases as libraries.
+The app stores installed add-ons and library state together in `scry.sqlite3` in
+the OS-local application-data folder. Add-on order and full manifests are retained.
+Replacing the add-on list is atomic. Images and temporary media remain external
+files; they are not app state. Add-on URLs may contain credentials, so the
+unencrypted database must not be shared.
+
+Diesel provides typed queries and row mapping. Two correlated media queries use
+bound raw SQL where a self-join is clearer. Connections use WAL, foreign keys,
+and a five-second busy timeout. Multi-statement writes use immediate transactions.
+Database access runs on the library worker or a blocking task, not the UI or
+network executor threads. SQLite in-memory databases use the memory journal.
+
+`diesel_migrations` embeds the SQL files in `crates/scry-library/migrations/`.
+Opening a database applies pending migrations inside an immediate transaction,
+which serializes concurrent startup. Diesel tracks applied versions in
+`__diesel_schema_migrations`. Unknown versions, missing mapped tables/columns,
+invalid foreign keys, and nonempty unversioned databases are rejected. Do not
+open arbitrary third-party databases as app databases.
+
+This is a fresh pre-release schema. The old `library.sqlite3`, `addons.json`, and
+their contents are not imported or deleted. There is no legacy compatibility path.
+
+### Changing the schema
+
+1. Add a new versioned directory under `crates/scry-library/migrations/`, with
+   `up.sql` and `down.sql`. Do not edit migrations already used by deployed apps.
+2. Update `crates/scry-library/src/schema.rs` and affected record mappings.
+   SQLite identity and ordering columns use Rust `i64` / Diesel `BigInt`.
+3. Add behavior tests for the change, including upgrades that retain existing
+   state where applicable. Run `cargo test -p scry-library`.
+
+The build script tracks migration-file changes. The app runs embedded migrations
+on startup; end users do not need the Diesel CLI or loose SQL files.
 
 Run `cargo test -p scry-library`. The integration tests use the crate's public API
 and do not build the app, UI, or torrent engine.

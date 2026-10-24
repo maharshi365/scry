@@ -62,10 +62,15 @@ Player shortcuts apply only during playback and do not intercept text input.
 - **Mark unwatched** clears progress and sets a manual override. Choose **Auto track** to let playback update its status again.
 - **Series actions** manages the whole show separately from individual episodes.
 
-The database is `library.sqlite3` in the OS-local Scry application-data folder
-(`%LOCALAPPDATA%\Scry\Scry\data` on Windows). It contains viewing metadata, not
-video files or stream credentials. It is local and unencrypted. Close the app
-before copying it for backup. There is no cloud account or sync.
+The database is `scry.sqlite3` in the OS-local Scry application-data folder
+(`%LOCALAPPDATA%\Scry\Scry\data` on Windows). It contains installed add-ons,
+library metadata, playlists, watched state, and playback progress. Add-on URLs
+can contain credentials: the database is local and unencrypted, so do not share it.
+Close the app before copying it for backup. Images, temporary media, and diagnostic
+reports remain external files. There is no cloud account or sync.
+
+Storage uses Diesel with embedded, versioned migrations. This pre-release storage
+starts fresh; old `library.sqlite3` and `addons.json` stores are not imported or deleted.
 
 Episode browsing uses 100-item pages. Library lists use 200-item pages.
 **Calendar** has Week and Month views; each day has its own scrollable episode
@@ -134,7 +139,9 @@ Reports contain numeric playback metrics and decoder identifiers, not media URLs
 flowchart LR
     UI[Rune UI] --> Addons[Stremio protocol client]
     UI --> DBWorker[Database worker]
-    DBWorker --> SQLite[Local SQLite library]
+    DBWorker --> SQLite[Local SQLite app state]
+    UI --> Config[Add-on configuration blocking tasks]
+    Config --> SQLite
     Addons --> Source{Selected source}
     Source -->|HTTP / debrid| Player[PlaybackEngine adapter: libmpv]
     Source -->|infoHash| Torrent[librqbit: selected file on disk]
@@ -152,7 +159,7 @@ flowchart LR
 - `crates/scry-playback/`: `PlaybackEngine` contract, dynamic libmpv client binding, playback telemetry, and OS process counters. No Rune dependency.
 - `crates/scry-app/src/platform/`: `VideoHost` contract and OS implementations. Win32 stays in `windows.rs`; other systems return a clear unsupported error for embedding.
 - `crates/scry-app/src/diagnostics.rs`: no-window playback probes and report analysis.
-- `crates/scry-library/`: SQLite repository for watchlists, ordered playlists, watched state, and per-episode progress. See [library semantics](docs/library.md).
+- `crates/scry-library/`: Diesel/SQLite repository and embedded migrations for installed add-ons, watchlists, ordered playlists, watched state, and per-episode progress. See [library semantics](docs/library.md).
 
 The root manifest contains only workspace configuration. `crates/scry-app/`
 owns the `scry` binary, Rune UI, workers, search, artwork, and native window host.

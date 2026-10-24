@@ -10,7 +10,10 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
-rusqlite = { version = "0.37", features = ["bundled"] }
+diesel = { version = "2.3", default-features = false, features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
+diesel_migrations = { version = "2.3", features = ["sqlite"] }
+# Bundle SQLite for Diesel so users do not need a system SQLite installation.
+libsqlite3-sys = { version = "0.35", features = ["bundled"] }
 serde.workspace = true
 
 [dev-dependencies]

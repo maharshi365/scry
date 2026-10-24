@@ -7,6 +7,7 @@
     reason = "Stored fixture values must round-trip exactly, without approximate arithmetic"
 )]
 
+use diesel::{Connection, SqliteConnection, connection::SimpleConnection};
 use scry_library::{Library, Media, MediaKey, MediaKind, Page};
 
 fn movie(namespace: &str, id: &str) -> Media {
@@ -97,8 +98,8 @@ fn reorder_rolls_back_on_storage_failure() -> anyhow::Result<()> {
     db.add_playlist_item(playlist.id, &first.key)?;
     db.add_playlist_item(playlist.id, &second.key)?;
     // Inject a storage failure after the replacement has already started.
-    let raw = rusqlite::Connection::open(&path)?;
-    raw.execute_batch("CREATE TRIGGER fail_reorder BEFORE INSERT ON playlist_items WHEN NEW.position=1 BEGIN SELECT RAISE(ABORT, 'injected storage failure'); END")?;
+    let mut raw = SqliteConnection::establish(path.to_str().unwrap())?;
+    raw.batch_execute("CREATE TRIGGER fail_reorder BEFORE INSERT ON playlist_items WHEN NEW.position=1 BEGIN SELECT RAISE(ABORT, 'injected storage failure'); END")?;
     assert!(
         db.reorder_playlist(playlist.id, &[second.key.clone(), first.key.clone()])
             .is_err()
@@ -242,15 +243,14 @@ fn rejects_unknown_and_damaged_schema() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("library.db");
     drop(Library::open(&path)?);
-    let raw = rusqlite::Connection::open(&path)?;
-    raw.pragma_update(None, "user_version", 3)?;
+    let mut raw = SqliteConnection::establish(path.to_str().unwrap())?;
+    raw.batch_execute("INSERT INTO __diesel_schema_migrations(version) VALUES('99999999999999')")?;
     assert!(Library::open(&path).is_err());
-    raw.pragma_update(None, "user_version", 1)?;
-    raw.execute_batch("DROP TABLE progress")?;
+    raw.batch_execute("DELETE FROM __diesel_schema_migrations WHERE version='99999999999999'; DROP TABLE progress;")?;
     assert!(Library::open(&path).is_err());
     let unversioned = dir.path().join("unversioned.db");
-    let raw = rusqlite::Connection::open(&unversioned)?;
-    raw.execute_batch("CREATE TABLE unrelated(value TEXT)")?;
+    let mut raw = SqliteConnection::establish(unversioned.to_str().unwrap())?;
+    raw.batch_execute("CREATE TABLE unrelated(value TEXT)")?;
     assert!(Library::open(unversioned).is_err());
     Ok(())
 }
