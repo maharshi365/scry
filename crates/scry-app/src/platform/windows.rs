@@ -9,7 +9,11 @@ use std::{
         atomic::{AtomicIsize, Ordering},
     },
 };
-use windows_sys::Win32::{Foundation::HWND, UI::WindowsAndMessaging::*};
+use windows_sys::Win32::{
+    Foundation::HWND,
+    System::LibraryLoader::GetModuleHandleW,
+    UI::WindowsAndMessaging::*,
+};
 
 #[derive(Clone, Default)]
 pub struct Host(Arc<AtomicIsize>);
@@ -21,6 +25,41 @@ impl VideoHost for Host {
                 let RawWindowHandle::Win32(raw) = handle.as_raw() else {
                     bail!("Expected a Windows window");
                 };
+                // Resource 1 is generated from assets/skry.svg by build.rs. Shared
+                // handles live with the executable; the window does not own them.
+                unsafe {
+                    let module = GetModuleHandleW(ptr::null());
+                    for (kind, width, height) in [
+                        (
+                            ICON_SMALL,
+                            GetSystemMetrics(SM_CXSMICON),
+                            GetSystemMetrics(SM_CYSMICON),
+                        ),
+                        (
+                            ICON_BIG,
+                            GetSystemMetrics(SM_CXICON),
+                            GetSystemMetrics(SM_CYICON),
+                        ),
+                    ] {
+                        let icon = LoadImageW(
+                            module,
+                            1 as *const u16,
+                            IMAGE_ICON,
+                            width,
+                            height,
+                            LR_SHARED,
+                        );
+                        if icon.is_null() {
+                            bail!("Cannot load Skry window icon");
+                        }
+                        SendMessageW(
+                            raw.hwnd.get() as HWND,
+                            WM_SETICON,
+                            kind as usize,
+                            icon as isize,
+                        );
+                    }
+                }
                 let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
                 // The child belongs to the UI thread. libmpv renders into it, never owns it.
                 let child = unsafe {

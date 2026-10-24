@@ -65,6 +65,7 @@ struct Route {
 }
 
 pub struct State {
+    logo: rune::Pixels,
     artwork: Option<crate::artwork::Artwork>,
     artwork_urls: Vec<String>,
     poster_rects: std::collections::BTreeMap<usize, [f32; 4]>,
@@ -126,7 +127,14 @@ pub struct State {
 
 impl State {
     fn new(host: Host, host_error: Arc<Mutex<Option<String>>>) -> Self {
+        let logo = rune::Pixels::new();
+        logo.set(
+            128,
+            128,
+            include_bytes!(concat!(env!("OUT_DIR"), "/skry.rgba")).to_vec(),
+        );
         Self {
+            logo,
             artwork: None,
             artwork_urls: Vec::new(),
             poster_rects: Default::default(),
@@ -1461,9 +1469,14 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
         .gap(8.0)
         .fill(rune::oklch(0.145, 0.018, 240.0))
         .child(
-            text("SCRY_")
-                .font(TextStyle::new(24.0, 700.0).tracking(2.0))
-                .color(accent()),
+            row()
+                .gap(8.0)
+                .child(el().key("brand-logo").w(28.0).h(28.0).pixels(&s.logo))
+                .child(
+                    text("SKRY")
+                        .font(TextStyle::new(19.0, 700.0).tracking(2.0))
+                        .color(rune::color::hex("#D8ED96").expect("brand color")),
+                ),
         )
         .child(el().h(16.0));
     for (key, title, page) in [
@@ -1727,7 +1740,7 @@ pub fn run() -> anyhow::Result<()> {
             ("library", scene_library),
         ],
         min_size: Some((880.0, 600.0)),
-        ..AppSpec::new("Scry", (1280.0, 820.0), init, view)
+        ..AppSpec::new("Skry", (1280.0, 820.0), init, view)
     })
     .keep_running();
     let quit = app.handle();
@@ -1777,6 +1790,30 @@ pub fn run() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sidebar_keeps_the_logo_and_wordmark_visible_at_minimum_window_size() {
+        let mut rt = rune::Runtime::new(init(), view, (880.0, 600.0), rune::Env::default());
+        rt.frame(0.0);
+        let elements = rt.elements();
+        let sidebar = rect(&rt, "sidebar");
+        let logo = rect(&rt, "brand-logo");
+        let wordmark = elements
+            .iter()
+            .find(|element| element.text.as_deref() == Some("SKRY"))
+            .expect("Skry wordmark")
+            .rect;
+        assert_eq!([logo[2], logo[3]], [28.0, 28.0]);
+        for bounds in [logo, wordmark] {
+            assert!(bounds[0] >= sidebar[0] && bounds[1] >= sidebar[1]);
+            assert!(bounds[0] + bounds[2] <= sidebar[0] + sidebar[2]);
+            assert!(bounds[1] + bounds[3] <= sidebar[1] + sidebar[3]);
+        }
+        assert!(
+            wordmark[0] >= logo[0] + logo[2],
+            "wordmark must not overlap the logo"
+        );
+    }
 
     fn rect(rt: &rune::Runtime<State>, key: &str) -> [f32; 4] {
         rt.elements()

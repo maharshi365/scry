@@ -122,7 +122,7 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
         .h_full()
         .padding(16.0)
         .gap(12.0)
-        .child(text("Scry · embedded native playback probe"))
+        .child(text("Skry · embedded native playback probe"))
         .child(
             el().key("native-video")
                 .w_full()
@@ -315,7 +315,7 @@ fn main() -> Result<()> {
     let app = App::new(AppSpec {
         setup: Some(setup),
         poll: Some(poll),
-        ..AppSpec::new("Scry native probe", (960.0, 640.0), init, view)
+        ..AppSpec::new("Skry native probe", (960.0, 640.0), init, view)
     })
     .keep_running();
     let quit = app.handle();

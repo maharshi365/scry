@@ -38,7 +38,7 @@ public static class ScryNativeUi {
         EnumWindows((window,data)=> {
             uint id; GetWindowThreadProcessId(window,out id);
             var title=new StringBuilder(256); GetWindowText(window,title,256);
-            if(id==process && IsWindowVisible(window) && title.ToString().StartsWith("Scry",StringComparison.OrdinalIgnoreCase)) { found=window; return false; }
+            if(id==process && IsWindowVisible(window) && title.ToString().StartsWith("Skry",StringComparison.OrdinalIgnoreCase)) { found=window; return false; }
             return true;
         },IntPtr.Zero);
         return found;

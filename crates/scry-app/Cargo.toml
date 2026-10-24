@@ -30,5 +30,10 @@ blake3 = "1"
 [dev-dependencies]
 tempfile.workspace = true
 
+[build-dependencies]
+resvg = { version = "0.45.1", default-features = false }
+ico = "0.5"
+winresource = "0.1"
+
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }

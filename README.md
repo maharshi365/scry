@@ -1,4 +1,6 @@
-# Scry
+<img src="crates/scry-app/assets/skry.svg" width="64" height="64" alt="Skry Shear logo">
+
+# Skry
 
 A native, Windows-first streaming app. Rune draws the interface. libmpv plays video inside the app. Rust services handle Stremio add-ons and torrents. There is no browser, webview, Electron process, or external player.
 
