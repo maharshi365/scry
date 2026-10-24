@@ -12,6 +12,7 @@ impl State {
         self.refresh_library();
         self.play_id += 1;
         self.playing = false;
+        self.seek_preview = None;
         self.host.hide();
         self.send(Control::Stop(self.play_id));
     }
@@ -63,6 +64,8 @@ impl State {
                 self.page = Page::Player;
                 self.playing_title = title;
                 self.sample = Sample::default();
+                self.seek_preview = None;
+                self.muted = false;
                 self.report = None;
                 self.status = "Opening stream · torrent metadata can take up to 90 seconds…".into();
                 self.send(Control::Play(self.play_id, target, source));

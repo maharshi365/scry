@@ -150,6 +150,7 @@ fn apply(s: &mut State, event: Event) {
             s.library.playing = None;
             s.refresh_library();
             s.playing = false;
+            s.seek_preview = None;
             s.host.hide();
             s.status = "Playback stopped".into();
             if error.is_some() {

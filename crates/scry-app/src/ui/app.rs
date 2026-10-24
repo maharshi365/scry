@@ -79,6 +79,8 @@ impl State {
             playing_meta_id: None,
             playing_video_id: None,
             volume: 70,
+            muted: false,
+            seek_preview: None,
             startup_play: None,
             quit: None,
         }

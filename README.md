@@ -34,6 +34,22 @@ not downloaded plugins executed inside Scry.
 
 Only stream media you have permission to access. Direct torrents expose your IP address to peers, can upload pieces, and use disk space. The torrent engine starts only when a torrent source is selected. Stop removes files downloaded into that engine's own cache directory; crashes or file locks can leave cache files behind. It never sweeps existing directories or deletes library metadata.
 
+## Player controls
+
+Click or drag the timeline to seek. Use the speaker button to mute and the
+volume slider to set the level. The CC and audio buttons cycle embedded tracks.
+
+| Key | Action |
+| --- | --- |
+| Space / K | Play or pause |
+| ← / → | Seek back or forward 5 seconds |
+| J / L | Seek back or forward 10 seconds |
+| ↑ / ↓ | Change volume by 5% |
+| M | Mute or unmute |
+| C | Cycle subtitles |
+
+Player shortcuts apply only during playback and do not intercept text input.
+
 ## Your local library
 
 - Open a title and choose **Want to watch**, **Mark watched**, or a playlist.

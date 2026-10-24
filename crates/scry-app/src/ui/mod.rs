@@ -104,6 +104,8 @@ pub struct State {
     playing_meta_id: Option<(String, String)>,
     playing_video_id: Option<String>,
     volume: u32,
+    muted: bool,
+    seek_preview: Option<f64>,
     startup_play: Option<String>,
     quit: Option<rune::AppHandle<State>>,
 }

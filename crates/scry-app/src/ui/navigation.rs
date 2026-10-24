@@ -173,6 +173,6 @@ pub(super) fn on_key(s: &mut State, event: &rune::KeyEvent, _: &mut Tx) -> bool 
         s.travel(false);
         true
     } else {
-        false
+        super::player::on_key(s, event)
     }
 }

@@ -19,6 +19,7 @@ mod layout;
 mod library;
 mod navigation;
 mod playback;
+mod player;
 
 fn rect(rt: &rune::Runtime<State>, key: &str) -> [f32; 4] {
     rt.elements()
