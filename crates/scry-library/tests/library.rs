@@ -1,7 +1,4 @@
-#[path = "../src/library.rs"]
-mod library;
-
-use library::{Library, Media, MediaKey, MediaKind, Page};
+use scry_library::{Library, Media, MediaKey, MediaKind, Page};
 
 fn movie(namespace: &str, id: &str) -> Media {
     Media {

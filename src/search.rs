@@ -1,5 +1,5 @@
 //! Search planning and deterministic merging, independent of network completion order.
-use scry::addons::{Addon, Catalog, Meta};
+use scry_addons::{Addon, Catalog, Meta};
 use std::collections::{BTreeMap, HashSet};
 
 pub const CONCURRENCY: usize = 4;

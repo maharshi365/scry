@@ -1,4 +1,4 @@
-use crate::addons::Stream;
+use scry_addons::Stream;
 use anyhow::{Context, Result, bail};
 use axum::{
     Router,

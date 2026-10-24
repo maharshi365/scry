@@ -1,7 +1,7 @@
 //! Library presentation and nonblocking worker integration.
 use super::*;
 use crate::library_worker::{Command, Event as DbEvent, Snapshot, Worker};
-use scry::library::{Media, MediaKey, MediaKind};
+use scry_library::{Media, MediaKey, MediaKind};
 use std::{
     collections::VecDeque,
     time::{Duration, Instant},
@@ -735,10 +735,10 @@ mod tests {
         );
         let close = s.take_library_shutdown();
         std::thread::spawn(close).join().unwrap();
-        let library = scry::library::Library::open(path).unwrap();
+        let library = scry_library::Library::open(path).unwrap();
         let parent = MediaKey::new("imdb", MediaKind::Series, "tt123");
         let episodes = library
-            .list_episodes(&parent, scry::library::Page::new(100, 0).unwrap())
+            .list_episodes(&parent, scry_library::Page::new(100, 0).unwrap())
             .unwrap();
         assert_eq!(episodes.len(), 51);
         assert!(episodes.iter().any(|media| media.key.id == "tt123:1:1"));
@@ -773,7 +773,7 @@ mod tests {
             selected_state: None,
             episode_states: vec![(
                 MediaKey::new("other", MediaKind::Episode, &episode.id),
-                scry::library::WatchedState {
+                scry_library::WatchedState {
                     watched: true,
                     manual_override: Some(true),
                 },
@@ -812,7 +812,7 @@ mod tests {
             assert_eq!(s.sample.duration_s, Some(10.0), "{outcome}");
             let close = s.take_library_shutdown();
             std::thread::spawn(close).join().unwrap();
-            let library = scry::library::Library::open(path).unwrap();
+            let library = scry_library::Library::open(path).unwrap();
             let key = MediaKey::new("imdb", MediaKind::Movie, "tt123");
             let progress = library.load_progress(&key).unwrap().unwrap();
             assert_eq!(
@@ -864,7 +864,7 @@ mod tests {
         }
         let close = s.take_library_shutdown();
         std::thread::spawn(close).join().unwrap();
-        let library = scry::library::Library::open(path).unwrap();
+        let library = scry_library::Library::open(path).unwrap();
         let key = MediaKey::new("imdb", MediaKind::Movie, "tt123");
         assert_eq!(
             library

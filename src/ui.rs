@@ -5,10 +5,10 @@ use library_view::LibraryUi;
 use rune::tok::{self, TextStyle, type_};
 use rune::{App, AppSpec, Cx, El, ScrollSpec, TextEdit, Tx, col, el, row, text, text_input};
 use scry::{
-    addons::{Addon, Catalog, Meta, Stream},
     platform::{Host, VideoHost},
     telemetry::Sample,
 };
+use scry_addons::{Addon, Catalog, Meta, Stream};
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -1660,10 +1660,10 @@ fn scene_library(s: &mut State) {
         ]
         .iter()
         .enumerate()
-        .map(|(index, title)| scry::library::Media {
-            key: scry::library::MediaKey::new(
+        .map(|(index, title)| scry_library::Media {
+            key: scry_library::MediaKey::new(
                 "scene",
-                scry::library::MediaKind::Movie,
+                scry_library::MediaKind::Movie,
                 format!("scene-{index}"),
             ),
             title: (*title).into(),
@@ -2082,8 +2082,8 @@ mod tests {
         });
         tap(&mut rt, "nav-library");
         assert!(rt.find("library-open-0").is_some());
-        let library = scry::library::Library::open(path).unwrap();
-        let key = scry::library::MediaKey::new("imdb", scry::library::MediaKind::Movie, "tt123");
+        let library = scry_library::Library::open(path).unwrap();
+        let key = scry_library::MediaKey::new("imdb", scry_library::MediaKind::Movie, "tt123");
         assert!(library.is_in_watchlist(&key).unwrap());
         assert!(library.watched_state(&key).unwrap().watched);
         assert_eq!(

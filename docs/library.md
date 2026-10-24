@@ -1,6 +1,6 @@
 # Local library
 
-`src/library.rs` provides synchronous SQLite storage. Run **all** calls, including
+`crates/scry-library/src/lib.rs` provides synchronous SQLite storage. Run **all** calls, including
 open and reads, on a dedicated database worker or `tokio::task::spawn_blocking`.
 Do not hold a UI lock across a database call. Keep a long-lived `Library` on the
 worker and send it commands. The caller selects a database path in local app data
@@ -86,5 +86,5 @@ nonempty unversioned databases are rejected: **no migrations or compatibility
 paths**. SQLite in-memory databases use SQLite's memory journal instead of WAL.
 Do not open arbitrary third-party databases as libraries.
 
-Run `cargo test --test library`. The integration test imports the module by path
-so the repository can be tested before the main crate exports it.
+Run `cargo test -p scry-library`. The integration tests use the crate's public API
+and do not build the app, UI, or torrent engine.

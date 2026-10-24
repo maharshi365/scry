@@ -1,9 +1,9 @@
-use scry::addons::{Addon, Catalog, Stream, manifest_url, resource_url};
+use scry_addons::{Addon, Catalog, Stream, manifest_url, resource_url};
 use serde_json::json;
 
 #[test]
 fn cinemeta_can_send_both_year_and_release_info() {
-    let meta: scry::addons::Meta = serde_json::from_value(json!({
+    let meta: scry_addons::Meta = serde_json::from_value(json!({
         "id":"tt123", "type":"movie", "name":"A movie", "year":"2026",
         "releaseInfo":"2026–", "poster":"https://images.example/poster.jpg"
     })).unwrap();
@@ -13,7 +13,7 @@ fn cinemeta_can_send_both_year_and_release_info() {
 
 #[test]
 fn poster_and_release_metadata_are_preserved_for_movie_cards() {
-    let meta:scry::addons::Meta = serde_json::from_value(json!({
+    let meta:scry_addons::Meta = serde_json::from_value(json!({
         "id":"tt123", "type":"movie", "name":"A movie",
         "poster":"https://images.example/poster.jpg", "releaseInfo":"2024–2026",
         "genres":["Drama","Mystery"]
@@ -21,7 +21,7 @@ fn poster_and_release_metadata_are_preserved_for_movie_cards() {
     assert_eq!(meta.poster.as_deref(),Some("https://images.example/poster.jpg"));
     assert_eq!(meta.year,"2024–2026");
     assert_eq!(meta.genres,["Drama","Mystery"]);
-    let numeric:scry::addons::Meta = serde_json::from_value(json!({
+    let numeric:scry_addons::Meta = serde_json::from_value(json!({
         "id":"tt123", "type":"movie", "name":"A movie", "year":2024,"genres":null
     })).unwrap();
     assert_eq!(numeric.year,"2024");
@@ -30,7 +30,7 @@ fn poster_and_release_metadata_are_preserved_for_movie_cards() {
 
 #[test]
 fn absent_optional_video_labels_do_not_hide_an_entire_series() {
-    let meta: scry::addons::Meta = serde_json::from_value(json!({
+    let meta: scry_addons::Meta = serde_json::from_value(json!({
         "id":"tt123", "type":"series", "name":"A series", "description":null,
         "videos":[{"id":"tt123:1:1", "title":null, "season":1, "episode":1}]
     }))

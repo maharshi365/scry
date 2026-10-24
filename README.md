@@ -123,13 +123,17 @@ flowchart LR
     OS[Platform memory / CPU counters] --> Metrics
 ```
 
-- `src/addons.rs`: manifest, catalog, metadata, episode IDs, and stream resources.
+- `crates/scry-addons/`: manifest, catalog, metadata, episode IDs, and stream resources.
 - `src/torrents.rs`: lazy torrent session, file selection, seekable local HTTP delivery. No torrent control API is exposed.
 - `src/playback.rs`: `PlaybackEngine` contract and dynamic libmpv client binding.
 - `src/platform/`: `VideoHost` contract and OS implementations. Win32 stays in `windows.rs`; other systems return a clear unsupported error for embedding.
 - `src/telemetry.rs`: samples, stall detection, summaries, and report output.
 - `src/diagnostics.rs`: no-window playback probes and report analysis.
-- `src/library.rs`: SQLite repository for watchlists, ordered playlists, watched state, and per-episode progress. See [library semantics](docs/library.md).
+- `crates/scry-library/`: SQLite repository for watchlists, ordered playlists, watched state, and per-episode progress. See [library semantics](docs/library.md).
+
+The root `scry` package owns the app, UI, workers, playback, and torrents. The
+Cargo workspace shares dependency versions and one lockfile. The add-on and
+library crates do not depend on the app or Rune.
 
 ### macOS implementation path
 
@@ -138,10 +142,13 @@ Implement `VideoHost` in `src/platform/macos.rs`, then select it with `cfg(targe
 ## Development
 
 ```powershell
-cargo test
-cargo clippy --all-targets -- -D warnings
+cargo test --workspace --all-targets
+cargo clippy --workspace --all-targets -- -D warnings
+# Test either standalone crate without building the app:
+cargo test -p scry-library
+cargo test -p scry-addons
 # Optional live metadata-only protocol smoke test; no stream requests:
-cargo run --example addon_probe
+cargo run -p scry-addons --example addon_probe
 ```
 
 Rune is pinned to a Git revision because its API is still developing. `Cargo.lock` should be retained for reproducible app builds. The first build is much larger than the running app: it compiles Rune/wgpu and the torrent dependencies.

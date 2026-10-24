@@ -3680,8 +3680,9 @@ dependencies = [
  "librqbit",
  "reqwest",
  "rune",
- "rusqlite",
  "same-file",
+ "scry-addons",
+ "scry-library",
  "serde",
  "serde_json",
  "tempfile",
@@ -3690,6 +3691,28 @@ dependencies = [
  "url",
  "uuid",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "scry-addons"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "scry-library"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rusqlite",
+ "serde",
+ "tempfile",
 ]
 
 [[package]]

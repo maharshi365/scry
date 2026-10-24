@@ -3,7 +3,7 @@
 //! Send parent series with `Upsert` before sending commands for their episodes.
 //! Mutations emit `Changed`, never snapshots; the UI chooses when to refresh.
 use anyhow::{Result, anyhow};
-use scry::library::{
+use scry_library::{
     Library, MAX_PAGE_SIZE, Media, MediaKey, MediaKind, Page, Playlist, Progress, WatchedState,
 };
 use std::{
@@ -318,7 +318,7 @@ fn apply(library: &mut Library, command: Command) -> Result<Event> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scry::library::MediaKind;
+    use scry_library::MediaKind;
     use std::time::Instant;
 
     fn movie() -> Media {

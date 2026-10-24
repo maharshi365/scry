@@ -1,6 +1,6 @@
 //! Read-only smoke test against a public metadata add-on. Never requests streams.
 use anyhow::{Context, Result, ensure};
-use scry::addons::Client;
+use scry_addons::Client;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
