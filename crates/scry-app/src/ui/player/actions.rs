@@ -1,5 +1,6 @@
 //! Player actions are shared by keyboard bindings, buttons, and other features.
 use super::super::State;
+use scry_app::platform::VideoHost;
 
 #[derive(Clone, Copy)]
 pub(crate) enum PlayerAction {
@@ -11,6 +12,7 @@ pub(crate) enum PlayerAction {
     ChangeVolume(i32),
     CycleSubtitles,
     CycleAudio,
+    ToggleFullscreen,
     Stop,
 }
 
@@ -56,7 +58,18 @@ impl State {
             }
             PlayerAction::CycleSubtitles => self.command(&["cycle", "sid"]),
             PlayerAction::CycleAudio => self.command(&["cycle", "aid"]),
+            PlayerAction::ToggleFullscreen => self.set_fullscreen(!self.player.fullscreen),
             PlayerAction::Stop => self.stop(),
+        }
+    }
+
+    pub(in crate::ui) fn set_fullscreen(&mut self, fullscreen: bool) {
+        if self.player.fullscreen == fullscreen {
+            return;
+        }
+        match self.host.set_fullscreen(fullscreen) {
+            Ok(()) => self.player.fullscreen = fullscreen,
+            Err(error) => self.error = Some(error.to_string()),
         }
     }
 }

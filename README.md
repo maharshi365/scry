@@ -47,6 +47,8 @@ volume slider to set the level. The CC and audio buttons cycle embedded tracks.
 | ↑ / ↓ | Change volume by 5% |
 | M | Mute or unmute |
 | C | Cycle subtitles |
+| F | Toggle full screen |
+| Esc | Exit full screen |
 
 Player shortcuts apply only during playback and do not intercept text input.
 

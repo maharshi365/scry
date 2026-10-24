@@ -20,15 +20,31 @@ pub(super) fn player(s: &State, scale: f32) -> El {
         .key("video")
         .w_full()
         .grow(1.0)
+        .min_h(0.0)
         .fill(rune::oklch(0.08, 0.0, 0.0));
     if s.player.playing {
         surface = surface.on_layout(move |s: &mut State, rect| {
             if s.player.playing && s.navigation.page == Page::Player {
                 s.host.place(rect, scale);
+                if s.player.ready {
+                    s.host.show();
+                }
             }
         });
+        if !s.player.ready {
+            surface = surface.child(loading(s));
+        }
     } else {
         surface = surface.child(label("Choose another source to continue."));
+    }
+    if s.player.fullscreen {
+        return col()
+            .key("player-page")
+            .w_full()
+            .grow(1.0)
+            .min_h(0.0)
+            .child(surface)
+            .child(controls(s));
     }
     col()
         .key("player-page")
@@ -66,6 +82,65 @@ pub(super) fn player(s: &State, scale: f32) -> El {
                 .as_deref()
                 .unwrap_or("decoder pending")
         )))
+}
+
+fn loading(s: &State) -> El {
+    let image = |url: &Option<String>| {
+        url.as_ref()
+            .and_then(|url| s.player_artwork.as_ref()?.get(url))
+    };
+    let mut loading = el()
+        .key("player-loading")
+        .absolute(0.0, 0.0)
+        .w_full()
+        .h_full();
+    if let Some(background) = image(&s.player.background) {
+        loading = loading.child(
+            el().key("player-loading-background")
+                .absolute(0.0, 0.0)
+                .w_full()
+                .h_full()
+                .pixels_fit(&background, rune::SurfaceFit::Fill)
+                .opacity(0.45)
+                .transition(rune::Transition::opacity()),
+        );
+    }
+    let title = if let Some(logo) = image(&s.player.logo) {
+        el().key("player-loading-logo")
+            .w(360.0)
+            .max_w(480.0)
+            .h(120.0)
+            .pixels_fit(&logo, rune::SurfaceFit::Fit)
+            .transition(rune::Transition::opacity())
+    } else {
+        text(s.player.title.clone())
+            .key("player-loading-title")
+            .font(TextStyle::new(30.0, 550.0))
+            .color(tok::theme(true).text)
+    };
+    loading = loading.child(
+        col()
+            .absolute(0.0, 0.0)
+            .w_full()
+            .h_full()
+            .center()
+            .gap(24.0)
+            .padding(24.0)
+            .child(title)
+            .child(
+                label(if s.player.sample.buffering {
+                    "Buffering…"
+                } else {
+                    "Loading…"
+                })
+                .key("player-loading-status"),
+            ),
+    );
+    if s.player.fullscreen {
+        loading = loading
+            .child(action("player-back", "← Sources", |s| s.travel(false)).absolute(16.0, 16.0));
+    }
+    loading
 }
 
 fn timeline(s: &State) -> El {
@@ -189,10 +264,15 @@ fn controls(s: &State) -> El {
         .child(icon_button("audio", "Cycle audio track", &AUDIO, |s| {
             s.player_action(PlayerAction::CycleAudio);
         }))
+        .child(fullscreen_button(s))
         .child(icon_button("stop", "Stop playback", &STOP, |s| {
             s.player_action(PlayerAction::Stop);
         }));
-    col()
+    control_panel(s, buttons)
+}
+
+fn control_panel(s: &State, buttons: El) -> El {
+    let controls = col()
         .key("player-controls")
         .w_full()
         .padding(12.0)
@@ -200,8 +280,29 @@ fn controls(s: &State) -> El {
         .radius(8.0)
         .fill(panel())
         .child(timeline(s))
-        .child(buttons)
-        .child(label("Space / K  play / pause     ← / →  seek 5s     J / L  seek 10s     ↑ / ↓  volume     M  mute"))
+        .child(buttons);
+    if s.player.fullscreen {
+        controls
+    } else {
+        controls.child(label("Space / K  play / pause     ← / →  seek 5s     J / L  seek 10s     ↑ / ↓  volume     M  mute"))
+    }
+}
+
+fn fullscreen_button(s: &State) -> El {
+    icon_button(
+        "fullscreen",
+        if s.player.fullscreen {
+            "Exit full screen (F / Esc)"
+        } else {
+            "Full screen (F)"
+        },
+        if s.player.fullscreen {
+            &EXIT_FULLSCREEN
+        } else {
+            &FULLSCREEN
+        },
+        |s| s.player_action(PlayerAction::ToggleFullscreen),
+    )
 }
 
 fn icon_button(
@@ -218,9 +319,13 @@ fn icon_button(
         .center()
         .radius(6.0)
         .hover(tok::theme(true).hover)
-        .on_press(move |s: &mut State| {
+        .on_press_tx(move |s: &mut State, tx| {
             if s.player.playing {
+                let fullscreen = s.player.fullscreen;
                 f(s);
+                if s.player.fullscreen != fullscreen {
+                    tx.instant();
+                }
             }
         })
         .child(icon(glyph, 22.0).color(tok::theme(true).text))
@@ -305,4 +410,15 @@ static STOP: Icon = Icon {
     name: "player-stop",
     view: 24.0,
     body: r#"<rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor"/>"#,
+};
+
+static FULLSCREEN: Icon = Icon {
+    name: "player-fullscreen",
+    view: 24.0,
+    body: r#"<path d="M9 3H3v6m12-6h6v6M3 15v6h6m12-6v6h-6" fill="none" stroke="currentColor" stroke-width="2"/>"#,
+};
+static EXIT_FULLSCREEN: Icon = Icon {
+    name: "player-exit-fullscreen",
+    view: 24.0,
+    body: r#"<path d="M3 9h6V3m12 6h-6V3M9 21v-6H3m12 6v-6h6" fill="none" stroke="currentColor" stroke-width="2"/>"#,
 };

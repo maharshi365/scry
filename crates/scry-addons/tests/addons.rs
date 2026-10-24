@@ -7,6 +7,29 @@ use scry_addons::{Addon, Catalog, Stream, manifest_url, resource_url};
 use serde_json::json;
 
 #[test]
+fn title_logo_is_optional_and_preserved_with_the_backdrop() {
+    let meta: scry_addons::Meta = serde_json::from_value(json!({
+        "id":"tt123", "type":"movie", "name":"A movie",
+        "logo":"https://images.example/logo.png",
+        "background":"https://images.example/background.jpg"
+    }))
+    .unwrap();
+    assert_eq!(
+        meta.logo.as_deref(),
+        Some("https://images.example/logo.png")
+    );
+    assert_eq!(
+        meta.background.as_deref(),
+        Some("https://images.example/background.jpg")
+    );
+    let missing: scry_addons::Meta = serde_json::from_value(json!({
+        "id":"tt123", "type":"movie", "name":"A movie"
+    }))
+    .unwrap();
+    assert!(missing.logo.is_none());
+}
+
+#[test]
 fn cinemeta_can_send_both_year_and_release_info() {
     let meta: scry_addons::Meta = serde_json::from_value(json!({
         "id":"tt123", "type":"movie", "name":"A movie", "year":"2026",

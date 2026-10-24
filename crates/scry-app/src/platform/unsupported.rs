@@ -13,4 +13,8 @@ impl VideoHost for Host {
     }
     fn place(&self, _: [f32; 4], _: f32) {}
     fn hide(&self) {}
+    fn show(&self) {}
+    fn set_fullscreen(&self, _: bool) -> Result<()> {
+        Ok(())
+    }
 }

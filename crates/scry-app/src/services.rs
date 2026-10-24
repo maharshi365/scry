@@ -29,6 +29,7 @@ pub enum Event {
     Detail(u64, Result<(Meta, String), String>),
     Streams(u64, Vec<(String, Stream)>, Vec<String>, bool),
     Playing(u64, PathBuf),
+    Ready(u64),
     Metrics(u64, Sample),
     Stopped(u64, Option<String>),
     PlayerWarning(u64, String),
@@ -516,6 +517,7 @@ async fn player_loop(
                         match engine.event(0.0) {
                             Some(PlaybackEvent::Failed | PlaybackEvent::Shutdown) => { ended = Some(true); break; }
                             Some(PlaybackEvent::Ended) => { ended = Some(false); break; }
+                            Some(PlaybackEvent::Ready) => inbox.send(Event::Ready(generation)).await,
                             _ => {}
                         }
                     }

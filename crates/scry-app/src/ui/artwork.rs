@@ -24,7 +24,28 @@ impl State {
             }
             self.artwork_urls = urls;
         }
+        let urls = player_artwork(self);
+        if urls != self.player_artwork_urls {
+            if let Some(artwork) = &mut self.player_artwork {
+                artwork.set_visible(&urls);
+            }
+            self.player_artwork_urls = urls;
+        }
     }
+}
+
+pub(super) fn player_artwork(s: &State) -> Vec<String> {
+    let (background, logo) =
+        if s.navigation.page == Page::Player && s.player.playing && !s.player.ready {
+            (s.player.background.as_ref(), s.player.logo.as_ref())
+        } else if s.navigation.page == Page::Detail {
+            s.detail.as_ref().map_or((None, None), |meta| {
+                (meta.background.as_ref(), meta.logo.as_ref())
+            })
+        } else {
+            (None, None)
+        };
+    background.into_iter().chain(logo).cloned().collect()
 }
 
 pub(super) fn visible_artwork(s: &State) -> Vec<String> {

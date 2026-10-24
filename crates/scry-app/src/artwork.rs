@@ -1,4 +1,4 @@
-//! Small, memory-only poster cache. Call `set_visible` with viewport URLs, not
+//! Bounded artwork cache. Call `set_visible` with viewport URLs, not
 //! the whole catalogue; `get` never starts work. Nothing is fetched at startup.
 //!
 //! We retain at most 32 thumbnails (160 × 240; about 4.7 MiB), plus two
@@ -6,6 +6,7 @@
 //! decoded pixel buffers at 32 MiB per job. Decoder scratch space is additional.
 //! Keep returned image handles only in the current view, not another cache.
 //! A separate 32 MiB disposable disk cache keeps thumbnails for up to seven days.
+//! The player profile instead keeps two images up to 1280 × 720 in RAM only.
 //!
 //! This is NOT a total renderer memory bound: Rune's `ImageAtlas` uses shelf
 //! pages. It reclaims empty pages, but live images can prevent fragmented pages
@@ -33,6 +34,29 @@ const MAX_DIMENSION: u32 = 4096;
 const WIDTH: u32 = 160;
 const HEIGHT: u32 = 240;
 const MAX_URL: usize = 4096;
+
+#[derive(Clone, Copy, Default)]
+enum Profile {
+    #[default]
+    Poster,
+    Player,
+}
+
+impl Profile {
+    fn capacity(self) -> usize {
+        match self {
+            Self::Poster => CAPACITY,
+            Self::Player => 2,
+        }
+    }
+
+    fn size(self) -> (u32, u32) {
+        match self {
+            Self::Poster => (WIDTH, HEIGHT),
+            Self::Player => (1280, 720),
+        }
+    }
+}
 
 struct Cache<T>(VecDeque<(String, T)>);
 
@@ -74,6 +98,7 @@ impl<T> Cache<T> {
 
 #[derive(Default)]
 struct State {
+    profile: Profile,
     visible: Vec<String>,
     ready: Cache<rune::Pixels>,
     failed: Cache<()>,
@@ -96,7 +121,7 @@ impl State {
     fn set_visible(&mut self, urls: &[String]) {
         self.visible.clear();
         for url in urls {
-            if self.visible.len() == CAPACITY {
+            if self.visible.len() == self.profile.capacity() {
                 break;
             }
             if valid_url(url) && !self.visible.contains(url) {
@@ -132,6 +157,15 @@ impl Artwork {
     /// are already display-sized; use Pixels directly rather than queueing
     /// another worker to build a mip chain that these poster sizes never sample.
     pub fn start(wake: &rune::Waker) -> Result<Self> {
+        Self::start_profile(wake, Profile::Poster)
+    }
+
+    /// Two display-sized images, memory-only; at most 7 MiB of retained RGBA.
+    pub fn start_player(wake: &rune::Waker) -> Result<Self> {
+        Self::start_profile(wake, Profile::Player)
+    }
+
+    fn start_profile(wake: &rune::Waker, profile: Profile) -> Result<Self> {
         let client = reqwest::Client::builder()
             .https_only(true)
             .redirect(reqwest::redirect::Policy::limited(3))
@@ -140,13 +174,21 @@ impl Artwork {
             .pool_max_idle_per_host(1)
             .build()
             .map_err(|_| anyhow!("Cannot create the artwork client"))?;
-        let shared = Arc::new(Shared::default());
-        let artwork = Self { shared };
-        let disk = directories::ProjectDirs::from("app", "Scry", "Scry").map(|dirs| {
-            Arc::new(Mutex::new(crate::artwork_cache::DiskCache::new(
-                dirs.cache_dir().join("artwork"),
-            )))
+        let shared = Arc::new(Shared {
+            state: Mutex::new(State {
+                profile,
+                ..State::default()
+            }),
+            ..Shared::default()
         });
+        let artwork = Self { shared };
+        let disk = directories::ProjectDirs::from("app", "Scry", "Scry")
+            .filter(|_| matches!(profile, Profile::Poster))
+            .map(|dirs| {
+                Arc::new(Mutex::new(crate::artwork_cache::DiskCache::new(
+                    dirs.cache_dir().join("artwork"),
+                )))
+            });
         for index in 0..WORKERS {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -179,6 +221,23 @@ impl Artwork {
     /// fully decoded images; draw a local placeholder for missing artwork.
     pub fn get(&self, url: &str) -> Option<rune::Pixels> {
         self.shared.state.lock().ok()?.ready.get(url).cloned()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn player_fixture(images: &[(&str, rune::Pixels)]) -> Self {
+        let mut state = State {
+            profile: Profile::Player,
+            ..State::default()
+        };
+        for (url, image) in images {
+            state.ready.insert((*url).into(), image.clone(), 2, &[]);
+        }
+        Self {
+            shared: Arc::new(Shared {
+                state: Mutex::new(state),
+                ..Shared::default()
+            }),
+        }
     }
 
     /// Called by the app's poll hook after a wake. Failures also trigger one
@@ -214,6 +273,11 @@ fn worker(
     runtime: &tokio::runtime::Runtime,
     disk: Option<&Mutex<crate::artwork_cache::DiskCache>>,
 ) {
+    let profile = shared
+        .state
+        .lock()
+        .map(|state| state.profile)
+        .unwrap_or_default();
     loop {
         let (url, mut cancel) = {
             let Ok(mut state) = shared.state.lock() else {
@@ -249,7 +313,7 @@ fn worker(
                         if *cancel.borrow() {
                             return Err(());
                         }
-                        let (width, height, pixels) = thumbnail(&bytes)?;
+                        let (width, height, pixels) = thumbnail(&bytes, profile)?;
                         if let Some(disk) = &disk
                             && let Ok(disk) = disk.lock()
                         {
@@ -281,7 +345,7 @@ fn worker(
                 ..
             } = &mut *state;
             match result {
-                Ok(image) => ready.insert(url, image, CAPACITY, visible),
+                Ok(image) => ready.insert(url, image, profile.capacity(), visible),
                 Err(()) => failed.insert(url, (), FAILURE_CAPACITY, visible),
             }
         }
@@ -331,7 +395,7 @@ fn append_chunk(bytes: &mut Vec<u8>, chunk: &[u8]) -> std::result::Result<(), ()
     Ok(())
 }
 
-fn thumbnail(bytes: &[u8]) -> std::result::Result<(u32, u32, Vec<u8>), ()> {
+fn thumbnail(bytes: &[u8], profile: Profile) -> std::result::Result<(u32, u32, Vec<u8>), ()> {
     let mut reader = image::ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .map_err(|_| ())?;
@@ -351,7 +415,8 @@ fn thumbnail(bytes: &[u8]) -> std::result::Result<(u32, u32, Vec<u8>), ()> {
     validate_dimensions(width, height, decoder.total_bytes())?;
     let image = image::DynamicImage::from_decoder(decoder).map_err(|_| ())?;
     // Convert to RGBA only after scaling, never allocate a full-size RGBA copy.
-    let small = image.thumbnail(WIDTH, HEIGHT).into_rgba8();
+    let (width, height) = profile.size();
+    let small = image.thumbnail(width, height).into_rgba8();
     Ok((small.width(), small.height(), small.into_raw()))
 }
 
@@ -463,9 +528,28 @@ mod tests {
         source
             .write_to(&mut encoded, image::ImageFormat::Png)
             .unwrap();
-        let (width, height, pixels) = thumbnail(encoded.get_ref()).unwrap();
+        let (width, height, pixels) = thumbnail(encoded.get_ref(), Profile::Poster).unwrap();
         assert_eq!((width, height), (WIDTH, HEIGHT));
         assert_eq!(pixels.len(), (WIDTH * HEIGHT * 4) as usize);
+    }
+
+    #[test]
+    fn player_artwork_keeps_backdrop_resolution_and_logo_transparency() {
+        let source = image::RgbaImage::from_pixel(1920, 1080, image::Rgba([12, 24, 36, 128]));
+        let mut encoded = Cursor::new(Vec::new());
+        source
+            .write_to(&mut encoded, image::ImageFormat::Png)
+            .unwrap();
+        let (width, height, pixels) = thumbnail(encoded.get_ref(), Profile::Player).unwrap();
+        assert_eq!((width, height), (1280, 720));
+        assert!(pixels.chunks_exact(4).all(|pixel| pixel[3] == 128));
+
+        let mut state = State {
+            profile: Profile::Player,
+            ..State::default()
+        };
+        state.set_visible(&[url(0), url(1), url(2)]);
+        assert_eq!(state.visible, [url(0), url(1)]);
     }
 
     #[test]

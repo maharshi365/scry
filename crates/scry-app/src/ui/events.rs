@@ -21,6 +21,9 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
     }
     s.refresh_artwork();
     let mut changed = s.poll_library()
+        | s.player_artwork
+            .as_mut()
+            .is_some_and(crate::artwork::Artwork::poll)
         | s.artwork
             .as_mut()
             .is_some_and(crate::artwork::Artwork::poll);
@@ -127,9 +130,16 @@ fn apply(s: &mut State, event: Event) {
         }
         Event::Playing(id, path) if id == s.player.generation => {
             s.player.report = Some(path);
-            s.status = "Player connected · waiting for media…".into();
+            s.status = "Loading…".into();
             let volume = s.player.volume.to_string();
             s.command(&["set", "volume", &volume]);
+        }
+        Event::Ready(id) if id == s.player.generation && s.player.playing => {
+            s.player.ready = true;
+            if s.navigation.page == Page::Player {
+                s.host.show();
+            }
+            s.status.clear();
         }
         Event::Metrics(id, sample) if id == s.player.generation => {
             s.status = if sample.buffering {
@@ -146,10 +156,12 @@ fn apply(s: &mut State, event: Event) {
             s.observe_library_progress();
         }
         Event::Stopped(id, error) if id == s.player.generation => {
+            s.set_fullscreen(false);
             s.finish_library_progress(error.is_none());
             s.library.playing = None;
             s.refresh_library();
             s.player.playing = false;
+            s.player.ready = false;
             s.player.seek_preview = None;
             s.host.hide();
             s.status = "Playback stopped".into();

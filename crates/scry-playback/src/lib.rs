@@ -45,6 +45,7 @@ pub struct Player {
 #[derive(Debug, PartialEq)]
 pub enum PlaybackEvent {
     Loaded,
+    Ready,
     Ended,
     Failed,
     Shutdown,
@@ -229,6 +230,8 @@ impl Player {
             match event.id {
                 1 => Some(PlaybackEvent::Shutdown),
                 8 => Some(PlaybackEvent::Loaded),
+                // MPV_EVENT_PLAYBACK_RESTART: initial playback/seek has resumed.
+                21 => Some(PlaybackEvent::Ready),
                 7 => {
                     if event.data.is_null() {
                         return Some(PlaybackEvent::Failed);

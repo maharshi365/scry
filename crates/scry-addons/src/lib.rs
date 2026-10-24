@@ -49,6 +49,7 @@ pub struct Meta {
     pub description: String,
     pub poster: Option<String>,
     pub background: Option<String>,
+    pub logo: Option<String>,
     pub year: String,
     pub genres: Vec<String>,
     pub videos: Vec<Video>,
@@ -68,6 +69,7 @@ impl<'de> Deserialize<'de> for Meta {
             description: String,
             poster: Option<String>,
             background: Option<String>,
+            logo: Option<String>,
             #[serde(default, rename = "releaseInfo", deserialize_with = "release_info")]
             release: String,
             #[serde(default, deserialize_with = "release_info")]
@@ -85,6 +87,7 @@ impl<'de> Deserialize<'de> for Meta {
             description: fields.description,
             poster: fields.poster,
             background: fields.background,
+            logo: fields.logo,
             year: if fields.release.is_empty() {
                 fields.year
             } else {

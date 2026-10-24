@@ -145,7 +145,10 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
                 .w_full()
                 .grow(1.0)
                 .fill(rune::oklch(0.08, 0.0, 0.0))
-                .on_layout(move |s: &mut State, rect| s.host.place(rect, scale)),
+                .on_layout(move |s: &mut State, rect| {
+                    s.host.place(rect, scale);
+                    s.host.show();
+                }),
         )
         .child(text(if s.stopping {
             "Stopping; waiting for native player teardown…"
@@ -298,7 +301,9 @@ fn probe(
                 .as_secs_f64()
                 .min(0.1);
             match player.event(timeout) {
-                Some(PlaybackEvent::Loaded) => report.sample(&player.sample(report.elapsed()))?,
+                Some(PlaybackEvent::Loaded | PlaybackEvent::Ready) => {
+                    report.sample(&player.sample(report.elapsed()))?;
+                }
                 Some(PlaybackEvent::Failed) => bail!("Native playback failed"),
                 Some(PlaybackEvent::Shutdown) => bail!("Native player shut down early"),
                 Some(PlaybackEvent::Ended) => {

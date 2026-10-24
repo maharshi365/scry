@@ -14,6 +14,18 @@ use rune::{
 };
 
 pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
+    if s.navigation.page == Page::Player && s.player.fullscreen {
+        let mut content = col()
+            .key("fullscreen-player")
+            .w_full()
+            .h_full()
+            .fill(rune::oklch(0.08, 0.0, 0.0))
+            .child(player(s, cx.env().scale));
+        if let Some(error) = &s.error {
+            content = content.child(label(error.clone()));
+        }
+        return content;
+    }
     let mut content = col()
         .key("content")
         .grow(1.0)
@@ -52,7 +64,7 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
             }
         )));
     }
-    if s.navigation.page != Page::Detail && !s.status.is_empty() {
+    if !matches!(s.navigation.page, Page::Detail | Page::Player) && !s.status.is_empty() {
         content = content.child(label(s.status.clone()).key("status"));
     }
     row()

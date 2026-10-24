@@ -104,6 +104,7 @@ fn timeline_supports_click_and_drag_and_controls_fit_minimum_window() {
         "player-volume",
         "subtitles",
         "audio",
+        "fullscreen",
         "stop",
     ] {
         let [x, y, w, h] = rect(&rt, name);
@@ -210,4 +211,169 @@ fn player_actions_do_not_change_an_inactive_player() {
     assert_eq!(state.player.volume, 70);
     assert_eq!(state.player.sample.position_s, None);
     assert_eq!(state.player.generation, 0);
+}
+
+#[test]
+fn fullscreen_shortcut_hides_chrome_and_escape_exits_without_leaving_player() {
+    let mut rt = player_runtime();
+    key(&mut rt, rune::Key::Text("f".into()));
+    assert!(rt.find("sidebar").is_none());
+    assert!(rt.find("topbar").is_none());
+    assert!(rt.find("player-controls").is_some());
+    key(&mut rt, rune::Key::Escape);
+    assert_eq!(rt.state.navigation.page, Page::Player);
+    assert!(rt.state.player.playing);
+    assert!(rt.find("sidebar").is_some());
+    key(&mut rt, rune::Key::Text("F".into()));
+    key(&mut rt, rune::Key::Text("f".into()));
+    assert!(rt.find("sidebar").is_some());
+}
+
+#[test]
+fn fullscreen_button_matches_shortcut_and_does_not_steal_typed_f() {
+    let mut rt = player_runtime();
+    tap(&mut rt, "search");
+    key(&mut rt, rune::Key::Text("f".into()));
+    assert_eq!(rt.state.search.text, "f");
+    assert!(rt.find("sidebar").is_some());
+    tap(&mut rt, "fullscreen");
+    assert!(rt.find("sidebar").is_none());
+    tap(&mut rt, "fullscreen");
+    assert!(rt.find("sidebar").is_some());
+}
+
+#[test]
+fn opening_player_shows_loading_instead_of_an_empty_video_surface() {
+    let rt = player_runtime();
+    assert!(rt.find("player-loading").is_some());
+    assert!(rt.find("player-loading-title").is_some());
+    assert!(rt.find("player-back").is_some());
+    assert_eq!(rect(&rt, "player-loading"), rect(&rt, "video"));
+}
+
+#[test]
+fn cached_artwork_draws_a_backdrop_and_original_logo_in_both_window_modes() {
+    let background = rune::Pixels::new();
+    background.set(2, 1, vec![50; 8]);
+    let logo = rune::Pixels::new();
+    logo.set(2, 1, vec![255; 8]);
+    let mut state = init();
+    state.navigation.page = Page::Player;
+    state.player.playing = true;
+    state.player.background = Some("https://example.com/background".into());
+    state.player.logo = Some("https://example.com/logo".into());
+    state.player_artwork = Some(crate::artwork::Artwork::player_fixture(&[
+        ("https://example.com/background", background),
+        ("https://example.com/logo", logo),
+    ]));
+    let mut rt = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
+    rt.on_key = Some(on_key);
+    rt.frame(0.0);
+    assert!(rt.find("player-loading-title").is_none());
+    assert!(rt.find("player-loading-logo").is_some());
+    assert_eq!(rect(&rt, "player-loading-background"), rect(&rt, "video"));
+    key(&mut rt, rune::Key::Text("f".into()));
+    assert!(rt.find("player-loading-logo").is_some());
+    assert!(rt.find("player-back").is_some());
+    let [x, y, w, h] = rect(&rt, "player-loading-logo");
+    assert!(x >= 0.0 && y >= 0.0 && x + w <= 880.0 && y + h <= 600.0);
+    assert_eq!(rect(&rt, "player-loading-background"), rect(&rt, "video"));
+}
+
+#[test]
+fn only_current_playback_ready_event_replaces_loading_artwork() {
+    let (mut s, events) = state_with_events();
+    s.navigation.page = Page::Player;
+    s.player.playing = true;
+    s.player.generation = 4;
+    events.try_send(Event::Ready(3)).unwrap();
+    poll(&mut s, 0.0, &mut Tx::default());
+    assert!(!s.player.ready);
+    events
+        .try_send(Event::Metrics(
+            4,
+            scry_playback::telemetry::Sample {
+                position_s: Some(0.0),
+                ..Default::default()
+            },
+        ))
+        .unwrap();
+    poll(&mut s, 0.0, &mut Tx::default());
+    assert!(
+        !s.player.ready,
+        "a timestamp alone does not mean video is ready"
+    );
+    events.try_send(Event::Ready(4)).unwrap();
+    poll(&mut s, 0.0, &mut Tx::default());
+    assert!(s.player.ready);
+    let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
+    rt.frame(0.0);
+    assert!(rt.find("player-loading").is_none());
+    assert!(rt.find("video").is_some());
+}
+
+#[test]
+fn stop_and_failure_leave_fullscreen_and_reset_loading() {
+    let mut rt = player_runtime();
+    key(&mut rt, rune::Key::Text("f".into()));
+    rt.state.player.ready = true;
+    rt.state.stop();
+    assert!(!rt.state.player.fullscreen);
+    assert!(!rt.state.player.ready);
+    assert!(!rt.state.player.playing);
+
+    let (mut s, events) = state_with_events();
+    s.player.playing = true;
+    s.player.fullscreen = true;
+    s.player.ready = true;
+    events
+        .try_send(Event::Stopped(0, Some("Failed".into())))
+        .unwrap();
+    poll(&mut s, 0.0, &mut Tx::default());
+    assert!(!s.player.fullscreen);
+    assert!(!s.player.ready);
+    assert!(!s.player.playing);
+    assert_eq!(s.error.as_deref(), Some("Failed"));
+    events.try_send(Event::Ready(0)).unwrap();
+    poll(&mut s, 0.0, &mut Tx::default());
+    assert!(
+        !s.player.ready,
+        "late ready events must not reveal stopped video"
+    );
+}
+
+#[test]
+fn loading_artwork_is_prefetched_and_owned_by_the_playing_title() {
+    use crate::ui::artwork::player_artwork;
+
+    let mut s = init();
+    s.navigation.page = Page::Detail;
+    s.detail = Some(
+        serde_json::from_value(serde_json::json!({
+            "id":"tt123", "type":"movie", "name":"A movie",
+            "background":"https://example.com/backdrop.jpg",
+            "logo":"https://example.com/logo.png"
+        }))
+        .unwrap(),
+    );
+    assert_eq!(
+        player_artwork(&s),
+        [
+            "https://example.com/backdrop.jpg",
+            "https://example.com/logo.png"
+        ]
+    );
+    s.navigation.page = Page::Player;
+    s.player.playing = true;
+    s.player.background = Some("https://example.com/playing.jpg".into());
+    s.player.logo = Some("https://example.com/playing.png".into());
+    assert_eq!(
+        player_artwork(&s),
+        [
+            "https://example.com/playing.jpg",
+            "https://example.com/playing.png"
+        ]
+    );
+    s.player.ready = true;
+    assert!(player_artwork(&s).is_empty());
 }

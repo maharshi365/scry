@@ -24,6 +24,7 @@ const BINDINGS: &[Binding<PlayerAction>] = &[
     plain(KeyMatch::Text("j"), PlayerAction::SeekRelative(-10)),
     plain(KeyMatch::Text("l"), PlayerAction::SeekRelative(10)),
     plain(KeyMatch::Text("c"), PlayerAction::CycleSubtitles),
+    plain(KeyMatch::Text("f"), PlayerAction::ToggleFullscreen),
     plain(KeyMatch::Left, PlayerAction::SeekRelative(-5)),
     plain(KeyMatch::Right, PlayerAction::SeekRelative(5)),
     plain(KeyMatch::Up, PlayerAction::ChangeVolume(5)),
@@ -33,6 +34,10 @@ const BINDINGS: &[Binding<PlayerAction>] = &[
 pub(in crate::ui) fn handle(s: &mut State, event: &KeyEvent, focus: Focus) -> bool {
     if s.navigation.page != Page::Player || !s.player.playing {
         return false;
+    }
+    if s.player.fullscreen && event.key == rune::Key::Escape && focus == Focus::Screen {
+        s.set_fullscreen(false);
+        return true;
     }
     let Some(action) = resolve(BINDINGS, event, focus) else {
         return false;

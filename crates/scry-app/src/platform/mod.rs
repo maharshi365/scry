@@ -19,5 +19,9 @@ pub trait VideoHost: Clone + Default {
     /// Returns an error if no video window has been attached.
     fn target(&self) -> Result<PlaybackTarget>;
     fn place(&self, rect: [f32; 4], scale: f32);
+    fn show(&self);
     fn hide(&self);
+    /// # Errors
+    /// Returns an error if the native window cannot enter or leave full screen.
+    fn set_fullscreen(&self, fullscreen: bool) -> Result<()>;
 }

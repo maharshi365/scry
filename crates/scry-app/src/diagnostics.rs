@@ -224,7 +224,7 @@ fn probe(options: &Options) -> Result<()> {
                 .as_secs_f64()
                 .min(0.1);
             match player.event(timeout) {
-                Some(PlaybackEvent::Loaded) => {
+                Some(PlaybackEvent::Loaded | PlaybackEvent::Ready) => {
                     // Capture the initial position so sub-second clips can show progress.
                     report.sample(&player.sample(report.elapsed()))?;
                 }

@@ -30,8 +30,13 @@ const SHORTCUTS: &[Registration] = &[
     },
 ];
 
-pub(super) fn on_key(s: &mut State, event: &rune::KeyEvent, _: &mut rune::Tx) -> bool {
-    dispatch(s, event, Focus::Screen, SHORTCUTS)
+pub(super) fn on_key(s: &mut State, event: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
+    let fullscreen = s.player.fullscreen;
+    let handled = dispatch(s, event, Focus::Screen, SHORTCUTS);
+    if s.player.fullscreen != fullscreen {
+        tx.instant();
+    }
+    handled
 }
 
 pub(super) fn on_input_key(s: &mut State, event: &rune::KeyEvent, _: &mut rune::Tx) -> bool {
@@ -51,6 +56,8 @@ impl State {
             logo,
             artwork: None,
             artwork_urls: Vec::new(),
+            player_artwork: None,
+            player_artwork_urls: Vec::new(),
             poster_rects: BTreeMap::default(),
             poster_columns: 3,
             poster_viewport: None,
@@ -123,6 +130,7 @@ fn setup(s: &mut State, wake: rune::Waker) {
         return;
     }
     s.artwork = crate::artwork::Artwork::start(&wake).ok();
+    s.player_artwork = crate::artwork::Artwork::start_player(&wake).ok();
     match Services::start(wake.clone()) {
         Ok((services, events)) => {
             let path = services.data_dir().join("library.sqlite3");
@@ -191,6 +199,7 @@ pub(super) fn run() -> anyhow::Result<()> {
             }
         })
         .on_close(|s, tx| {
+            s.set_fullscreen(false);
             s.save_library_progress();
             let finish_library = s.take_library_shutdown();
             s.host.hide();

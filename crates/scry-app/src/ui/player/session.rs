@@ -7,11 +7,13 @@ use scry_playback::telemetry::Sample;
 
 impl State {
     pub(in crate::ui) fn stop(&mut self) {
+        self.set_fullscreen(false);
         self.save_library_progress();
         self.library.playing = None;
         self.refresh_library();
         self.player.generation += 1;
         self.player.playing = false;
+        self.player.ready = false;
         self.player.seek_preview = None;
         self.host.hide();
         self.send(Control::Stop(self.player.generation));
@@ -58,16 +60,26 @@ impl State {
         }
         match self.host.target() {
             Ok(target) => {
+                self.host.hide();
                 self.remember();
                 self.player.generation += 1;
                 self.player.playing = true;
+                self.player.ready = false;
+                let meta = self.detail.as_ref().filter(|meta| {
+                    self.player
+                        .meta_id
+                        .as_ref()
+                        .is_some_and(|(kind, id)| kind == &meta.kind && id == &meta.id)
+                });
+                self.player.background = meta.and_then(|meta| meta.background.clone());
+                self.player.logo = meta.and_then(|meta| meta.logo.clone());
                 self.navigation.page = Page::Player;
                 self.player.title = title;
                 self.player.sample = Sample::default();
                 self.player.seek_preview = None;
                 self.player.muted = false;
                 self.player.report = None;
-                self.status = "Opening stream · torrent metadata can take up to 90 seconds…".into();
+                self.status = "Loading…".into();
                 self.send(Control::Play(self.player.generation, target, source));
             }
             Err(error) => self.error = Some(error.to_string()),

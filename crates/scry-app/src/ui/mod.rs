@@ -35,6 +35,8 @@ pub struct State {
     logo: rune::Pixels,
     artwork: Option<crate::artwork::Artwork>,
     artwork_urls: Vec<String>,
+    player_artwork: Option<crate::artwork::Artwork>,
+    player_artwork_urls: Vec<String>,
     poster_rects: std::collections::BTreeMap<usize, [f32; 4]>,
     poster_columns: usize,
     poster_viewport: Option<[f32; 4]>,
