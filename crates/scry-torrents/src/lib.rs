@@ -1,4 +1,3 @@
-use scry_addons::Stream;
 use anyhow::{Context, Result, bail};
 use axum::{
     Router,
@@ -9,6 +8,7 @@ use axum::{
     routing::get,
 };
 use librqbit::{AddTorrent, AddTorrentOptions, AddTorrentResponse, Api, Session, SessionOptions};
+use scry_addons::Stream;
 use std::{io::SeekFrom, path::PathBuf, sync::Arc};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
@@ -30,6 +30,8 @@ struct Server {
 }
 
 impl Torrents {
+    /// # Errors
+    /// Returns an error if session storage, the torrent engine, or its local HTTP listener cannot start.
     pub async fn new(folder: PathBuf) -> Result<Self> {
         // Each engine owns a new cache directory. Never remove files from a caller's
         // existing directory, or from another Scry session.
@@ -69,6 +71,8 @@ impl Torrents {
         })
     }
 
+    /// # Errors
+    /// Returns an error for invalid torrent sources, metadata timeouts, or file initialization failures.
     pub async fn play(&self, stream: &Stream) -> Result<String> {
         self.stop().await;
         let result = self.prepare(stream).await;
@@ -161,6 +165,8 @@ impl Drop for Torrents {
     }
 }
 
+/// # Errors
+/// Returns an error if the stream lacks a valid 40-character hexadecimal torrent hash.
 pub fn magnet(stream: &Stream) -> Result<String> {
     let hash = stream
         .info_hash
@@ -274,10 +280,14 @@ async fn serve(
             stream.take(end - start + 1),
             64 * 1024,
         )))
-        .unwrap()
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    reason = "Torrent fixtures and local bridge test failures must fail the test immediately"
+)]
 mod tests {
     use super::*;
     #[test]
@@ -339,7 +349,7 @@ mod tests {
         let root = tempfile::tempdir_in(temp).unwrap();
         let media = root.path().join("fixture.mp4");
         std::fs::write(&media, b"0123456789abcdefghijklmnopqrstuvwxyz").unwrap();
-        let torrent = librqbit::create_torrent(&media, Default::default())
+        let torrent = librqbit::create_torrent(&media, librqbit::CreateTorrentOptions::default())
             .await
             .unwrap();
         let session = Session::new_with_opts(

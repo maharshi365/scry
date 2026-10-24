@@ -1,7 +1,7 @@
 use super::VideoHost;
-use scry_playback::PlaybackTarget;
 use anyhow::{Result, bail};
 use rune::raw_window_handle::RawWindowHandle;
+use scry_playback::PlaybackTarget;
 use std::{
     ptr,
     sync::{
@@ -12,7 +12,12 @@ use std::{
 use windows_sys::Win32::{
     Foundation::HWND,
     System::LibraryLoader::GetModuleHandleW,
-    UI::WindowsAndMessaging::*,
+    UI::WindowsAndMessaging::{
+        CreateWindowExW, GetSystemMetrics, ICON_BIG, ICON_SMALL, IMAGE_ICON, LR_SHARED, LoadImageW,
+        SM_CXICON, SM_CXSMICON, SM_CYICON, SM_CYSMICON, SW_HIDE, SWP_NOACTIVATE, SWP_NOZORDER,
+        SWP_SHOWWINDOW, SendMessageW, SetWindowPos, ShowWindow, WM_SETICON, WS_CHILD,
+        WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
+    },
 };
 
 #[derive(Clone, Default)]
@@ -43,7 +48,7 @@ impl VideoHost for Host {
                     ] {
                         let icon = LoadImageW(
                             module,
-                            1 as *const u16,
+                            ptr::without_provenance(1),
                             IMAGE_ICON,
                             width,
                             height,
@@ -91,8 +96,12 @@ impl VideoHost for Host {
         if handle == 0 {
             bail!("Video window is not ready");
         }
-        Ok(PlaybackTarget::NativeWindow(handle as u64))
+        Ok(PlaybackTarget::NativeWindow(handle.cast_unsigned() as u64))
     }
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "Windows requires integer pixels; rounded layout coordinates intentionally saturate to i32"
+    )]
     fn place(&self, [x, y, w, h]: [f32; 4], scale: f32) {
         let hwnd = self.0.load(Ordering::Acquire) as HWND;
         if hwnd.is_null() {

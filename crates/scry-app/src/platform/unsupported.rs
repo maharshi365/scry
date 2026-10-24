@@ -1,6 +1,6 @@
 use super::VideoHost;
-use scry_playback::PlaybackTarget;
 use anyhow::{Result, bail};
+use scry_playback::PlaybackTarget;
 
 #[derive(Clone, Default)]
 pub struct Host;

@@ -90,13 +90,20 @@ impl VideoRenderer {
 }
 
 pub trait PlaybackEngine {
+    /// # Errors
+    /// Returns an error if the engine cannot load the source.
     fn load(&self, url: &str) -> Result<()>;
+    /// # Errors
+    /// Returns an error if the engine rejects the command.
     fn command(&self, args: &[&str]) -> Result<()>;
     fn event(&self, timeout: f64) -> Option<PlaybackEvent>;
     fn sample(&self, elapsed_s: f64) -> Sample;
 }
 
 impl Player {
+    /// # Errors
+    /// Returns an error if the runtime is missing, its API cannot be loaded,
+    /// renderer settings are invalid, or player initialization fails.
     pub fn open(target: PlaybackTarget) -> Result<Self> {
         let renderer = match target {
             PlaybackTarget::NativeWindow(_) => Some(VideoRenderer::from_env()?),
@@ -150,7 +157,10 @@ impl Player {
                     ("wid", hwnd.to_string()),
                     (
                         "vo",
-                        renderer.expect("Native renderer selected").name().into(),
+                        renderer
+                            .context("Native renderer was not selected")?
+                            .name()
+                            .into(),
                     ),
                     ("hwdec", "auto-safe".into()),
                 ]);
@@ -178,6 +188,8 @@ impl Player {
         }
     }
 
+    /// # Errors
+    /// Returns an error for arguments containing NUL or a rejected player command.
     pub fn command(&self, args: &[&str]) -> Result<()> {
         let strings = args
             .iter()
@@ -191,9 +203,12 @@ impl Player {
         }
         Ok(())
     }
+    /// # Errors
+    /// Returns an error if the load command is invalid or rejected.
     pub fn load(&self, url: &str) -> Result<()> {
         self.command(&["loadfile", url, "replace"])
     }
+    #[must_use]
     pub fn property(&self, name: &str) -> Option<String> {
         let key = CString::new(name).ok()?;
         unsafe {
@@ -202,10 +217,11 @@ impl Player {
                 return None;
             }
             let result = CStr::from_ptr(value).to_string_lossy().into_owned();
-            (self.free)(value as *mut c_void);
+            (self.free)(value.cast::<c_void>());
             Some(result)
         }
     }
+    #[must_use]
     pub fn event(&self, timeout: f64) -> Option<PlaybackEvent> {
         // SAFETY: copy event data before the next wait_event invalidates it.
         unsafe {
@@ -224,6 +240,7 @@ impl Player {
             }
         }
     }
+    #[must_use]
     pub fn sample(&self, elapsed_s: f64) -> Sample {
         let number = |name| {
             self.property(name)
@@ -238,8 +255,12 @@ impl Player {
             cache_s: number("demuxer-cache-duration"),
             buffering: self.property("paused-for-cache").as_deref() == Some("yes"),
             paused: self.property("pause").as_deref() == Some("yes"),
-            dropped_frames: number("frame-drop-count").map(|v| v as u64),
-            decoder_drops: number("decoder-frame-drop-count").map(|v| v as u64),
+            dropped_frames: self
+                .property("frame-drop-count")
+                .and_then(|v| v.parse().ok()),
+            decoder_drops: self
+                .property("decoder-frame-drop-count")
+                .and_then(|v| v.parse().ok()),
             av_sync_s: number("avsync"),
             speed: number("speed"),
             video_bitrate: number("video-bitrate"),
@@ -311,6 +332,10 @@ fn library_path() -> Result<PathBuf> {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    reason = "Tests assert successful parses and inspect the expected parse errors"
+)]
 mod tests {
     use super::*;
     #[test]

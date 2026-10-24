@@ -1,3 +1,8 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "Protocol fixtures and asserted decode results must fail the test on error"
+)]
+
 use scry_addons::{Addon, Catalog, Stream, manifest_url, resource_url};
 use serde_json::json;
 
@@ -6,25 +11,34 @@ fn cinemeta_can_send_both_year_and_release_info() {
     let meta: scry_addons::Meta = serde_json::from_value(json!({
         "id":"tt123", "type":"movie", "name":"A movie", "year":"2026",
         "releaseInfo":"2026–", "poster":"https://images.example/poster.jpg"
-    })).unwrap();
+    }))
+    .unwrap();
     assert_eq!(meta.year, "2026–");
-    assert_eq!(meta.poster.as_deref(), Some("https://images.example/poster.jpg"));
+    assert_eq!(
+        meta.poster.as_deref(),
+        Some("https://images.example/poster.jpg")
+    );
 }
 
 #[test]
 fn poster_and_release_metadata_are_preserved_for_movie_cards() {
-    let meta:scry_addons::Meta = serde_json::from_value(json!({
+    let meta: scry_addons::Meta = serde_json::from_value(json!({
         "id":"tt123", "type":"movie", "name":"A movie",
         "poster":"https://images.example/poster.jpg", "releaseInfo":"2024–2026",
         "genres":["Drama","Mystery"]
-    })).unwrap();
-    assert_eq!(meta.poster.as_deref(),Some("https://images.example/poster.jpg"));
-    assert_eq!(meta.year,"2024–2026");
-    assert_eq!(meta.genres,["Drama","Mystery"]);
-    let numeric:scry_addons::Meta = serde_json::from_value(json!({
+    }))
+    .unwrap();
+    assert_eq!(
+        meta.poster.as_deref(),
+        Some("https://images.example/poster.jpg")
+    );
+    assert_eq!(meta.year, "2024–2026");
+    assert_eq!(meta.genres, ["Drama", "Mystery"]);
+    let numeric: scry_addons::Meta = serde_json::from_value(json!({
         "id":"tt123", "type":"movie", "name":"A movie", "year":2024,"genres":null
-    })).unwrap();
-    assert_eq!(numeric.year,"2024");
+    }))
+    .unwrap();
+    assert_eq!(numeric.year, "2024");
     assert!(numeric.genres.is_empty());
 }
 
@@ -42,13 +56,14 @@ fn absent_optional_video_labels_do_not_hide_an_entire_series() {
 }
 
 fn addon(resources: serde_json::Value) -> Addon {
-    serde_json::from_value(json!({
+    let mut value = json!({
         "manifest_url": "https://addon.example/private-token/manifest.json",
         "manifest": {"id": "example", "name": "Example", "types": ["movie"],
-            "idPrefixes": ["tt"], "resources": resources,
+            "idPrefixes": ["tt"],
             "catalogs": [{"type": "series", "id": "featured"}]}
-    }))
-    .unwrap()
+    });
+    value["manifest"]["resources"] = resources;
+    serde_json::from_value(value).unwrap()
 }
 
 #[test]

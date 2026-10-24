@@ -1,11 +1,13 @@
 //! Library presentation and nonblocking worker integration.
-use super::*;
-use crate::library_worker::{Command, Event as DbEvent, Snapshot, Worker};
-use scry_library::{Media, MediaKey, MediaKind};
-use std::{
-    collections::VecDeque,
-    time::{Duration, Instant},
+mod progress;
+use super::{
+    State,
+    components::{action, clock, heading, input, label, scroll},
 };
+use crate::library_worker::{Command, Event as DbEvent, Snapshot, Worker};
+use rune::{El, TextEdit, col, row, tok};
+use scry_library::{Media, MediaKey, MediaKind};
+use std::{collections::VecDeque, time::Instant};
 
 pub(super) struct LibraryUi {
     pub worker: Option<Worker>,
@@ -139,7 +141,9 @@ impl State {
             playlist: self.library.selected_playlist,
             offset: self.library.offset,
         };
-        if let Err(error) = self.library.worker.as_ref().unwrap().send(command) {
+        if let Some(worker) = &self.library.worker
+            && let Err(error) = worker.send(command)
+        {
             self.library.error = Some(error.to_string());
         }
     }
@@ -150,8 +154,10 @@ impl State {
         };
         let mut entries = vec![parent.clone()];
         if parent.key.kind == MediaKind::Series {
-            for video in self.visible_episode_indices().into_iter()
-                .map(|index| &self.detail.as_ref().unwrap().videos[index])
+            for video in self
+                .visible_episode_indices()
+                .into_iter()
+                .filter_map(|index| self.detail.as_ref()?.videos.get(index))
                 .filter(|v| !v.id.trim().is_empty())
             {
                 entries.push(Media {
@@ -187,8 +193,9 @@ impl State {
         else {
             return Vec::new();
         };
-        self.visible_episode_indices().into_iter()
-            .map(|index| &self.detail.as_ref().unwrap().videos[index])
+        self.visible_episode_indices()
+            .into_iter()
+            .filter_map(|index| self.detail.as_ref()?.videos.get(index))
             .filter(|video| !video.id.trim().is_empty())
             .map(|video| key(&parent.key.namespace, MediaKind::Episode, &video.id))
             .collect()
@@ -227,102 +234,6 @@ impl State {
         changed
     }
 
-    pub(super) fn observe_library_progress(&mut self) {
-        if let (Some(position), Some(duration)) = (self.sample.position_s, self.sample.duration_s)
-            && position.is_finite()
-            && duration.is_finite()
-            && duration > 0.0
-        {
-            self.library.last_sample = Some((position.max(0.0).min(duration), duration));
-        }
-        if self.library.last_save.elapsed() >= Duration::from_secs(12) {
-            self.save_library_progress();
-        }
-    }
-
-    pub(super) fn save_library_progress(&mut self) {
-        let Some(media) = self.library.playing.clone() else {
-            return;
-        };
-        // A parent series has no playback duration; only the selected episode does.
-        if media.key.kind == MediaKind::Series {
-            return;
-        }
-        let Some((position, duration)) = self.library.last_sample else {
-            return;
-        };
-        if self.library.saved_sample == Some((position, duration)) {
-            return;
-        }
-        if self.db(Command::SaveProgress(media, position, duration), false) {
-            self.library.saved_sample = Some((position, duration));
-            self.library.last_save = Instant::now();
-        }
-    }
-
-    pub(super) fn finish_library_progress(&mut self, successful: bool) {
-        if successful
-            && self.playing
-            && self.library.playing.as_ref().is_some_and(|media| {
-                matches!(media.key.kind, MediaKind::Movie | MediaKind::Episode)
-            })
-            && let Some((_, duration)) = self.library.last_sample
-            && duration.is_finite()
-            && duration > 0.0
-        {
-            // EOF may clear time-pos before the last metrics event. Keep telemetry
-            // unchanged; only the captured library progress records completion.
-            self.library.last_sample = Some((duration, duration));
-        }
-        self.save_library_progress();
-    }
-
-    pub(super) fn take_library_shutdown(&mut self) -> impl FnOnce() + Send + 'static {
-        let worker = self.library.worker.take();
-        let final_save = self
-            .library
-            .playing
-            .clone()
-            .filter(|m| m.key.kind != MediaKind::Series)
-            .zip(self.library.last_sample)
-            .map(|(m, (p, d))| Command::SaveProgress(m, p, d));
-        move || {
-            let Some(worker) = worker else {
-                return;
-            };
-            // This runs on the shutdown thread, while Rune keeps pumping native
-            // messages. Drain completions to release worker backpressure.
-            let mut commands = VecDeque::new();
-            if let Some(command) = final_save {
-                commands.push_back(command);
-            }
-            commands.push_back(Command::Flush(1));
-            while let Some(command) = commands.front() {
-                let retry = match command {
-                    Command::SaveProgress(m, p, d) => Command::SaveProgress(m.clone(), *p, *d),
-                    _ => Command::Flush(1),
-                };
-                if worker.send(retry).is_ok() {
-                    commands.pop_front();
-                } else {
-                    match worker.try_recv() {
-                        Err(std::sync::mpsc::TryRecvError::Disconnected) => return,
-                        _ => std::thread::sleep(Duration::from_millis(10)),
-                    }
-                }
-            }
-            loop {
-                match worker.try_recv() {
-                    Ok(DbEvent::Flushed(1)) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                        return;
-                    }
-                    Ok(_) => {}
-                    Err(_) => std::thread::sleep(Duration::from_millis(10)),
-                }
-            }
-        }
-    }
-
     pub(super) fn episode_label(&self, id: &str) -> &'static str {
         let Some(snapshot) = &self.library.snapshot else {
             return "";
@@ -342,14 +253,17 @@ impl State {
         }
     }
 
-    fn open_library_media(&mut self, media: Media) {
+    fn open_library_media(&mut self, media: &Media) {
         let target = media.parent.as_ref().unwrap_or(&media.key);
-        self.detail_namespace = target.namespace.clone();
+        self.detail_namespace.clone_from(&target.namespace);
         self.pending_episode = media.parent.as_ref().map(|_| media.key.id.clone());
-        let meta: Meta = serde_json::from_value(serde_json::json!({
+        let meta = serde_json::from_value(serde_json::json!({
             "id": target.id, "type": if target.kind == MediaKind::Movie { "movie" } else { "series" }, "name": media.title
-        })).unwrap();
-        self.open_detail_from(meta);
+        }));
+        match meta {
+            Ok(meta) => self.open_detail_from(meta),
+            Err(_) => self.library.error = Some("Cannot open the saved title".into()),
+        }
     }
 
     fn choose_playlist(&mut self, id: i64, name: String) {
@@ -368,12 +282,14 @@ impl State {
         if self.library.offset != 0 || snapshot.items.len() >= 200 {
             return;
         }
-        let other = index as isize + delta;
-        if other < 0 || other as usize >= snapshot.items.len() {
+        let Some(other) = index.checked_add_signed(delta) else {
+            return;
+        };
+        if other >= snapshot.items.len() {
             return;
         }
         let mut keys: Vec<_> = snapshot.items.iter().map(|m| m.key.clone()).collect();
-        keys.swap(index, other as usize);
+        keys.swap(index, other);
         if let Some(id) = self.library.selected_playlist {
             self.db(Command::ReorderPlaylist(id, keys), true);
         }
@@ -473,6 +389,10 @@ pub(super) fn detail_actions(s: &State) -> El {
     body
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Declarative library layout keeps control bindings beside their UI elements"
+)]
 pub(super) fn view(s: &State) -> El {
     let mut body = col()
         .w_full()
@@ -571,7 +491,7 @@ pub(super) fn view(s: &State) -> El {
                 action(
                     format!("library-open-{index}"),
                     media.title.clone(),
-                    move |s| s.open_library_media(item.clone()),
+                    move |s| s.open_library_media(&item),
                 )
                 .grow(1.0)
                 .justify_start()
@@ -590,10 +510,10 @@ pub(super) fn view(s: &State) -> El {
                 if s.library.offset == 0 && items.len() < 200 {
                     entry = entry
                         .child(action(format!("library-up-{index}"), "↑", move |s| {
-                            s.move_item(index, -1)
+                            s.move_item(index, -1);
                         }))
                         .child(action(format!("library-down-{index}"), "↓", move |s| {
-                            s.move_item(index, 1)
+                            s.move_item(index, 1);
                         }));
                 }
             }
@@ -647,8 +567,23 @@ pub(super) fn view(s: &State) -> El {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::float_cmp,
+    reason = "Persisted fixture positions are exactly representable integers"
+)]
+#[expect(
+    clippy::unwrap_used,
+    reason = "Test fixtures and asserted successful results must fail the test on error"
+)]
 mod tests {
     use super::*;
+    use crate::services::Event;
+    use crate::ui::{app::init, events::poll};
+    use rune::Tx;
+    use scry_addons::Meta;
+    use scry_playback::telemetry::Sample;
+    use std::sync::Arc;
+    use std::time::Duration;
     fn meta(id: &str) -> Meta {
         serde_json::from_value(serde_json::json!({"id": id, "type":"movie", "name":id})).unwrap()
     }

@@ -85,6 +85,8 @@ pub struct Page {
 }
 
 impl Page {
+    /// # Errors
+    /// Returns an error if the page size is zero or exceeds the maximum.
     pub fn new(limit: u32, offset: u32) -> Result<Self> {
         ensure!(
             (1..=MAX_PAGE_SIZE).contains(&limit),
@@ -103,6 +105,7 @@ impl Default for Page {
     }
 }
 
+#[must_use]
 pub fn is_complete(position_seconds: f64, duration_seconds: f64) -> bool {
     position_seconds.is_finite()
         && duration_seconds.is_finite()
@@ -200,10 +203,14 @@ fn playlist_exists(connection: &Connection, id: i64) -> Result<()> {
 }
 
 impl Library {
+    /// # Errors
+    /// Returns an error if the database cannot be opened or its schema is invalid.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         Self::initialize(Connection::open(path).context("open local library")?)
     }
 
+    /// # Errors
+    /// Returns an error if an in-memory database cannot be initialized.
     pub fn memory() -> Result<Self> {
         Self::initialize(Connection::open_in_memory()?)
     }
@@ -256,6 +263,8 @@ impl Library {
         Ok(Self { connection })
     }
 
+    /// # Errors
+    /// Returns an error for invalid media or parent identity, or a database failure.
     pub fn upsert_media(&mut self, media: &Media) -> Result<()> {
         ensure!(
             !media.key.namespace.trim().is_empty() && !media.key.id.trim().is_empty(),
@@ -284,6 +293,8 @@ impl Library {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error for an invalid key or a database read failure.
     pub fn get_media(&self, key: &MediaKey) -> Result<Option<Media>> {
         Ok(self
             .connection
@@ -304,6 +315,8 @@ impl Library {
             .collect::<rusqlite::Result<_>>()?)
     }
 
+    /// # Errors
+    /// Returns an error if the media is missing or the database write fails.
     pub fn add_to_watchlist(&mut self, key: &MediaKey) -> Result<()> {
         let id = media_id(&self.connection, key)?;
         self.connection.execute(
@@ -313,6 +326,8 @@ impl Library {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error for an invalid key or a database write failure.
     pub fn remove_from_watchlist(&mut self, key: &MediaKey) -> Result<()> {
         let id = media_id(&self.connection, key)?;
         self.connection
@@ -320,6 +335,8 @@ impl Library {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error for an invalid key or a database read failure.
     pub fn is_in_watchlist(&self, key: &MediaKey) -> Result<bool> {
         let id = media_id(&self.connection, key)?;
         Ok(self.connection.query_row(
@@ -329,6 +346,8 @@ impl Library {
         )?)
     }
 
+    /// # Errors
+    /// Returns an error if the page is invalid or the database query fails.
     pub fn list_watchlist(&self, page: Page) -> Result<Vec<Media>> {
         self.list_media(
             "JOIN watchlist w ON w.media_id=m.media_id WHERE ?1=0 ORDER BY w.entry_id DESC",
@@ -337,6 +356,8 @@ impl Library {
         )
     }
 
+    /// # Errors
+    /// Returns an error for an invalid series key, page, or database query.
     pub fn list_episodes(&self, series: &MediaKey, page: Page) -> Result<Vec<Media>> {
         ensure!(series.kind == MediaKind::Series, "expected a series key");
         self.list_media(
@@ -346,6 +367,8 @@ impl Library {
         )
     }
 
+    /// # Errors
+    /// Returns an error for an invalid name or a database write failure.
     pub fn create_playlist(&mut self, name: &str) -> Result<Playlist> {
         ensure!(!name.trim().is_empty(), "playlist name cannot be empty");
         self.connection
@@ -356,6 +379,8 @@ impl Library {
         })
     }
 
+    /// # Errors
+    /// Returns an error for an invalid name, missing playlist, or failed write.
     pub fn rename_playlist(&mut self, id: i64, name: &str) -> Result<()> {
         ensure!(!name.trim().is_empty(), "playlist name cannot be empty");
         ensure!(
@@ -368,12 +393,16 @@ impl Library {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error if the playlist is missing or the database write fails.
     pub fn delete_playlist(&mut self, id: i64) -> Result<()> {
         self.connection
             .execute("DELETE FROM playlists WHERE playlist_id=?1", [id])?;
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error if the page is invalid or the database query fails.
     pub fn list_playlists(&self, page: Page) -> Result<Vec<Playlist>> {
         Ok(self
             .connection
@@ -389,6 +418,8 @@ impl Library {
             .collect::<rusqlite::Result<_>>()?)
     }
 
+    /// # Errors
+    /// Returns an error if the playlist or media is missing, or a write fails.
     pub fn add_playlist_item(&mut self, playlist: i64, key: &MediaKey) -> Result<()> {
         let tx = self
             .connection
@@ -405,6 +436,8 @@ impl Library {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error for an invalid key, missing playlist, or failed write.
     pub fn remove_playlist_item(&mut self, playlist: i64, key: &MediaKey) -> Result<()> {
         playlist_exists(&self.connection, playlist)?;
         let id = media_id(&self.connection, key)?;
@@ -416,6 +449,9 @@ impl Library {
     }
 
     /// Replace the order, not membership. Requires each current item exactly once.
+    /// # Errors
+    /// Returns an error unless keys describe the complete membership exactly once,
+    /// or if the database transaction fails.
     pub fn reorder_playlist(&mut self, playlist: i64, keys: &[MediaKey]) -> Result<()> {
         let tx = self
             .connection
@@ -445,18 +481,22 @@ impl Library {
         for (position, id) in ordered.iter().enumerate() {
             tx.execute(
                 "INSERT INTO playlist_items(playlist_id,media_id,position) VALUES(?1,?2,?3)",
-                params![playlist, id, position as i64],
+                params![playlist, id, i64::try_from(position)?],
             )?;
         }
         tx.commit()?;
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error for a missing playlist, invalid page, or failed query.
     pub fn list_playlist_items(&self, playlist: i64, page: Page) -> Result<Vec<Media>> {
         playlist_exists(&self.connection, playlist)?;
         self.list_media("JOIN playlist_items i ON i.media_id=m.media_id WHERE i.playlist_id=?1 ORDER BY i.position", playlist, page)
     }
 
+    /// # Errors
+    /// Returns an error for a missing media record or a database read failure.
     pub fn watched_state(&self, key: &MediaKey) -> Result<WatchedState> {
         let id = media_id(&self.connection, key)?;
         Ok(self
@@ -478,6 +518,8 @@ impl Library {
             }))
     }
 
+    /// # Errors
+    /// Returns an error for a missing media record or a database write failure.
     pub fn set_watched(&mut self, key: &MediaKey, watched: bool) -> Result<()> {
         let tx = self
             .connection
@@ -492,6 +534,8 @@ impl Library {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error for a missing media record or a database write failure.
     pub fn clear_watched_override(&mut self, key: &MediaKey) -> Result<()> {
         let tx = self
             .connection
@@ -504,10 +548,14 @@ impl Library {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error if the page is invalid or the database query fails.
     pub fn list_watched(&self, page: Page) -> Result<Vec<Media>> {
         self.list_media("JOIN watched w ON w.media_id=m.media_id WHERE w.watched=1 AND ?1=0 ORDER BY m.media_id DESC", 0, page)
     }
 
+    /// # Errors
+    /// Returns an error for invalid progress, missing media, or a failed write.
     pub fn save_progress(
         &mut self,
         key: &MediaKey,
@@ -532,6 +580,8 @@ impl Library {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error for an invalid key or a database read failure.
     pub fn load_progress(&self, key: &MediaKey) -> Result<Option<Progress>> {
         let id = media_id(&self.connection, key)?;
         Ok(self

@@ -3,6 +3,10 @@ use anyhow::{Context, Result, ensure};
 use scry_addons::Client;
 
 #[tokio::main(flavor = "current_thread")]
+#[expect(
+    clippy::print_stdout,
+    reason = "This CLI smoke test explicitly prints its result"
+)]
 async fn main() -> Result<()> {
     let client = Client::new()?;
     let addon = client

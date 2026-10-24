@@ -1,0 +1,123 @@
+//! Native UI state and feature module wiring.
+mod addons;
+mod app;
+mod artwork;
+mod catalog;
+mod components;
+mod detail;
+mod discover;
+mod episodes;
+mod events;
+mod library_view;
+mod navigation;
+mod playback;
+mod player;
+mod scenes;
+mod shell;
+mod source_picker;
+
+use crate::services::{Event, Services};
+use library_view::LibraryUi;
+use navigation::Route;
+use rune::TextEdit;
+use scry_addons::{Addon, Catalog, Meta, Stream};
+use scry_app::platform::Host;
+use scry_playback::telemetry::Sample;
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
+
+const EPISODES_PER_PAGE: usize = 100;
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Page {
+    Discover,
+    Library,
+    Addons,
+    Detail,
+    Player,
+}
+
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Independent UI, configuration, and playback flags are not mutually exclusive states"
+)]
+pub struct State {
+    logo: rune::Pixels,
+    artwork: Option<crate::artwork::Artwork>,
+    artwork_urls: Vec<String>,
+    poster_rects: std::collections::BTreeMap<usize, [f32; 4]>,
+    poster_columns: usize,
+    poster_viewport: Option<[f32; 4]>,
+    poster_route: u64,
+    library: LibraryUi,
+    detail_namespace: String,
+    pending_episode: Option<String>,
+    host: Host,
+    host_error: Arc<Mutex<Option<String>>>,
+    services: Option<Services>,
+    events: Option<tokio::sync::mpsc::Receiver<Event>>,
+    page: Page,
+    addons: Vec<Addon>,
+    config_busy: bool,
+    install: TextEdit,
+    direct: TextEdit,
+    search: TextEdit,
+    displayed_query: String,
+    kind: String,
+    catalog: Option<(Addon, Catalog)>,
+    metas: Arc<Vec<Meta>>,
+    providers: Arc<Vec<Addon>>,
+    back: Vec<Route>,
+    forward: Vec<Route>,
+    route_key: u64,
+    next_route_key: u64,
+    anchor: Option<String>,
+    reveal: Option<String>,
+    detail: Option<Meta>,
+    // Stable protocol ID (including season/episode suffix) for library integration.
+    selected_video_id: Option<String>,
+    episode_offset: usize,
+    #[expect(
+        clippy::option_option,
+        reason = "None means no selection; Some(None) explicitly selects unnumbered episodes"
+    )]
+    episode_season: Option<Option<u32>>,
+    season_menu_open: bool,
+    streams: Vec<(String, Stream)>,
+    stream_provider: Option<String>,
+    source_menu_open: bool,
+    warnings: Vec<String>,
+    error: Option<String>,
+    status: String,
+    loading: bool,
+    catalog_id: u64,
+    detail_id: u64,
+    stream_id: u64,
+    play_id: u64,
+    playing: bool,
+    sample: Sample,
+    report: Option<PathBuf>,
+    playing_title: String,
+    // Identity of the actual catalog playback, not the last detail page visited.
+    playing_meta_id: Option<(String, String)>,
+    playing_video_id: Option<String>,
+    volume: u32,
+    startup_play: Option<String>,
+    quit: Option<rune::AppHandle<State>>,
+}
+
+pub fn run() -> anyhow::Result<()> {
+    app::run()
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::float_cmp,
+    reason = "UI test fixtures and missing-element assertions must fail the test immediately"
+)]
+mod tests;

@@ -25,8 +25,12 @@ impl Options {
             args.len() <= 3,
             "Usage: embedded_probe [path] [seconds] [report]"
         );
+        let mut args = args.into_iter();
+        let source = args
+            .next()
+            .map_or_else(|| "target/playback-fixture.mp4".into(), PathBuf::from);
         let seconds = args
-            .get(1)
+            .next()
             .map(|s| s.parse::<f64>())
             .transpose()
             .map_err(|_| anyhow::anyhow!("Duration must be a finite number"))?
@@ -36,15 +40,11 @@ impl Options {
             "Duration must be between 1 and 120 seconds"
         );
         Ok(Self {
-            source: args
-                .first()
-                .map(PathBuf::from)
-                .unwrap_or_else(|| "target/playback-fixture.mp4".into()),
+            source,
             seconds,
             report: args
-                .get(2)
-                .map(PathBuf::from)
-                .unwrap_or_else(|| "target/native-probe.jsonl".into()),
+                .next()
+                .map_or_else(|| "target/native-probe.jsonl".into(), PathBuf::from),
         })
     }
 }
@@ -66,9 +66,16 @@ fn init() -> State {
 }
 
 fn setup(s: &mut State, wake: rune::Waker) {
-    let options = s.options.take().unwrap();
-    let target = s.target.take().unwrap();
-    let commands = s.commands.take().unwrap();
+    let (Some(options), Some(target), Some(commands)) =
+        (s.options.take(), s.target.take(), s.commands.take())
+    else {
+        *s.outcome
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(Err(anyhow::anyhow!("Native probe setup state is missing")));
+        s.quit.quit();
+        return;
+    };
     // Only completion crosses this bounded boundary; metrics go directly to JSONL.
     let (events, receiver) = mpsc::sync_channel(1);
     s.events = Some(receiver);
@@ -78,11 +85,13 @@ fn setup(s: &mut State, wake: rune::Waker) {
         .name("embedded-probe".into())
         .spawn(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                probe(options, target, commands)
+                probe(&options, &target, &commands)
             }))
             .unwrap_or_else(|_| Err(anyhow::anyhow!("Native probe worker panicked")));
             // probe has returned, so Player::drop has finished before this acknowledgment.
-            *outcome.lock().unwrap() = Some(result);
+            *outcome
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result);
             if events.send(()).is_ok() {
                 (wake)();
             }
@@ -91,7 +100,10 @@ fn setup(s: &mut State, wake: rune::Waker) {
             quit.quit();
         });
     if spawn.is_err() {
-        *s.outcome.lock().unwrap() = Some(Err(anyhow::anyhow!("Cannot start native probe worker")));
+        *s.outcome
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(Err(anyhow::anyhow!("Cannot start native probe worker")));
         s.quit.quit();
     }
 }
@@ -103,7 +115,12 @@ fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
     {
         s.host.hide();
         tx.quit();
-    } else if s.outcome.lock().unwrap().is_some() {
+    } else if s
+        .outcome
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .is_some()
+    {
         tx.quit();
     }
     false // No continuously scheduled UI frames or idle polling.
@@ -149,16 +166,22 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
 // the native request instead: never hide/destroy the parent before mpv is gone.
 #[cfg(windows)]
 mod close_gate {
-    use super::*;
+    use anyhow::{Result, bail, ensure};
     use rune::raw_window_handle::RawWindowHandle;
+    use std::sync::mpsc;
     use windows_sys::Win32::{
         Foundation::{HWND, LPARAM, LRESULT, WPARAM},
-        UI::WindowsAndMessaging::*,
+        UI::WindowsAndMessaging::{
+            CallWindowProcW, DefWindowProcW, GWLP_WNDPROC, SetWindowLongPtrW, WM_CLOSE,
+        },
     };
     static HOOK: std::sync::OnceLock<(isize, mpsc::SyncSender<()>)> = std::sync::OnceLock::new();
 
     unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPARAM) -> LRESULT {
-        let (previous, stop) = HOOK.get().expect("Native close gate installed");
+        let Some((previous, stop)) = HOOK.get() else {
+            // SAFETY: the default window procedure is valid before the hook is installed.
+            return unsafe { DefWindowProcW(hwnd, message, w, l) };
+        };
         if message == WM_CLOSE {
             let _ = stop.try_send(());
             return 0;
@@ -203,9 +226,9 @@ mod close_gate {
 }
 
 fn probe(
-    options: Options,
-    target: mpsc::Receiver<Result<PlaybackTarget>>,
-    commands: mpsc::Receiver<()>,
+    options: &Options,
+    target: &mpsc::Receiver<Result<PlaybackTarget>>,
+    commands: &mpsc::Receiver<()>,
 ) -> Result<Summary> {
     // Resolve before creating the report so an accidental matching path cannot truncate media.
     let source = options
@@ -302,6 +325,10 @@ fn probe(
     finished
 }
 
+#[expect(
+    clippy::print_stdout,
+    reason = "This CLI smoke test explicitly prints its measurements"
+)]
 fn main() -> Result<()> {
     let options = Options::parse(std::env::args().skip(1).collect())?;
     let host = Host::default();
@@ -343,10 +370,11 @@ fn main() -> Result<()> {
         })
         .on_close(on_close)
         .run();
-    let summary =
-        result.lock().unwrap().take().ok_or_else(|| {
-            anyhow::anyhow!("Native probe exited without worker acknowledgment")
-        })??;
+    let summary = result
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Native probe result lock is poisoned"))?
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("Native probe exited without worker acknowledgment"))??;
     println!(
         "Native probe complete: {} samples; {:.3} s advancing playback; {} stalls; {} dropped frames.",
         summary.samples, summary.playback_advanced_s, summary.stalls, summary.dropped_frames
@@ -358,6 +386,10 @@ fn main() -> Result<()> {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    reason = "Probe fixtures and asserted parse results must fail the test on error"
+)]
 mod tests {
     use super::*;
 
@@ -373,13 +405,13 @@ mod tests {
         let (_stop, commands) = mpsc::sync_channel(1);
         assert!(
             probe(
-                Options {
+                &Options {
                     source: source.clone(),
                     seconds: 1.0,
                     report
                 },
-                target,
-                commands
+                &target,
+                &commands
             )
             .is_err()
         );

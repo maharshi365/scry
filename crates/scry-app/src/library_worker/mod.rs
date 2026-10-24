@@ -3,9 +3,12 @@
 //! Send parent series with `Upsert` before sending commands for their episodes.
 //! Mutations emit `Changed`, never snapshots; the UI chooses when to refresh.
 use anyhow::{Result, anyhow};
-use scry_library::{
-    Library, MAX_PAGE_SIZE, Media, MediaKey, MediaKind, Page, Playlist, Progress, WatchedState,
-};
+mod operations;
+mod protocol;
+mod runtime;
+
+pub use protocol::{Command, Event, SelectedState, Snapshot};
+use runtime::run;
 use std::{
     path::PathBuf,
     sync::{
@@ -14,72 +17,9 @@ use std::{
         mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError},
     },
     thread::{self, JoinHandle},
-    time::Duration,
 };
 
 const CAPACITY: usize = 32;
-
-#[derive(Debug)]
-pub enum Command {
-    /// `offset` applies to watchlist, watched items, and the selected playlist.
-    /// The playlist selector contains its first 200 playlists.
-    Refresh {
-        generation: u64,
-        selected: Option<MediaKey>,
-        playlist: Option<i64>,
-        offset: u32,
-        /// Visible episode identities, at most 200. Empty uses stored episodes.
-        episodes: Vec<MediaKey>,
-    },
-    /// Entries are upserted in order (parents before episodes).
-    Upsert(Vec<Media>),
-    ToggleWatchlist(Media),
-    SetWatched(Media, bool),
-    ClearOverride(Media),
-    CreatePlaylist(String),
-    RenamePlaylist(i64, String),
-    DeletePlaylist(i64),
-    AddToPlaylist(i64, Media),
-    RemoveFromPlaylist(i64, MediaKey),
-    ReorderPlaylist(i64, Vec<MediaKey>),
-    SaveProgress(Media, f64, f64),
-    /// A FIFO barrier for shutdown: all preceding writes finish before this ack.
-    Flush(u64),
-}
-
-#[derive(Debug)]
-pub struct SelectedState {
-    pub key: MediaKey,
-    pub watched: WatchedState,
-    pub watchlist: bool,
-    pub progress: Option<Progress>,
-}
-
-#[derive(Debug)]
-pub struct Snapshot {
-    pub watchlist: Vec<Media>,
-    pub watched: Vec<Media>,
-    pub playlists: Vec<Playlist>,
-    pub items: Vec<Media>,
-    /// `None` also covers a selected key not yet stored locally.
-    pub selected_state: Option<SelectedState>,
-    /// First 200 registered episodes of the selected series, or the selected
-    /// episode's parent series. No provider calls are made here.
-    pub episode_states: Vec<(MediaKey, WatchedState)>,
-}
-
-#[derive(Debug)]
-pub enum Event {
-    Ready,
-    Snapshot {
-        generation: u64,
-        data: Snapshot,
-    },
-    Changed,
-    Flushed(u64),
-    /// Fixed messages only: database details and media values stay private.
-    Error(String),
-}
 
 pub struct Worker {
     commands: SyncSender<Command>,
@@ -99,7 +39,7 @@ impl Worker {
         let stopping = stop.clone();
         let thread = thread::Builder::new()
             .name("scry-library".into())
-            .spawn(move || run(path, incoming, outgoing, stopping, wake))
+            .spawn(move || run(&path, &incoming, &outgoing, &stopping, &wake))
             .map_err(|_| anyhow!("Cannot start the library worker"))?;
         Ok(Self {
             commands,
@@ -139,187 +79,21 @@ impl Drop for Worker {
     }
 }
 
-fn emit(
-    events: &SyncSender<Event>,
-    stop: &AtomicBool,
-    wake: &rune::Waker,
-    mut event: Event,
-) -> bool {
-    while !stop.load(Ordering::Acquire) {
-        match events.try_send(event) {
-            Ok(()) => {
-                wake();
-                return true;
-            }
-            Err(TrySendError::Disconnected(_)) => return false,
-            Err(TrySendError::Full(pending)) => event = pending,
-        }
-        // Backpressure must not drop acknowledgments or prevent shutdown.
-        thread::park_timeout(Duration::from_millis(25));
-    }
-    false
-}
-
-fn run(
-    path: PathBuf,
-    commands: Receiver<Command>,
-    events: SyncSender<Event>,
-    stop: Arc<AtomicBool>,
-    wake: rune::Waker,
-) {
-    if stop.load(Ordering::Acquire) {
-        return;
-    }
-    let mut library = match Library::open(path) {
-        Ok(library) => library,
-        Err(_) => {
-            emit(
-                &events,
-                &stop,
-                &wake,
-                Event::Error("Cannot open the local library".into()),
-            );
-            return;
-        }
-    };
-    if !emit(&events, &stop, &wake, Event::Ready) {
-        return;
-    }
-    while !stop.load(Ordering::Acquire) {
-        let command = match commands.recv_timeout(Duration::from_millis(250)) {
-            Ok(command) => command,
-            Err(mpsc::RecvTimeoutError::Timeout) => continue,
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
-        };
-        if stop.load(Ordering::Acquire) {
-            break;
-        }
-        let event = match apply(&mut library, command) {
-            Ok(event) => event,
-            Err(_) => Event::Error("Cannot complete the library request".into()),
-        };
-        if !emit(&events, &stop, &wake, event) {
-            break;
-        }
-    }
-}
-
-fn apply(library: &mut Library, command: Command) -> Result<Event> {
-    match command {
-        Command::Refresh {
-            generation,
-            selected,
-            playlist,
-            offset,
-            episodes,
-        } => {
-            let page = Page::new(MAX_PAGE_SIZE, 0)?;
-            let selected_media = match selected {
-                Some(key) => library.get_media(&key)?,
-                None => None,
-            };
-            let series = selected_media
-                .as_ref()
-                .and_then(|media| match media.key.kind {
-                    MediaKind::Series => Some(&media.key),
-                    MediaKind::Episode => media.parent.as_ref(),
-                    MediaKind::Movie => None,
-                });
-            let mut episode_states = Vec::new();
-            anyhow::ensure!(
-                episodes.len() <= MAX_PAGE_SIZE as usize,
-                "Too many visible episodes"
-            );
-            if !episodes.is_empty() {
-                for key in episodes {
-                    let watched = if library.get_media(&key)?.is_some() {
-                        library.watched_state(&key)?
-                    } else {
-                        WatchedState {
-                            watched: false,
-                            manual_override: None,
-                        }
-                    };
-                    episode_states.push((key, watched));
-                }
-            } else if let Some(series) = series {
-                for episode in library.list_episodes(series, page)? {
-                    let watched = library.watched_state(&episode.key)?;
-                    episode_states.push((episode.key, watched));
-                }
-            }
-            let selected_state = match selected_media {
-                Some(media) => Some(SelectedState {
-                    watched: library.watched_state(&media.key)?,
-                    watchlist: library.is_in_watchlist(&media.key)?,
-                    progress: library.load_progress(&media.key)?,
-                    key: media.key,
-                }),
-                _ => None,
-            };
-            return Ok(Event::Snapshot {
-                generation,
-                data: Snapshot {
-                    watchlist: library.list_watchlist(Page::new(MAX_PAGE_SIZE, offset)?)?,
-                    watched: library.list_watched(Page::new(MAX_PAGE_SIZE, offset)?)?,
-                    playlists: library.list_playlists(page)?,
-                    items: match playlist {
-                        Some(id) => {
-                            library.list_playlist_items(id, Page::new(MAX_PAGE_SIZE, offset)?)?
-                        }
-                        None => Vec::new(),
-                    },
-                    selected_state,
-                    episode_states,
-                },
-            });
-        }
-        Command::Upsert(items) => {
-            for item in items {
-                library.upsert_media(&item)?;
-            }
-        }
-        Command::ToggleWatchlist(item) => {
-            library.upsert_media(&item)?;
-            if library.is_in_watchlist(&item.key)? {
-                library.remove_from_watchlist(&item.key)?;
-            } else {
-                library.add_to_watchlist(&item.key)?;
-            }
-        }
-        Command::SetWatched(item, watched) => {
-            library.upsert_media(&item)?;
-            library.set_watched(&item.key, watched)?;
-        }
-        Command::ClearOverride(item) => {
-            library.upsert_media(&item)?;
-            library.clear_watched_override(&item.key)?;
-        }
-        Command::CreatePlaylist(name) => {
-            library.create_playlist(&name)?;
-        }
-        Command::RenamePlaylist(id, name) => library.rename_playlist(id, &name)?,
-        Command::DeletePlaylist(id) => library.delete_playlist(id)?,
-        Command::AddToPlaylist(id, item) => {
-            library.upsert_media(&item)?;
-            library.add_playlist_item(id, &item.key)?;
-        }
-        Command::RemoveFromPlaylist(id, key) => library.remove_playlist_item(id, &key)?,
-        Command::ReorderPlaylist(id, keys) => library.reorder_playlist(id, &keys)?,
-        Command::SaveProgress(item, position, duration) => {
-            library.upsert_media(&item)?;
-            library.save_progress(&item.key, position, duration)?;
-        }
-        Command::Flush(token) => return Ok(Event::Flushed(token)),
-    }
-    Ok(Event::Changed)
-}
-
 #[cfg(test)]
+#[expect(
+    clippy::float_cmp,
+    reason = "Persisted fixture positions are exactly representable integers"
+)]
+#[expect(
+    clippy::unwrap_used,
+    clippy::panic,
+    reason = "Worker tests assert successful operations and report unexpected event variants as failures"
+)]
 mod tests {
+    use super::operations::apply;
     use super::*;
-    use scry_library::MediaKind;
-    use std::time::Instant;
+    use scry_library::{Library, Media, MediaKey, MediaKind};
+    use std::time::{Duration, Instant};
 
     fn movie() -> Media {
         Media {

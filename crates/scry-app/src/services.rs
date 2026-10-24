@@ -1,11 +1,11 @@
 //! Background work and the narrow, bounded boundary to the native UI.
 use anyhow::{Context, Result, bail};
+use scry_addons::{Addon, Catalog, Client, Meta, Stream};
 use scry_playback::{
     PlaybackEngine, PlaybackEvent, PlaybackTarget, Player,
     telemetry::{Report, Sample},
 };
 use scry_torrents::Torrents;
-use scry_addons::{Addon, Catalog, Client, Meta, Stream};
 use std::{
     path::PathBuf,
     sync::Arc,
@@ -175,7 +175,7 @@ impl Services {
                 }
                 next.push(addon);
                 save(&data, &next)?;
-                *current = next.clone();
+                current.clone_from(&next);
                 Ok(next)
             }
             .await;
@@ -192,7 +192,7 @@ impl Services {
             let mut next = current.clone();
             next.retain(|a| a.manifest.id != id);
             let result = save(&data, &next).map(|()| {
-                *current = next.clone();
+                current.clone_from(&next);
                 next
             });
             inbox
@@ -293,7 +293,7 @@ impl Services {
                     break;
                 };
                 match result {
-                    Ok((index, request, result)) => results.record(index, request, result),
+                    Ok((index, request, result)) => results.record(index, &request, result),
                     Err(_) => interrupted = true,
                 }
                 let (found, mut warnings) = results.snapshot(&query);
@@ -343,7 +343,7 @@ impl Services {
                         return;
                     }
                     Err(_) => {
-                        errors.push(format!("{}: detail request failed", addon.manifest.name))
+                        errors.push(format!("{}: detail request failed", addon.manifest.name));
                     }
                 }
             }
@@ -391,7 +391,7 @@ impl Services {
                         );
                     }
                     Ok((name, Err(_))) => {
-                        errors.push(format!("{name}: stream request failed or timed out"))
+                        errors.push(format!("{name}: stream request failed or timed out"));
                     }
                     Err(_) => errors.push("An add-on request could not finish".into()),
                 }
@@ -479,6 +479,10 @@ fn direct_url(stream: &Stream) -> Result<Option<String>> {
     Ok(stream.url.clone())
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "One task owns the native engine, torrent session, and ordered cancellation/teardown lifecycle"
+)]
 async fn player_loop(
     mut lifecycle: watch::Receiver<Option<Control>>,
     mut commands: mpsc::Receiver<(u64, Vec<String>)>,
@@ -505,14 +509,13 @@ async fn player_loop(
                 }
                 args = commands.recv() => args.map(|(id, args)| Control::Command(id, args)),
                 _ = tick.tick(), if player.is_some() => {
-                    let engine = player.as_ref().unwrap();
+                    let Some(engine) = player.as_ref() else { continue; };
                     let mut ended = None;
                     // libmpv also emits unhandled events. Bound draining per sample.
                     for _ in 0..64 {
                         match engine.event(0.0) {
-                            Some(PlaybackEvent::Failed) => { ended = Some(true); break; }
+                            Some(PlaybackEvent::Failed | PlaybackEvent::Shutdown) => { ended = Some(true); break; }
                             Some(PlaybackEvent::Ended) => { ended = Some(false); break; }
-                            Some(PlaybackEvent::Shutdown) => { ended = Some(true); break; }
                             _ => {}
                         }
                     }
@@ -567,24 +570,21 @@ async fn player_loop(
             Control::Play(id, target, source) => {
                 generation = id;
                 started = Instant::now();
-                let path = data
-                    .join("reports")
-                    .join(format!("{}.jsonl", uuid::Uuid::new_v4()));
-                let created = std::fs::create_dir_all(path.parent().unwrap())
+                let reports = data.join("reports");
+                let path = reports.join(format!("{}.jsonl", uuid::Uuid::new_v4()));
+                let created = std::fs::create_dir_all(&reports)
                     .map_err(anyhow::Error::from)
                     .and_then(|()| Report::create(&path, "native"));
-                match created {
-                    Ok(active) => report = Some(active),
-                    Err(_) => {
-                        inbox
-                            .send(Event::Stopped(
-                                id,
-                                Some("Cannot create private performance report".into()),
-                            ))
-                            .await;
-                        continue;
-                    }
-                }
+                let Ok(active) = created else {
+                    inbox
+                        .send(Event::Stopped(
+                            id,
+                            Some("Cannot create private performance report".into()),
+                        ))
+                        .await;
+                    continue;
+                };
+                report = Some(active);
                 let result: Result<Box<dyn PlaybackEngine>> = {
                     let prepare = async {
                         let url = match source {
@@ -595,21 +595,25 @@ async fn player_loop(
                                     bail!("Local video path is not a file");
                                 }
                                 url::Url::from_file_path(path)
-                                    .map_err(|_| anyhow::anyhow!("Invalid local video path"))?
+                                    .map_err(|()| anyhow::anyhow!("Invalid local video path"))?
                                     .to_string()
                             }
-                            Source::Stream(stream) => match direct_url(&stream)? {
-                                Some(url) => url,
-                                None => {
-                                    torrents = Some(
+                            Source::Stream(stream) => {
+                                if let Some(url) = direct_url(&stream)? {
+                                    url
+                                } else {
+                                    let session =
                                         Torrents::new(data.join("torrent-cache")).await.map_err(
                                             |_| anyhow::anyhow!("Cannot start torrent engine"),
-                                        )?,
-                                    );
-                                    torrents.as_ref().unwrap().play(&stream).await
-                                    .map_err(|_| anyhow::anyhow!("Torrent could not resolve metadata or select a video file"))?
+                                        )?;
+                                    torrents = Some(session);
+                                    let session = torrents
+                                        .as_ref()
+                                        .context("Torrent session is unavailable")?;
+                                    session.play(&stream).await
+                                        .map_err(|_| anyhow::anyhow!("Torrent could not resolve metadata or select a video file"))?
                                 }
-                            },
+                            }
                         };
                         let engine: Box<dyn PlaybackEngine> = Box::new(Player::open(target)?);
                         engine.load(&url)?;
@@ -619,7 +623,7 @@ async fn player_loop(
                         biased;
                         changed = lifecycle.changed() => {
                             if changed.is_err() { break; }
-                            pending = lifecycle.borrow_and_update().clone();
+                            pending.clone_from(&lifecycle.borrow_and_update());
                             // Dropping preparation cancels metadata resolution. The next
                             // command stops and drops its session before any replacement.
                             continue;
@@ -666,6 +670,10 @@ fn destroy_player(player: &mut Option<Box<dyn PlaybackEngine>>) {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    reason = "Configuration fixture and persistence failures must fail the test"
+)]
 mod tests {
     use super::*;
 

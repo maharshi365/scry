@@ -1,15 +1,15 @@
 use std::{env, fs, path::PathBuf};
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=assets/skry.svg");
-    let out = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo output directory"));
-    let source = fs::read("assets/skry.svg").expect("Skry SVG");
-    let tree = resvg::usvg::Tree::from_data(&source, &resvg::usvg::Options::default())
-        .expect("valid Skry SVG");
+    let out = PathBuf::from(env::var_os("OUT_DIR").ok_or("Missing Cargo output directory")?);
+    let source = fs::read("assets/skry.svg")?;
+    let tree = resvg::usvg::Tree::from_data(&source, &resvg::usvg::Options::default())?;
     let mut icons = ico::IconDir::new(ico::ResourceType::Icon);
-    for size in [16, 20, 24, 32, 40, 48, 64, 128, 256] {
-        let mut pixmap = resvg::tiny_skia::Pixmap::new(size, size).expect("icon pixmap");
-        let scale = size as f32 / tree.size().width();
+    for size in [16_u16, 20, 24, 32, 40, 48, 64, 128, 256] {
+        let mut pixmap = resvg::tiny_skia::Pixmap::new(u32::from(size), u32::from(size))
+            .ok_or("Cannot allocate icon pixmap")?;
+        let scale = f32::from(size) / tree.size().width();
         resvg::render(
             &tree,
             resvg::tiny_skia::Transform::from_scale(scale, scale),
@@ -25,21 +25,19 @@ fn main() {
             })
             .collect();
         if size == 128 {
-            fs::write(out.join("skry.rgba"), &rgba).expect("sidebar logo pixels");
+            fs::write(out.join("skry.rgba"), &rgba)?;
         }
-        let image = ico::IconImage::from_rgba_data(size, size, rgba);
-        icons.add_entry(ico::IconDirEntry::encode(&image).expect("encoded icon"));
+        let image = ico::IconImage::from_rgba_data(u32::from(size), u32::from(size), rgba);
+        icons.add_entry(ico::IconDirEntry::encode(&image)?);
     }
     let icon_path = out.join("skry.ico");
-    icons
-        .write(fs::File::create(&icon_path).expect("icon output"))
-        .expect("multi-resolution Windows icon");
+    icons.write(fs::File::create(&icon_path)?)?;
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         winresource::WindowsResource::new()
-            .set_icon(icon_path.to_str().expect("icon path"))
+            .set_icon(icon_path.to_str().ok_or("Icon path is not UTF-8")?)
             .set("ProductName", "Skry")
             .set("FileDescription", "Skry streaming app")
-            .compile()
-            .expect("Windows app icon resource");
+            .compile()?;
     }
+    Ok(())
 }

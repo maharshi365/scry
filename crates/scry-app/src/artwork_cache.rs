@@ -9,7 +9,7 @@ use std::{
 const BUDGET: u64 = 32 * 1024 * 1024;
 const MAX_ENTRIES: usize = 256;
 const MAX_PIXELS: usize = 160 * 240 * 4;
-const LIFETIME: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+const LIFETIME: Duration = Duration::from_hours(7 * 24);
 
 pub struct DiskCache {
     path: PathBuf,
@@ -18,17 +18,25 @@ pub struct DiskCache {
 
 impl DiskCache {
     pub fn new(path: PathBuf) -> Self {
-        Self { path, budget: BUDGET }
+        Self {
+            path,
+            budget: BUDGET,
+        }
     }
 
     fn key(&self, url: &str) -> PathBuf {
-        self.path.join(format!("{}.rgba", blake3::hash(url.as_bytes()).to_hex()))
+        self.path
+            .join(format!("{}.rgba", blake3::hash(url.as_bytes()).to_hex()))
     }
 
     pub fn load(&self, url: &str) -> Option<(u32, u32, Vec<u8>)> {
         let path = self.key(url);
-        let file = fs::OpenOptions::new().read(true).write(true).open(&path)
-            .or_else(|_| fs::File::open(path)).ok()?;
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .or_else(|_| fs::File::open(path))
+            .ok()?;
         let modified = file.metadata().ok()?.modified().ok()?;
         if SystemTime::now().duration_since(modified).ok()? > LIFETIME {
             return None;
@@ -37,8 +45,11 @@ impl DiskCache {
         if !(8..=(MAX_PIXELS + 8) as u64).contains(&length) {
             return None;
         }
-        let mut bytes = Vec::with_capacity(length as usize);
-        (&file).take((MAX_PIXELS + 9) as u64).read_to_end(&mut bytes).ok()?;
+        let mut bytes = Vec::with_capacity(usize::try_from(length).ok()?);
+        (&file)
+            .take((MAX_PIXELS + 9) as u64)
+            .read_to_end(&mut bytes)
+            .ok()?;
         let width = u32::from_le_bytes(bytes.get(..4)?.try_into().ok()?);
         let height = u32::from_le_bytes(bytes.get(4..8)?.try_into().ok()?);
         if !valid(width, height, bytes.len().checked_sub(8)?) {
@@ -60,7 +71,10 @@ impl DiskCache {
         fs::create_dir_all(&self.path)?;
         let temporary = self.path.join(format!("{}.tmp", uuid::Uuid::new_v4()));
         let result = (|| {
-            let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&temporary)?;
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temporary)?;
             file.write_all(&width.to_le_bytes())?;
             file.write_all(&height.to_le_bytes())?;
             file.write_all(pixels)?;
@@ -79,21 +93,37 @@ impl DiskCache {
         let mut total = 0;
         for entry in fs::read_dir(&self.path)?.flatten() {
             let path = entry.path();
-            if !owned_file(&path) { continue; }
-            let Ok(metadata) = entry.metadata() else { continue };
-            if !metadata.is_file() { continue; }
+            if !owned_file(&path) {
+                continue;
+            }
+            let Ok(metadata) = entry.metadata() else {
+                continue;
+            };
+            if !metadata.is_file() {
+                continue;
+            }
             let modified = metadata.modified()?;
-            if SystemTime::now().duration_since(modified).unwrap_or_default() > LIFETIME {
+            if SystemTime::now()
+                .duration_since(modified)
+                .unwrap_or_default()
+                > LIFETIME
+            {
                 fs::remove_file(path)?;
                 continue;
             }
             total += metadata.len();
-            entries.push((metadata.accessed().unwrap_or(modified), path, metadata.len()));
+            entries.push((
+                metadata.accessed().unwrap_or(modified),
+                path,
+                metadata.len(),
+            ));
         }
         entries.sort_by_key(|entry| entry.0);
         let mut count = entries.len();
         for (_, path, size) in entries {
-            if total <= self.budget && count <= MAX_ENTRIES { break; }
+            if total <= self.budget && count <= MAX_ENTRIES {
+                break;
+            }
             fs::remove_file(path)?;
             total -= size;
             count -= 1;
@@ -103,12 +133,17 @@ impl DiskCache {
 }
 
 fn valid(width: u32, height: u32, length: usize) -> bool {
-    width > 0 && height > 0 && width <= 160 && height <= 240
+    width > 0
+        && height > 0
+        && width <= 160
+        && height <= 240
         && length == width as usize * height as usize * 4
 }
 
 fn owned_file(path: &Path) -> bool {
-    let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else { return false };
+    let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+        return false;
+    };
     match path.extension().and_then(|extension| extension.to_str()) {
         Some("rgba") => stem.len() == 64 && stem.bytes().all(|byte| byte.is_ascii_hexdigit()),
         Some("tmp") => uuid::Uuid::parse_str(stem).is_ok(),
@@ -117,6 +152,10 @@ fn owned_file(path: &Path) -> bool {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    reason = "Filesystem fixtures and asserted cache hits must fail the test on error"
+)]
 mod tests {
     use super::*;
 
@@ -127,8 +166,19 @@ mod tests {
         let url = "https://example.com/private-title?token=secret";
         cache.store(url, 2, 1, &[1, 2, 3, 255, 4, 5, 6, 255]);
         let reopened = DiskCache::new(directory.path().into());
-        assert_eq!(reopened.load(url), Some((2, 1, vec![1, 2, 3, 255, 4, 5, 6, 255])));
-        assert!(!cache.key(url).file_name().unwrap().to_str().unwrap().contains("secret"));
+        assert_eq!(
+            reopened.load(url),
+            Some((2, 1, vec![1, 2, 3, 255, 4, 5, 6, 255]))
+        );
+        assert!(
+            !cache
+                .key(url)
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("secret")
+        );
         assert_eq!(reopened.load("https://example.com/other"), None);
         reopened.store(url, 1, 1, &[9, 8, 7, 255]);
         assert_eq!(reopened.load(url), Some((1, 1, vec![9, 8, 7, 255])));
@@ -139,8 +189,15 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let cache = DiskCache::new(directory.path().into());
         cache.store("a", 1, 1, &[0; 4]);
-        let file = fs::File::options().write(true).open(cache.key("a")).unwrap();
-        file.set_times(fs::FileTimes::new().set_modified(SystemTime::now() - LIFETIME - Duration::from_secs(1))).unwrap();
+        let file = fs::File::options()
+            .write(true)
+            .open(cache.key("a"))
+            .unwrap();
+        file.set_times(
+            fs::FileTimes::new()
+                .set_modified(SystemTime::now() - LIFETIME - Duration::from_secs(1)),
+        )
+        .unwrap();
         assert!(cache.load("a").is_none());
         drop(file);
         fs::write(cache.key("b"), [0; 7]).unwrap();
@@ -156,31 +213,55 @@ mod tests {
     #[test]
     fn byte_budget_evicts_oldest_and_preserves_unrelated_files() {
         let directory = tempfile::tempdir().unwrap();
-        let cache = DiskCache { path: directory.path().into(), budget: 24 };
+        let cache = DiskCache {
+            path: directory.path().into(),
+            budget: 24,
+        };
         fs::write(directory.path().join("keep.txt"), "not cache data").unwrap();
         cache.store("a", 1, 1, &[1; 4]);
-        fs::File::options().write(true).open(cache.key("a")).unwrap()
-            .set_times(fs::FileTimes::new().set_accessed(SystemTime::now() - Duration::from_secs(60))).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(cache.key("a"))
+            .unwrap()
+            .set_times(
+                fs::FileTimes::new().set_accessed(SystemTime::now() - Duration::from_mins(1)),
+            )
+            .unwrap();
         cache.store("b", 1, 1, &[2; 4]);
         cache.store("c", 1, 1, &[3; 4]);
         assert!(cache.load("a").is_none());
         assert_eq!(cache.load("b").unwrap().2, vec![2; 4]);
         assert_eq!(cache.load("c").unwrap().2, vec![3; 4]);
-        assert_eq!(fs::read_to_string(directory.path().join("keep.txt")).unwrap(), "not cache data");
+        assert_eq!(
+            fs::read_to_string(directory.path().join("keep.txt")).unwrap(),
+            "not cache data"
+        );
     }
 
     #[test]
     fn revisits_promote_eviction_priority_without_extending_freshness() {
         let directory = tempfile::tempdir().unwrap();
-        let cache = DiskCache { path: directory.path().into(), budget: 24 };
+        let cache = DiskCache {
+            path: directory.path().into(),
+            budget: 24,
+        };
         for (key, age) in [("a", 60), ("b", 30)] {
             cache.store(key, 1, 1, &[1; 4]);
-            fs::File::options().write(true).open(cache.key(key)).unwrap()
-                .set_times(fs::FileTimes::new().set_accessed(SystemTime::now() - Duration::from_secs(age))).unwrap();
+            fs::File::options()
+                .write(true)
+                .open(cache.key(key))
+                .unwrap()
+                .set_times(
+                    fs::FileTimes::new().set_accessed(SystemTime::now() - Duration::from_secs(age)),
+                )
+                .unwrap();
         }
         let modified = fs::metadata(cache.key("a")).unwrap().modified().unwrap();
         assert!(cache.load("a").is_some());
-        assert_eq!(fs::metadata(cache.key("a")).unwrap().modified().unwrap(), modified);
+        assert_eq!(
+            fs::metadata(cache.key("a")).unwrap().modified().unwrap(),
+            modified
+        );
         cache.store("c", 1, 1, &[3; 4]);
         assert!(cache.load("a").is_some());
         assert!(cache.load("b").is_none());

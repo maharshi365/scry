@@ -1,3 +1,12 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "Tests assert stored records and intentionally fail if a record is missing"
+)]
+#![expect(
+    clippy::float_cmp,
+    reason = "Stored fixture values must round-trip exactly, without approximate arithmetic"
+)]
+
 use scry_library::{Library, Media, MediaKey, MediaKind, Page};
 
 fn movie(namespace: &str, id: &str) -> Media {

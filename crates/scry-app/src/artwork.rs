@@ -7,7 +7,7 @@
 //! Keep returned image handles only in the current view, not another cache.
 //! A separate 32 MiB disposable disk cache keeps thumbnails for up to seven days.
 //!
-//! This is NOT a total renderer memory bound: Rune's ImageAtlas uses shelf
+//! This is NOT a total renderer memory bound: Rune's `ImageAtlas` uses shelf
 //! pages. It reclaims empty pages, but live images can prevent fragmented pages
 //! from being reclaimed. Rune exposes no atlas compaction API to the app.
 use anyhow::{Result, anyhow};
@@ -51,8 +51,9 @@ impl<T> Cache<T> {
     }
 
     fn touch(&mut self, url: &str) {
-        if let Some(index) = self.0.iter().position(|(key, _)| key == url) {
-            let entry = self.0.remove(index).unwrap();
+        if let Some(index) = self.0.iter().position(|(key, _)| key == url)
+            && let Some(entry) = self.0.remove(index)
+        {
             self.0.push_back(entry);
         }
     }
@@ -130,7 +131,7 @@ impl Artwork {
     /// Decode happens on those same workers, never on the UI thread. Thumbnails
     /// are already display-sized; use Pixels directly rather than queueing
     /// another worker to build a mip chain that these poster sizes never sample.
-    pub fn start(wake: rune::Waker) -> Result<Self> {
+    pub fn start(wake: &rune::Waker) -> Result<Self> {
         let client = reqwest::Client::builder()
             .https_only(true)
             .redirect(reqwest::redirect::Policy::limited(3))
@@ -158,7 +159,7 @@ impl Artwork {
             let disk = disk.clone();
             thread::Builder::new()
                 .name(format!("scry-artwork-{index}"))
-                .spawn(move || worker(state, client, wake, runtime, disk))
+                .spawn(move || worker(&state, &client, &wake, &runtime, disk.as_deref()))
                 .map_err(|_| anyhow!("Cannot start the artwork worker"))?;
         }
         Ok(artwork)
@@ -168,14 +169,16 @@ impl Artwork {
     /// downloads are cancelled; an already running decode finishes but its
     /// result is discarded. Queue replacement does not wait for a worker.
     pub fn set_visible(&mut self, urls: &[String]) {
-        self.shared.state.lock().unwrap().set_visible(urls);
+        if let Ok(mut state) = self.shared.state.lock() {
+            state.set_visible(urls);
+        }
         self.shared.available.notify_all();
     }
 
     /// Read-only and nonblocking apart from a short cache lock. Returns only
     /// fully decoded images; draw a local placeholder for missing artwork.
     pub fn get(&self, url: &str) -> Option<rune::Pixels> {
-        self.shared.state.lock().unwrap().ready.get(url).cloned()
+        self.shared.state.lock().ok()?.ready.get(url).cloned()
     }
 
     /// Called by the app's poll hook after a wake. Failures also trigger one
@@ -187,7 +190,12 @@ impl Artwork {
 
 impl Drop for Artwork {
     fn drop(&mut self) {
-        let mut state = self.shared.state.lock().unwrap();
+        // Shutdown must still cancel workers if a previous holder panicked.
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         state.stop = true;
         for cancel in state.active.values() {
             let _ = cancel.send(true);
@@ -200,15 +208,17 @@ impl Drop for Artwork {
 }
 
 fn worker(
-    shared: Arc<Shared>,
-    client: reqwest::Client,
-    wake: rune::Waker,
-    runtime: tokio::runtime::Runtime,
-    disk: Option<Arc<Mutex<crate::artwork_cache::DiskCache>>>,
+    shared: &Shared,
+    client: &reqwest::Client,
+    wake: &rune::Waker,
+    runtime: &tokio::runtime::Runtime,
+    disk: Option<&Mutex<crate::artwork_cache::DiskCache>>,
 ) {
     loop {
         let (url, mut cancel) = {
-            let mut state = shared.state.lock().unwrap();
+            let Ok(mut state) = shared.state.lock() else {
+                return;
+            };
             loop {
                 if state.stop {
                     return;
@@ -218,30 +228,38 @@ fn worker(
                     state.active.insert(url.clone(), sender);
                     break (url, receiver);
                 }
-                state = shared.available.wait(state).unwrap();
+                let Ok(ready) = shared.available.wait(state) else {
+                    return;
+                };
+                state = ready;
             }
         };
-        let cached = disk.as_ref().and_then(|disk| disk.lock().unwrap().load(&url));
-        let decoded = cached.map(Ok).unwrap_or_else(|| {
-            runtime
-                .block_on(async {
-                    tokio::select! {
-                        biased;
-                        _ = cancel.changed() => Err(()),
-                        result = download(&client, &url) => result,
-                    }
-                })
-                .and_then(|bytes| {
-                    if *cancel.borrow() {
-                        return Err(());
-                    }
-                    let (width, height, pixels) = thumbnail(&bytes)?;
-                    if let Some(disk) = &disk {
-                        disk.lock().unwrap().store(&url, width, height, &pixels);
-                    }
-                    Ok((width, height, pixels))
-                })
-        });
+        let cached = disk.as_ref().and_then(|disk| disk.lock().ok()?.load(&url));
+        let decoded = cached.map_or_else(
+            || {
+                runtime
+                    .block_on(async {
+                        tokio::select! {
+                            biased;
+                            _ = cancel.changed() => Err(()),
+                            result = download(client, &url) => result,
+                        }
+                    })
+                    .and_then(|bytes| {
+                        if *cancel.borrow() {
+                            return Err(());
+                        }
+                        let (width, height, pixels) = thumbnail(&bytes)?;
+                        if let Some(disk) = &disk
+                            && let Ok(disk) = disk.lock()
+                        {
+                            disk.store(&url, width, height, &pixels);
+                        }
+                        Ok((width, height, pixels))
+                    })
+            },
+            Ok,
+        );
         let result = decoded.and_then(|(width, height, pixels)| {
             if *cancel.borrow() {
                 return Err(());
@@ -250,7 +268,9 @@ fn worker(
             image.set(width, height, pixels);
             Ok(image)
         });
-        let mut state = shared.state.lock().unwrap();
+        let Ok(mut state) = shared.state.lock() else {
+            return;
+        };
         state.active.remove(&url);
         let changed = !state.stop && !*cancel.borrow() && state.visible.contains(&url);
         if changed {
@@ -329,9 +349,9 @@ fn thumbnail(bytes: &[u8]) -> std::result::Result<(u32, u32, Vec<u8>), ()> {
     let decoder = reader.into_decoder().map_err(|_| ())?;
     let (width, height) = decoder.dimensions();
     validate_dimensions(width, height, decoder.total_bytes())?;
-    let decoded = image::DynamicImage::from_decoder(decoder).map_err(|_| ())?;
+    let image = image::DynamicImage::from_decoder(decoder).map_err(|_| ())?;
     // Convert to RGBA only after scaling, never allocate a full-size RGBA copy.
-    let small = decoded.thumbnail(WIDTH, HEIGHT).into_rgba8();
+    let small = image.thumbnail(WIDTH, HEIGHT).into_rgba8();
     Ok((small.width(), small.height(), small.into_raw()))
 }
 
@@ -349,6 +369,10 @@ fn validate_dimensions(width: u32, height: u32, bytes: u64) -> std::result::Resu
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    reason = "Image fixture creation and decoding failures must fail the test"
+)]
 mod tests {
     use super::*;
 
@@ -380,6 +404,32 @@ mod tests {
         assert_eq!(cache.get(&url(1)), None);
         assert_eq!(cache.get(&url(2)), Some(&2));
         assert_eq!(cache.0.len(), 2);
+    }
+
+    #[test]
+    #[expect(
+        clippy::panic,
+        reason = "Inject a worker fault to exercise poisoned-cache recovery and shutdown"
+    )]
+    fn poisoned_cache_returns_a_placeholder_and_shutdown_still_cancels_work() {
+        let shared = Arc::new(Shared::default());
+        let (sender, receiver) = watch::channel(false);
+        shared.state.lock().unwrap().active.insert(url(0), sender);
+        let failing = shared.clone();
+        let _ = thread::spawn(move || {
+            let _state = failing.state.lock().unwrap();
+            panic!("Injected cache fault");
+        })
+        .join();
+
+        let mut artwork = Artwork { shared };
+        assert!(artwork.get(&url(0)).is_none());
+        artwork.set_visible(&[url(1)]);
+        drop(artwork);
+        assert!(
+            *receiver.borrow(),
+            "Shutdown must cancel work even after the cache is poisoned"
+        );
     }
 
     #[test]

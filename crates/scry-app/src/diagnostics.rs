@@ -1,9 +1,9 @@
 //! Bounded, privacy-safe decode-only probes and offline JSONL analysis.
+use anyhow::{Result, bail, ensure};
 use scry_playback::{
     PlaybackEvent, PlaybackTarget, Player,
     telemetry::{Report, Sample, Summary, Tracker},
 };
-use anyhow::{Result, bail, ensure};
 use std::{
     fs::{self, File},
     io::{BufRead, BufReader, BufWriter, Write},
@@ -119,6 +119,11 @@ impl Options {
 }
 
 /// Accept only diagnostic arguments, without the executable name.
+#[expect(
+    clippy::print_stdout,
+    clippy::cast_precision_loss,
+    reason = "This diagnostic CLI prints approximate human-readable memory deltas, not exact byte counts"
+)]
 pub fn run(args: &[String]) -> Result<()> {
     let options = Options::parse(args)?;
     match &options.mode {
@@ -138,13 +143,13 @@ pub fn run(args: &[String]) -> Result<()> {
                 }
                 println!(
                     "  stalls: {:+}; peak resident: {:+.2} MiB; peak private: {:+.2} MiB",
-                    analysis.summary.stalls as i128 - baseline.summary.stalls as i128,
+                    i128::from(analysis.summary.stalls) - i128::from(baseline.summary.stalls),
                     (analysis.summary.peak_resident_bytes as f64
                         - baseline.summary.peak_resident_bytes as f64)
-                        / 1048576.0,
+                        / 1_048_576.0,
                     (analysis.summary.peak_private_bytes as f64
                         - baseline.summary.peak_private_bytes as f64)
-                        / 1048576.0
+                        / 1_048_576.0
                 );
                 println!(
                     "Compare only matching media, durations, builds, and machines; these are not pass/fail thresholds."
@@ -167,6 +172,10 @@ pub fn run(args: &[String]) -> Result<()> {
     }
 }
 
+#[expect(
+    clippy::print_stdout,
+    reason = "This diagnostic CLI explicitly prints its probe result"
+)]
 fn probe(options: &Options) -> Result<()> {
     if let Mode::Probe(source) = &options.mode {
         validate_report_destination(source, &options.report)?;
@@ -283,6 +292,11 @@ struct Fixture {
     path: PathBuf,
 }
 impl Fixture {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "Validated self-test duration is finite, positive, and bounded to 120 seconds"
+    )]
     fn create(seconds: f64) -> Result<Self> {
         let fixture = Self {
             path: std::env::var_os("LOCALAPPDATA")
@@ -297,7 +311,7 @@ impl Fixture {
         file.write_all(b"YUV4MPEG2 W32 H24 F12:1 Ip A1:1 C420jpeg\n")?;
         let mut frame = vec![128u8; 32 * 24 * 3 / 2];
         for n in 0..((seconds + 2.0) * 12.0).ceil() as usize {
-            frame[..32 * 24].fill(32 + (n % 180) as u8);
+            frame[..32 * 24].fill(32 + u8::try_from(n % 180)?);
             file.write_all(b"FRAME\n")?;
             file.write_all(&frame)?;
         }
@@ -356,7 +370,10 @@ fn analyze_reader(reader: impl BufRead) -> Result<Analysis> {
                         && matches!(value["mode"].as_str(), Some("decode-only" | "native")),
                     "Expected schema 1 native or decode-only report"
                 );
-                mode = value["mode"].as_str().unwrap().to_owned();
+                value["mode"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Report mode is missing"))?
+                    .clone_into(&mut mode);
                 session = true;
             }
             Some("sample") => {
@@ -414,11 +431,14 @@ fn analyze_reader(reader: impl BufRead) -> Result<Analysis> {
 }
 
 fn optional(value: Option<f64>, unit: &str) -> String {
-    value
-        .map(|v| format!("{v:.3} {unit}"))
-        .unwrap_or_else(|| "unknown".into())
+    value.map_or_else(|| "unknown".into(), |v| format!("{v:.3} {unit}"))
 }
 
+#[expect(
+    clippy::print_stdout,
+    clippy::cast_precision_loss,
+    reason = "Terminal output formats approximate memory sizes and rates for human reading"
+)]
 fn print_analysis(analysis: &Analysis) {
     let s = &analysis.summary;
     println!(
@@ -437,13 +457,13 @@ fn print_analysis(analysis: &Analysis) {
         optional(
             analysis
                 .resident_known
-                .then_some(s.peak_resident_bytes as f64 / 1048576.0),
+                .then_some(s.peak_resident_bytes as f64 / 1_048_576.0),
             "MiB"
         ),
         optional(
             analysis
                 .private_known
-                .then_some(s.peak_private_bytes as f64 / 1048576.0),
+                .then_some(s.peak_private_bytes as f64 / 1_048_576.0),
             "MiB"
         )
     );
@@ -466,6 +486,14 @@ fn print_analysis(analysis: &Analysis) {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::float_cmp,
+    reason = "Fixtures use exactly representable durations and integral progress values"
+)]
+#[expect(
+    clippy::unwrap_used,
+    reason = "Test fixtures and asserted successful results must fail the test on error"
+)]
 mod tests {
     use super::*;
 
@@ -491,7 +519,7 @@ mod tests {
         }
     }
     fn parse(args: &[&str]) -> Result<Options> {
-        Options::parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+        Options::parse(&args.iter().map(ToString::to_string).collect::<Vec<_>>())
     }
 
     #[test]

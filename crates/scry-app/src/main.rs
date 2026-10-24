@@ -1,9 +1,9 @@
-mod diagnostics;
-mod library_worker;
-mod services;
-mod search;
 mod artwork;
 mod artwork_cache;
+mod diagnostics;
+mod library_worker;
+mod search;
+mod services;
 mod ui;
 
 fn main() -> anyhow::Result<()> {

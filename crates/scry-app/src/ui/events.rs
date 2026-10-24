@@ -1,0 +1,196 @@
+//! Bounded service polling and generation-checked event application.
+use super::{EPISODES_PER_PAGE, Page, State, app::headless, artwork::poster_columns};
+use crate::services::{Event, Source};
+use rune::{TextEdit, Tx};
+use scry_addons::Meta;
+use scry_app::platform::VideoHost;
+use std::sync::Arc;
+
+pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
+    if let Some(anchor) = s.reveal.take() {
+        if s.page == Page::Discover
+            && let Some(index) = anchor
+                .strip_prefix("title-")
+                .and_then(|index| index.parse::<usize>().ok())
+        {
+            let columns = s.poster_viewport.map_or(3, |rect| poster_columns(rect[2]));
+            tx.scroll_into_view(format!("title-row-{}", index / columns));
+        } else {
+            tx.scroll_into_view(anchor);
+        }
+    }
+    s.refresh_artwork();
+    let mut changed = s.poll_library()
+        | s.artwork
+            .as_mut()
+            .is_some_and(crate::artwork::Artwork::poll);
+    if !headless()
+        && s.services.is_some()
+        && s.host.target().is_ok()
+        && let Some(input) = s.startup_play.take()
+    {
+        if input.starts_with("http://") || input.starts_with("https://") {
+            s.direct = TextEdit::new(input);
+            s.play_direct();
+        } else {
+            s.save_library_progress();
+            s.library.playing = None;
+            s.playing_meta_id = None;
+            s.playing_video_id = None;
+            s.play_source(Source::Local(input.into()), "Local video".into());
+        }
+        changed = true;
+    }
+    for _ in 0..64 {
+        let event = s.events.as_mut().and_then(|events| events.try_recv().ok());
+        let Some(event) = event else {
+            break;
+        };
+        changed = true;
+        apply(s, event);
+    }
+    changed
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "The exhaustive protocol match keeps each event beside its stale-generation guard"
+)]
+fn apply(s: &mut State, event: Event) {
+    match event {
+        Event::Addons(result) => {
+            s.config_busy = false;
+            match result {
+                Ok(addons) => {
+                    s.addons = addons;
+                    if s.catalog.as_ref().is_none_or(|(a, _)| {
+                        !s.addons
+                            .iter()
+                            .any(|current| current.manifest.id == a.manifest.id)
+                    }) {
+                        s.catalog = s.catalogs().into_iter().next();
+                        if s.page == Page::Discover {
+                            s.fetch_catalog();
+                        }
+                    }
+                }
+                Err(error) => s.error = Some(error),
+            }
+        }
+        Event::Catalog(id, result) if id == s.catalog_id && s.page == Page::Discover => {
+            s.loading = false;
+            match result {
+                Ok(metas) => {
+                    s.status = format!("{} titles", metas.len());
+                    s.metas = Arc::new(metas);
+                }
+                Err(error) => s.error = Some(error),
+            }
+        }
+        Event::Search(id, results, warnings, done)
+            if id == s.catalog_id && s.page == Page::Discover =>
+        {
+            s.loading = !done;
+            s.providers = Arc::new(results.iter().map(|result| result.addon.clone()).collect());
+            s.metas = Arc::new(results.into_iter().map(|result| result.meta).collect());
+            s.warnings = warnings;
+            s.status = format!(
+                "{} titles{}",
+                s.metas.len(),
+                if done { "" } else { " · searching…" }
+            );
+        }
+        Event::Detail(id, result) if id == s.detail_id && s.page == Page::Detail => {
+            s.loading = false;
+            match result {
+                Ok((meta, namespace)) => {
+                    s.detail_namespace = namespace;
+                    apply_detail(s, meta);
+                }
+                Err(error) => s.error = Some(error),
+            }
+        }
+        Event::Streams(id, streams, warnings, done)
+            if id == s.stream_id && s.page == Page::Detail =>
+        {
+            s.loading = !done;
+            s.streams = streams;
+            s.warnings = warnings;
+            s.status = if !done {
+                format!("{} streams · loading…", s.streams.len())
+            } else if s.streams.is_empty() {
+                "No streams found. Install a compatible stream add-on, or try another episode."
+                    .into()
+            } else {
+                format!("{} streams", s.streams.len())
+            };
+        }
+        Event::Playing(id, path) if id == s.play_id => {
+            s.report = Some(path);
+            s.status = "Player connected · waiting for media…".into();
+            let volume = s.volume.to_string();
+            s.command(&["set", "volume", &volume]);
+        }
+        Event::Metrics(id, sample) if id == s.play_id => {
+            s.status = if sample.buffering {
+                "Buffering"
+            } else if sample.paused {
+                "Paused"
+            } else if sample.position_s.is_none() {
+                "Opening media…"
+            } else {
+                "Playing"
+            }
+            .into();
+            s.sample = sample;
+            s.observe_library_progress();
+        }
+        Event::Stopped(id, error) if id == s.play_id => {
+            s.finish_library_progress(error.is_none());
+            s.library.playing = None;
+            s.refresh_library();
+            s.playing = false;
+            s.host.hide();
+            s.status = "Playback stopped".into();
+            if error.is_some() {
+                s.error = error;
+            }
+        }
+        Event::PlayerWarning(id, error) if id == s.play_id => s.error = Some(error),
+        _ => {}
+    }
+}
+
+fn apply_detail(s: &mut State, meta: Meta) {
+    let movie = meta.kind == "movie";
+    let (kind, id) = (meta.kind.clone(), meta.id.clone());
+    let episode = s.pending_episode.take().filter(|_| !movie);
+    if let Some(index) = episode
+        .as_ref()
+        .and_then(|id| meta.videos.iter().position(|video| &video.id == id))
+    {
+        s.episode_season = Some(meta.videos[index].season);
+        let mut indices: Vec<_> = meta
+            .videos
+            .iter()
+            .enumerate()
+            .filter(|(_, video)| video.season == meta.videos[index].season)
+            .map(|(index, _)| index)
+            .collect();
+        indices.sort_by_key(|index| meta.videos[*index].episode);
+        let position = indices
+            .iter()
+            .position(|value| *value == index)
+            .unwrap_or(0);
+        s.episode_offset = position / EPISODES_PER_PAGE * EPISODES_PER_PAGE;
+    }
+    s.selected_video_id.clone_from(&episode);
+    s.detail = Some(meta);
+    s.register_library_detail();
+    s.status = "Choose an episode to find streams.".into();
+    if movie {
+        s.find_streams(kind, id);
+    } else if let Some(episode) = episode {
+        s.find_streams(kind, episode);
+    }
+}

@@ -83,7 +83,7 @@ pub struct Results {
 }
 
 impl Results {
-    pub fn record(&mut self, index: usize, request: Request, result: Result<Vec<Meta>, ()>) {
+    pub fn record(&mut self, index: usize, request: &Request, result: Result<Vec<Meta>, ()>) {
         match result {
             Ok(metas) => {
                 self.batches.insert(
@@ -137,16 +137,21 @@ impl Results {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    reason = "Search fixtures and asserted successful results must fail the test on error"
+)]
 mod tests {
     use super::*;
     use serde_json::json;
 
     fn addon(id: &str, catalogs: serde_json::Value) -> Addon {
-        serde_json::from_value(json!({
+        let mut value = json!({
             "manifest_url": "https://example.com/private/manifest.json",
-            "manifest": {"id": id, "name": id, "catalogs": catalogs}
-        }))
-        .unwrap()
+            "manifest": {"id": id, "name": id}
+        });
+        value["manifest"]["catalogs"] = catalogs;
+        serde_json::from_value(value).unwrap()
     }
 
     fn searchable(kind: &str) -> serde_json::Value {
@@ -193,15 +198,15 @@ mod tests {
         let (index, request) = requests.pop().unwrap();
         results.record(
             index,
-            request,
+            &request,
             Ok(vec![meta("movie", "same", "Other title")]),
         );
         let (index, request) = requests.pop().unwrap();
-        results.record(index, request, Ok(vec![meta("series", "same", "Series")]));
+        results.record(index, &request, Ok(vec![meta("series", "same", "Series")]));
         let (index, request) = requests.pop().unwrap();
         results.record(
             index,
-            request,
+            &request,
             Ok(vec![meta("movie", "same", "Original title")]),
         );
         let (found, _) = results.snapshot("title");
@@ -223,7 +228,7 @@ mod tests {
             if index == 0 {
                 results.record(
                     index,
-                    request,
+                    &request,
                     Ok(vec![
                         meta("movie", "1", "Other"),
                         meta("movie", "2", "The ÉTOILE"),
@@ -232,7 +237,7 @@ mod tests {
                     ]),
                 );
             } else {
-                results.record(index, request, Err(()));
+                results.record(index, &request, Err(()));
             }
         }
         let (found, warnings) = results.snapshot("étoile");
@@ -259,7 +264,7 @@ mod tests {
         let mut results = Results::default();
         results.record(
             0,
-            request,
+            &request,
             Ok((0..150)
                 .map(|i| meta("movie", &i.to_string(), "Title"))
                 .collect()),

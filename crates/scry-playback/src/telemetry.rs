@@ -112,6 +112,8 @@ pub struct Report {
 }
 
 impl Report {
+    /// # Errors
+    /// Returns an error if the report cannot be created or its session record cannot be written.
     pub fn create(path: &Path, mode: &str) -> Result<Self> {
         let mut file =
             BufWriter::new(File::create(path).context("Cannot create performance report")?);
@@ -126,9 +128,12 @@ impl Report {
             started: Instant::now(),
         })
     }
+    #[must_use]
     pub fn elapsed(&self) -> f64 {
         self.started.elapsed().as_secs_f64()
     }
+    /// # Errors
+    /// Returns an error if the sample cannot be serialized or written to the report.
     pub fn sample(&mut self, sample: &Sample) -> Result<()> {
         self.tracker.observe(sample);
         writeln!(
@@ -139,6 +144,8 @@ impl Report {
         self.file.flush()?;
         Ok(())
     }
+    /// # Errors
+    /// Returns an error if the final summary cannot be written or flushed.
     pub fn finish(mut self, error: bool) -> Result<Summary> {
         self.tracker.summary.error = error;
         writeln!(
@@ -151,11 +158,16 @@ impl Report {
     }
 }
 
+#[must_use]
 pub fn memory() -> (Option<u64>, Option<u64>) {
     crate::process::memory()
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::float_cmp,
+    reason = "Fixtures use exactly representable times and assert exact counter arithmetic"
+)]
 mod tests {
     use super::*;
     fn sample(t: f64, p: f64) -> Sample {
@@ -191,7 +203,7 @@ mod tests {
         for t in 1..5 {
             tracker.observe(&Sample {
                 paused: true,
-                ..sample(t as f64, 1.)
+                ..sample(f64::from(t), 1.)
             });
         }
         tracker.observe(&sample(5., 1.));

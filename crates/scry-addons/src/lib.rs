@@ -55,7 +55,9 @@ pub struct Meta {
 }
 
 impl<'de> Deserialize<'de> for Meta {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
         #[derive(Deserialize)]
         struct Fields {
             id: String,
@@ -83,7 +85,11 @@ impl<'de> Deserialize<'de> for Meta {
             description: fields.description,
             poster: fields.poster,
             background: fields.background,
-            year: if fields.release.is_empty() { fields.year } else { fields.release },
+            year: if fields.release.is_empty() {
+                fields.year
+            } else {
+                fields.release
+            },
             genres: fields.genres,
             videos: fields.videos,
         })
@@ -126,10 +132,15 @@ fn optional_text<'de, D: serde::Deserializer<'de>>(
     Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
 }
 
-fn release_info<'de,D:serde::Deserializer<'de>>(deserializer:D) -> std::result::Result<String,D::Error> {
+fn release_info<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<String, D::Error> {
     #[derive(Deserialize)]
     #[serde(untagged)]
-    enum Release { Text(String), Year(u16) }
+    enum Release {
+        Text(String),
+        Year(u16),
+    }
     Ok(match Option::<Release>::deserialize(deserializer)? {
         Some(Release::Text(value)) => value,
         Some(Release::Year(value)) => value.to_string(),
@@ -137,13 +148,18 @@ fn release_info<'de,D:serde::Deserializer<'de>>(deserializer:D) -> std::result::
     })
 }
 
-fn optional_genres<'de,D:serde::Deserializer<'de>>(deserializer:D) -> std::result::Result<Vec<String>,D::Error> {
+fn optional_genres<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Vec<String>, D::Error> {
     Ok(Option::<Vec<String>>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 impl Stream {
     /// Check before handing a stream to the plain URL / torrent playback adapter.
     /// Proxy headers need a proxy-aware adapter; silently dropping them is unsafe.
+    ///
+    /// # Errors
+    /// Returns an error if the source is invalid or requires unsupported playback features.
     pub fn validate_playback(&self) -> Result<()> {
         if let Some(value) = &self.url {
             let url = Url::parse(value).map_err(|_| anyhow::anyhow!("Invalid stream URL"))?;
@@ -174,6 +190,8 @@ impl Stream {
 
 impl Catalog {
     /// This client supplies only the search extra, not genre, skip, date, etc.
+    /// # Errors
+    /// Returns an error if required catalog filters cannot be satisfied.
     pub fn validate_search(&self, search: Option<&str>) -> Result<()> {
         if search.is_some() && !self.extra.iter().any(|extra| extra.name == "search") {
             bail!("Catalog does not support search");
@@ -187,6 +205,8 @@ impl Catalog {
     }
 }
 
+/// # Errors
+/// Returns an error if the input is not a valid HTTPS add-on manifest URL.
 pub fn manifest_url(input: &str) -> Result<Url> {
     let input = input.trim();
     let input = input
@@ -212,6 +232,8 @@ pub fn manifest_url(input: &str) -> Result<Url> {
     Ok(url)
 }
 
+/// # Errors
+/// Returns an error for invalid or unsafe URLs and resource path segments.
 pub fn resource_url(
     base: &str,
     resource: &str,
@@ -229,7 +251,7 @@ pub fn resource_url(
     {
         let mut path = url
             .path_segments_mut()
-            .map_err(|_| anyhow::anyhow!("Invalid add-on URL"))?;
+            .map_err(|()| anyhow::anyhow!("Invalid add-on URL"))?;
         path.pop().push(resource).push(kind);
         if search.is_some() {
             path.push(id);
@@ -251,6 +273,7 @@ pub fn resource_url(
 }
 
 impl Addon {
+    #[must_use]
     pub fn supports(&self, resource: &str, kind: &str, id: &str) -> bool {
         if resource == "catalog" {
             return self
@@ -286,6 +309,8 @@ impl Addon {
 }
 
 impl Client {
+    /// # Errors
+    /// Returns an error if the HTTPS client cannot be initialized.
     pub fn new() -> Result<Self> {
         Ok(Self(
             reqwest::Client::builder()
@@ -324,6 +349,8 @@ impl Client {
         serde_json::from_slice(&bytes).map_err(|_| anyhow::anyhow!("Invalid add-on response"))
     }
 
+    /// # Errors
+    /// Returns an error for an invalid manifest URL, failed request, or invalid manifest.
     pub async fn install(&self, input: &str) -> Result<Addon> {
         let url = manifest_url(input)?;
         let manifest: Manifest = self.json(url.clone()).await?;
@@ -336,17 +363,19 @@ impl Client {
         })
     }
 
+    /// # Errors
+    /// Returns an error for unsupported filters, failed requests, or invalid catalog data.
     pub async fn catalog(
         &self,
         addon: &Addon,
         catalog: &Catalog,
         search: Option<&str>,
     ) -> Result<Vec<Meta>> {
-        catalog.validate_search(search)?;
         #[derive(Deserialize)]
         struct Response {
             metas: Vec<Meta>,
         }
+        catalog.validate_search(search)?;
         let response: Response = self
             .json(resource_url(
                 &addon.manifest_url,
@@ -359,6 +388,8 @@ impl Client {
         Ok(response.metas.into_iter().take(100).collect())
     }
 
+    /// # Errors
+    /// Returns an error for an invalid resource URL, failed request, or invalid metadata.
     pub async fn meta(&self, addon: &Addon, kind: &str, id: &str) -> Result<Meta> {
         #[derive(Deserialize)]
         struct Response {
@@ -370,6 +401,8 @@ impl Client {
             .meta)
     }
 
+    /// # Errors
+    /// Returns an error for an invalid resource URL, failed request, or invalid stream data.
     pub async fn streams(&self, addon: &Addon, kind: &str, id: &str) -> Result<Vec<Stream>> {
         #[derive(Deserialize)]
         struct Response {
@@ -386,6 +419,10 @@ impl Client {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    reason = "Protocol fixtures and local HTTP test failures must fail the test immediately"
+)]
 mod tests {
     use super::*;
 

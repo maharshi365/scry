@@ -1,4 +1,13 @@
-use super::*;
+use super::episodes::season_label;
+use super::{
+    State,
+    components::{accent, action, edge, label, panel, scroll},
+};
+use rune::{
+    El, ScrollSpec, col, row, text,
+    tok::{self, TextStyle, type_},
+};
+use scry_addons::Stream;
 
 // Add-on names often put the quality on a second line. Keep that information
 // together, without interpreting provider-specific text as verified metadata.
@@ -40,6 +49,10 @@ fn filter(
         .border(1.0, if selected { accent() } else { edge() })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Declarative source picker layout keeps provider filters and source-card bindings together"
+)]
 pub(super) fn view(s: &State) -> El {
     let t = tok::theme(true);
     let visible = s
@@ -115,7 +128,8 @@ pub(super) fn view(s: &State) -> El {
         );
     }
     if providers.len() > 1 && s.source_menu_open {
-        let menu_height = ((providers.len() + 1) as f32 * 38.0).min(152.0);
+        let visible = u16::try_from(providers.len().saturating_add(1).min(4)).unwrap_or(4);
+        let menu_height = f32::from(visible) * 38.0;
         let mut filters = col().key("source-filters").w_full().gap(6.0).child(filter(
             "source-all",
             format!("All add-ons · {}", s.streams.len()),
@@ -299,6 +313,10 @@ pub(super) fn view(s: &State) -> El {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    reason = "Invalid source fixtures must fail the test immediately"
+)]
 mod tests {
     use super::*;
 
