@@ -124,29 +124,36 @@ flowchart LR
 ```
 
 - `crates/scry-addons/`: manifest, catalog, metadata, episode IDs, and stream resources.
-- `src/torrents.rs`: lazy torrent session, file selection, seekable local HTTP delivery. No torrent control API is exposed.
-- `src/playback.rs`: `PlaybackEngine` contract and dynamic libmpv client binding.
-- `src/platform/`: `VideoHost` contract and OS implementations. Win32 stays in `windows.rs`; other systems return a clear unsupported error for embedding.
-- `src/telemetry.rs`: samples, stall detection, summaries, and report output.
-- `src/diagnostics.rs`: no-window playback probes and report analysis.
+- `crates/scry-torrents/`: lazy torrent session, file selection, seekable local HTTP delivery. No torrent control API is exposed.
+- `crates/scry-playback/`: `PlaybackEngine` contract, dynamic libmpv client binding, playback telemetry, and OS process counters. No Rune dependency.
+- `crates/scry-app/src/platform/`: `VideoHost` contract and OS implementations. Win32 stays in `windows.rs`; other systems return a clear unsupported error for embedding.
+- `crates/scry-app/src/diagnostics.rs`: no-window playback probes and report analysis.
 - `crates/scry-library/`: SQLite repository for watchlists, ordered playlists, watched state, and per-episode progress. See [library semantics](docs/library.md).
 
-The root `scry` package owns the app, UI, workers, playback, and torrents. The
-Cargo workspace shares dependency versions and one lockfile. The add-on and
-library crates do not depend on the app or Rune.
+The root manifest contains only workspace configuration. `crates/scry-app/`
+owns the `scry` binary, Rune UI, workers, search, artwork, and native window host.
+It is the default workspace member, so `cargo run` and `cargo build --release`
+still select the app and produce `target/release/scry.exe` on Windows. The native
+probe example lives in this package too. `runtime/` stays at the workspace root.
+
+The workspace shares dependency versions, one lockfile, and one target directory.
+The app depends on all four service crates; torrents depends on add-ons. None of
+the service crates depends on the app or Rune.
 
 ### macOS implementation path
 
-Implement `VideoHost` in `src/platform/macos.rs`, then select it with `cfg(target_os = "macos")`. Choose an appropriate NSView/libmpv render integration; do not assume a Windows window identifier works on macOS. Add native process counters and test resizing, Retina scaling, playback lifecycle, audio, and shutdown. Shared add-on and torrent services do not need OS-specific forks.
+Implement `VideoHost` in `crates/scry-app/src/platform/macos.rs`, then select it with `cfg(target_os = "macos")`. Choose an appropriate NSView/libmpv render integration; do not assume a Windows window identifier works on macOS. Add native process counters in `crates/scry-playback/src/process/` and test resizing, Retina scaling, playback lifecycle, audio, and shutdown. Shared add-on and torrent services do not need OS-specific forks.
 
 ## Development
 
 ```powershell
 cargo test --workspace --all-targets
 cargo clippy --workspace --all-targets -- -D warnings
-# Test either standalone crate without building the app:
+# Test standalone crates without building the app:
 cargo test -p scry-library
 cargo test -p scry-addons
+cargo test -p scry-playback
+cargo test -p scry-torrents
 # Optional live metadata-only protocol smoke test; no stream requests:
 cargo run -p scry-addons --example addon_probe
 ```

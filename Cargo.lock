@@ -3668,32 +3668,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
-name = "scry"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "blake3",
- "directories",
- "image",
- "libloading",
- "librqbit",
- "reqwest",
- "rune",
- "same-file",
- "scry-addons",
- "scry-library",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-util",
- "url",
- "uuid",
- "windows-sys 0.59.0",
-]
-
-[[package]]
 name = "scry-addons"
 version = "0.1.0"
 dependencies = [
@@ -3706,6 +3680,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "scry-app"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "directories",
+ "image",
+ "reqwest",
+ "rune",
+ "same-file",
+ "scry-addons",
+ "scry-library",
+ "scry-playback",
+ "scry-torrents",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "url",
+ "uuid",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "scry-library"
 version = "0.1.0"
 dependencies = [
@@ -3713,6 +3710,34 @@ dependencies = [
  "rusqlite",
  "serde",
  "tempfile",
+]
+
+[[package]]
+name = "scry-playback"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libloading",
+ "serde",
+ "serde_json",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "scry-torrents"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "librqbit",
+ "reqwest",
+ "scry-addons",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "url",
+ "uuid",
 ]
 
 [[package]]

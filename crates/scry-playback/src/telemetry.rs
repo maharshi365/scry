@@ -152,7 +152,7 @@ impl Report {
 }
 
 pub fn memory() -> (Option<u64>, Option<u64>) {
-    crate::platform::memory()
+    crate::process::memory()
 }
 
 #[cfg(test)]

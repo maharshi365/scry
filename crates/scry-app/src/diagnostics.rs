@@ -1,6 +1,6 @@
 //! Bounded, privacy-safe decode-only probes and offline JSONL analysis.
-use crate::{
-    playback::{PlaybackEvent, PlaybackTarget, Player},
+use scry_playback::{
+    PlaybackEvent, PlaybackTarget, Player,
     telemetry::{Report, Sample, Summary, Tracker},
 };
 use anyhow::{Result, bail, ensure};

@@ -1,5 +1,5 @@
 use super::VideoHost;
-use crate::playback::PlaybackTarget;
+use scry_playback::PlaybackTarget;
 use anyhow::{Result, bail};
 
 #[derive(Clone, Default)]

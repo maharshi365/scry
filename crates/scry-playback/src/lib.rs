@@ -1,5 +1,8 @@
 //! Small dynamic binding to libmpv's stable C client API. No mpv subprocess or webview.
-use crate::telemetry::{self, Sample};
+mod process;
+pub mod telemetry;
+
+use crate::telemetry::Sample;
 use anyhow::{Context, Result, bail};
 use libloading::Library;
 use std::{
@@ -243,7 +246,7 @@ impl Player {
             hw_decoder: self.property("hwdec-current"),
             resident_bytes,
             private_bytes,
-            cpu_time_s: crate::platform::cpu_time_s(),
+            cpu_time_s: process::cpu_time_s(),
         }
     }
 }
@@ -299,7 +302,7 @@ fn library_path() -> Result<PathBuf> {
         return Ok(beside_exe);
     }
     let local = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("runtime")
+        .join("../../runtime")
         .join(name);
     if local.exists() {
         return Ok(local);

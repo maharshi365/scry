@@ -1,5 +1,5 @@
 //! OS boundary. Shared UI and services must not import Win32 or Cocoa APIs.
-use crate::playback::PlaybackTarget;
+use scry_playback::PlaybackTarget;
 use anyhow::Result;
 
 #[cfg(not(windows))]
@@ -16,26 +16,4 @@ pub trait VideoHost: Clone + Default {
     fn target(&self) -> Result<PlaybackTarget>;
     fn place(&self, rect: [f32; 4], scale: f32);
     fn hide(&self);
-}
-
-pub fn memory() -> (Option<u64>, Option<u64>) {
-    #[cfg(windows)]
-    {
-        windows::memory()
-    }
-    #[cfg(not(windows))]
-    {
-        (None, None)
-    }
-}
-
-pub fn cpu_time_s() -> Option<f64> {
-    #[cfg(windows)]
-    {
-        windows::cpu_time_s()
-    }
-    #[cfg(not(windows))]
-    {
-        None
-    }
 }

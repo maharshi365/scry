@@ -1,10 +1,10 @@
 //! Background work and the narrow, bounded boundary to the native UI.
 use anyhow::{Context, Result, bail};
-use scry::{
-    playback::{PlaybackEngine, PlaybackEvent, PlaybackTarget, Player},
+use scry_playback::{
+    PlaybackEngine, PlaybackEvent, PlaybackTarget, Player,
     telemetry::{Report, Sample},
-    torrents::Torrents,
 };
+use scry_torrents::Torrents;
 use scry_addons::{Addon, Catalog, Client, Meta, Stream};
 use std::{
     path::PathBuf,

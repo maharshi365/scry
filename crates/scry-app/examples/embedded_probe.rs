@@ -1,9 +1,9 @@
 //! Finite native-window playback smoke test. No services, browser, or visual checks.
 use anyhow::{Result, bail, ensure};
 use rune::{App, AppSpec, Cx, El, Tx, col, el, text};
-use scry::{
-    platform::{Host, VideoHost},
-    playback::{PlaybackEvent, PlaybackTarget, Player},
+use scry_app::platform::{Host, VideoHost};
+use scry_playback::{
+    PlaybackEvent, PlaybackTarget, Player,
     telemetry::{Report, Summary},
 };
 use std::{

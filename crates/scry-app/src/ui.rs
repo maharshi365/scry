@@ -4,10 +4,8 @@ mod library_view;
 use library_view::LibraryUi;
 use rune::tok::{self, TextStyle, type_};
 use rune::{App, AppSpec, Cx, El, ScrollSpec, TextEdit, Tx, col, el, row, text, text_input};
-use scry::{
-    platform::{Host, VideoHost},
-    telemetry::Sample,
-};
+use scry_app::platform::{Host, VideoHost};
+use scry_playback::telemetry::Sample;
 use scry_addons::{Addon, Catalog, Meta, Stream};
 use std::{
     path::PathBuf,
@@ -1904,7 +1902,7 @@ mod tests {
             })
         }).count();
         eprintln!("catalog: mounted={mounted}, settle={:?}, memory={:?}",
-            started.elapsed(), scry::platform::memory());
+            started.elapsed(), scry_playback::telemetry::memory());
         assert!(mounted < 100, "Only nearby cards should be laid out, got {mounted}");
         let viewport = rect(&rt, "titles-scroll-0");
         rt.wheel(viewport[0] + 30.0, viewport[1] + 30.0, -1_000_000.0);
