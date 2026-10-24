@@ -69,6 +69,7 @@ pub struct State {
     displayed_query: String,
     kind: String,
     catalog: Option<(Addon, Catalog)>,
+    catalog_paging: catalog::CatalogPaging,
     metas: Arc<Vec<Meta>>,
     providers: Arc<Vec<Addon>>,
     detail: Option<Meta>,

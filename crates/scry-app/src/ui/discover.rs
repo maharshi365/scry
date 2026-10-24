@@ -42,5 +42,16 @@ pub(super) fn discover(s: &State, cx: &Cx<State>) -> El {
             "No titles found. Try searching for a movie or TV show.",
         ));
     }
+    if s.catalog_paging.failed {
+        body = body.child(action("catalog-retry", "Retry loading titles", |s| {
+            if s.metas.is_empty() {
+                s.fetch_catalog();
+            } else {
+                s.catalog_paging.failed = false;
+                s.error = None;
+                s.request_more_catalog();
+            }
+        }));
+    }
     body.child(poster_grid::view(s, cx))
 }

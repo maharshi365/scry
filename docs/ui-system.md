@@ -10,7 +10,7 @@ primitives/
   button.rs       variants, selection, disabled/busy states, focus
   input.rs        text field with caller-supplied edit and submit handlers
   text.rs         heading and secondary text
-  surface.rs      cards, badges, empty states, scroll containers
+  surface.rs      cards, badges, empty states, scroll containers, anchored dropdowns
 controls.rs       thin bindings to the app's State and input shortcuts
 formatting.rs     clocks, metrics, excerpts; no styling
 ```
@@ -21,33 +21,48 @@ search, Library, and Currently watching. Screens put their own headings and filt
 above that grid. Movie posters show saved progress as an overlay one-sixth of the
 poster height above the bottom, or a top-right check mark when watched. Visible
 movie states are read in bounded batches on the database worker for all grid routes.
-TV posters use the latest unfinished episode's progress. A check mark requires
+TV posters use aggregate actual playback across all known released episodes and
+show watched/released episode counts. Resume-based advancement is separate. A check mark requires
 every known released episode across all seasons to be watched. Future and undated
 episodes do not count; an empty released set never earns a check mark. The database
 summary is independent of episode and Currently watching pagination. Visible tracked
 shows fetch metadata in batches of 12 with four requests in flight; the bounded
 32-show in-memory metadata cache expires after ten minutes and Refresh retries failures.
-The show summary is also persisted for Library filters. A separate background
-scan checks tracked shows even when the current filter hides them; explicit
-show-level watched/unwatched overrides take priority. Season context actions
+Library filters use the same episode-derived SQL view, not a duplicate stored
+show flag. A separate background
+scan checks tracked shows even when the current filter hides them. Show-level
+watched/unwatched actions operate on episodes rather than installing overrides.
+Season context actions
 capture all of a season's episodes and apply one atomic database command. Context
 menu options use borderless ghost buttons; the outer menu retains its panel edge.
 Episode status rows and the details status line reserve badge height, so marking
 an episode watched does not resize its card or move surrounding panels.
+Episode watched markers are a simple check icon, without a text pill. Known
+future titles cannot be marked watched; bulk actions skip them silently.
 
 Currently watching and What to watch next share one scroll viewport and the same
 virtualized card renderer. Their row keys are separate. The next section has
-independent 200-item pagination and explicit item-level progress; it never uses
+independent 200-title pagination with one next episode per show and explicit
+item-level progress; it never uses
 the parent show's summary bar for an episode. Cards retain the episode's identity
 when opening details, while artwork comes from the parent series. Saved show
 metadata is registered on the database worker independently of episode browsing.
 Episode posters come from their parent series without changing resume identity.
+When only next-up has items, the page omits the Currently watching heading and
+its empty placeholder. Movie/TV browse catalogs append pages near the scroll
+end using the provider's `skip` extra. Paging state survives history, failed
+pages retain prior cards, and duplicate-only/empty pages end automatic requests.
 Poster metadata is loaded only for visible cards, in batches of at most
 12 with four provider requests in flight. It uses the same bounded image cache
 as catalogs. Missing or offline artwork keeps a title placeholder; Refresh retries
-failed lookups. No database migration or saved-state rewrite is needed.
+failed lookups.
 Primitives receive callbacks and must not depend on those features. The player
 keeps its playback gate and fullscreen transaction in its own module.
+
+Season and source-provider choices use a shared root-level dropdown surface.
+Menus are anchored to their trigger, flip/clamp to fit the window, and do not
+participate in page layout. They trap focus, dismiss on Escape/outside clicks,
+and return focus to the trigger. Keep menu trees out of headers and scroll panels.
 
 ## Use the shared controls
 

@@ -47,7 +47,7 @@ pub(super) fn run(
             events,
             stop,
             wake,
-            Event::Error("Cannot open the local library".into()),
+            Event::RequestError("Cannot open the local library".into()),
         );
         return;
     };
@@ -63,9 +63,11 @@ pub(super) fn run(
         if stop.load(Ordering::Acquire) {
             break;
         }
+        let mutation = command.acknowledges_mutation();
         let event = match apply(&mut library, command) {
             Ok(event) => event,
-            Err(_) => Event::Error("Cannot complete the library request".into()),
+            Err(_) if mutation => Event::Error("Cannot complete the library request".into()),
+            Err(_) => Event::RequestError("Cannot complete the library request".into()),
         };
         if !emit(events, stop, wake, event) {
             break;

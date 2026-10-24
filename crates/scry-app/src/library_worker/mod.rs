@@ -7,9 +7,7 @@ mod operations;
 mod protocol;
 mod runtime;
 
-pub use protocol::{
-    Command, Event, MovieState, SelectedState, SeriesRequest, SeriesState, Snapshot,
-};
+pub use protocol::{Command, Event, MovieState, SelectedState, SeriesState, Snapshot};
 use runtime::run;
 use std::{
     path::PathBuf,
@@ -129,33 +127,17 @@ mod tests {
     #[test]
     fn series_states_reject_invalid_kinds_and_oversized_batches() {
         let mut library = Library::memory().unwrap();
-        let valid = SeriesRequest {
-            key: MediaKey::new("test", MediaKind::Series, "show"),
-            released: vec![],
-            metadata_known: true,
-        };
-        for requests in [
-            vec![valid.clone(); 201],
-            vec![SeriesRequest {
-                key: movie().key,
-                released: vec![],
-                metadata_known: true,
-            }],
-            vec![SeriesRequest {
-                released: vec![movie().key],
-                ..valid.clone()
-            }],
-            vec![SeriesRequest {
-                released: vec![MediaKey::new("test", MediaKind::Episode, "episode"); 50_001],
-                ..valid
-            }],
+        for keys in [
+            vec![MediaKey::new("test", MediaKind::Series, "show"); 201],
+            vec![movie().key],
+            vec![MediaKey::new("test", MediaKind::Episode, "episode")],
         ] {
             assert!(
                 apply(
                     &mut library,
                     Command::SeriesStates {
                         generation: 1,
-                        requests
+                        keys
                     }
                 )
                 .is_err()
@@ -179,30 +161,30 @@ mod tests {
         library.upsert_media(&parent).unwrap();
         library.upsert_media(&episode).unwrap();
         library.set_watched(&episode.key, true).unwrap();
-        for (metadata_known, expected_change) in [(true, true), (false, false), (true, false)] {
-            let released = if metadata_known {
-                vec![episode.key.clone()]
-            } else {
-                vec![]
-            };
-            let Event::SeriesStates {
-                states, changed, ..
-            } = apply(
+        apply(
+            &mut library,
+            Command::SyncSeries {
+                key: parent.key.clone(),
+                releases: vec![scry_library::EpisodeRelease {
+                    media: episode,
+                    released_at: 0,
+                    season: Some(1),
+                    episode: Some(1),
+                }],
+            },
+        )
+        .unwrap();
+        for _ in 0..3 {
+            let Event::SeriesStates { states, .. } = apply(
                 &mut library,
                 Command::SeriesStates {
                     generation: 1,
-                    requests: vec![SeriesRequest {
-                        key: parent.key.clone(),
-                        released,
-                        metadata_known,
-                    }],
+                    keys: vec![parent.key.clone()],
                 },
             )
-            .unwrap()
-            else {
+            .unwrap() else {
                 panic!("Expected series states")
             };
-            assert_eq!(changed, expected_change);
             assert!(states[0].watched);
             assert_eq!(
                 library
@@ -214,25 +196,17 @@ mod tests {
     }
 
     #[test]
-    fn reconciliation_rejects_unknown_metadata_and_non_series_keys() {
+    fn inventory_sync_rejects_non_series_keys() {
         let mut library = Library::memory().unwrap();
-        for request in [
-            SeriesRequest {
-                key: movie().key,
-                released: vec![],
-                metadata_known: true,
-            },
-            SeriesRequest {
-                key: MediaKey::new("test", MediaKind::Series, "show"),
-                released: vec![],
-                metadata_known: false,
-            },
+        for key in [
+            movie().key,
+            MediaKey::new("test", MediaKind::Episode, "episode"),
         ] {
             assert!(
                 apply(
                     &mut library,
-                    Command::ReconcileSeries {
-                        request,
+                    Command::SyncSeries {
+                        key,
                         releases: vec![]
                     }
                 )
@@ -358,7 +332,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let failed = start(dir.path().join("missing").join("private-token.db"));
         match receive(&failed) {
-            Event::Error(message) => assert_eq!(message, "Cannot open the local library"),
+            Event::RequestError(message) => assert_eq!(message, "Cannot open the local library"),
             event => panic!("Expected open error, got {event:?}"),
         }
         let worker = start(dir.path().join("library.db"));
@@ -370,7 +344,24 @@ mod tests {
             Event::Error(message) => assert_eq!(message, "Cannot complete the library request"),
             event => panic!("Expected request error, got {event:?}"),
         }
-        assert!(!refresh(&worker, 77).selected_state.unwrap().watched.watched);
+        assert!(refresh(&worker, 77).selected_state.is_none());
+    }
+
+    #[test]
+    fn read_failures_are_not_mutation_acknowledgements() {
+        let dir = tempfile::tempdir().unwrap();
+        let worker = start(dir.path().join("library.db"));
+        assert!(matches!(receive(&worker), Event::Ready));
+        worker
+            .send(Command::MovieStates {
+                generation: 1,
+                keys: vec![MediaKey::new("test", MediaKind::Series, "show")],
+            })
+            .unwrap();
+        worker.send(Command::SetWatchlist(movie(), true)).unwrap();
+        assert!(matches!(receive(&worker), Event::RequestError(_)));
+        assert!(matches!(receive(&worker), Event::Changed));
+        assert!(refresh(&worker, 2).selected_state.unwrap().watchlist);
     }
 
     #[test]

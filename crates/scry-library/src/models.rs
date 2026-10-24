@@ -68,6 +68,25 @@ pub struct Progress {
     pub duration_seconds: f64,
 }
 
+/// Episode-weighted completion, separate from an individual video's resume time.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SeriesProgress {
+    pub released_episodes: u32,
+    pub watched_episodes: u32,
+    pub completed_equivalents: f64,
+    /// Resume-based advancement, kept separate because seeks are not watched time.
+    pub resume_equivalents: f64,
+}
+
+impl SeriesProgress {
+    #[must_use]
+    pub fn fraction(self) -> Option<f64> {
+        (self.released_episodes > 0).then(|| {
+            (self.completed_equivalents / f64::from(self.released_episodes)).clamp(0.0, 1.0)
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EpisodeRelease {
     pub media: Media,
@@ -79,7 +98,15 @@ pub struct EpisodeRelease {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WatchedState {
     pub watched: bool,
-    pub manual_override: Option<bool>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MediaState {
+    pub key: MediaKey,
+    pub stored: bool,
+    pub watched: WatchedState,
+    pub progress: Option<Progress>,
+    pub watched_seconds: f64,
 }
 
 #[derive(Clone, Copy, Debug)]

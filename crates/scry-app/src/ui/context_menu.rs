@@ -17,6 +17,7 @@ pub(super) enum Target {
         parent: Media,
         season: Option<u32>,
         episodes: Vec<Media>,
+        inventory: Vec<scry_library::EpisodeRelease>,
     },
 }
 
@@ -51,12 +52,18 @@ impl State {
                 parent: Some(parent.key.clone()),
             })
             .collect();
+        self.season_menu_open = false;
+        self.source_menu_open = false;
+        let inventory = self.detail.as_ref().map_or_else(Vec::new, |meta| {
+            super::library_view::series_status::episode_inventory(&parent.key, meta)
+        });
         self.context_menu = Some((
             point,
             Some(Target::Season {
                 parent,
                 season,
                 episodes,
+                inventory,
             }),
         ));
     }
@@ -142,21 +149,18 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> Option<El> {
             let media = media.clone();
             menu = menu.child(menu_action(format!("context-{key}"), title, move |s| {
                 s.context_menu = None;
-                s.db(
-                    match choice {
-                        0 => Command::SetWatchlist(media.clone(), true),
-                        1 => Command::SetWatchlist(media.clone(), false),
-                        2 => Command::SetWatched(media.clone(), true),
-                        _ => Command::SetWatched(media.clone(), false),
-                    },
-                    true,
-                );
+                if choice >= 2 {
+                    s.mark_media_watched(media.clone(), choice == 2);
+                    return;
+                }
+                s.db(Command::SetWatchlist(media.clone(), choice == 0), true);
             }));
         }
     } else if let Some(Target::Season {
         parent,
         season,
         episodes,
+        inventory,
     }) = item
     {
         menu = menu.child(label(format!(
@@ -169,12 +173,14 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> Option<El> {
             ("season-unwatched", "Mark all episodes unwatched", false),
         ] {
             let (parent, episodes) = (parent.clone(), episodes.clone());
+            let inventory = inventory.clone();
             menu = menu.child(menu_action(format!("context-{key}"), title, move |s| {
                 s.context_menu = None;
                 s.db(
                     Command::SetEpisodesWatched {
                         parent: parent.clone(),
                         episodes: episodes.clone(),
+                        inventory: inventory.clone(),
                         watched,
                     },
                     true,

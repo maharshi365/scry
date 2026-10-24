@@ -45,6 +45,7 @@ pub(super) struct Route {
     kind: String,
     query: String,
     catalog: Option<(Addon, Catalog)>,
+    catalog_paging: super::catalog::CatalogPaging,
     metas: Arc<Vec<Meta>>,
     providers: Arc<Vec<Addon>>,
     detail: Option<Meta>,
@@ -105,6 +106,7 @@ impl State {
             kind: self.kind.clone(),
             query: self.displayed_query.clone(),
             catalog: self.catalog.clone(),
+            catalog_paging: self.catalog_paging.clone(),
             metas: self.metas.clone(),
             providers: self.providers.clone(),
             detail: self.detail.clone(),
@@ -162,6 +164,10 @@ impl State {
         self.displayed_query = route.query.clone();
         self.search = TextEdit::new(route.query);
         self.catalog = route.catalog;
+        self.catalog_paging = route.catalog_paging;
+        if self.catalog_paging.pending.is_some_and(|offset| offset > 0) {
+            self.catalog_paging.pending = None;
+        }
         self.metas = route.metas;
         self.providers = route.providers;
         self.detail = route.detail;

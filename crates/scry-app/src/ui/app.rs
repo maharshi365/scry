@@ -93,6 +93,7 @@ impl State {
             displayed_query: String::new(),
             kind: "movie".into(),
             catalog: None,
+            catalog_paging: super::catalog::CatalogPaging::default(),
             metas: Arc::default(),
             providers: Arc::default(),
             detail: None,

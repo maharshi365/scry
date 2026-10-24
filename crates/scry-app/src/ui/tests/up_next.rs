@@ -9,6 +9,12 @@ fn media(kind: MediaKind, id: &str, parent: Option<MediaKey>) -> Media {
     }
 }
 
+fn settle_grid(rt: &mut rune::Runtime<State>) {
+    for _ in 0..30 {
+        rt.frame(1.0 / 60.0);
+    }
+}
+
 #[test]
 fn next_cards_use_each_items_progress_and_resume_the_exact_episode() {
     let show = MediaKey::new("test", MediaKind::Series, "show");
@@ -94,7 +100,7 @@ fn next_pagination_reaches_all_saved_titles_and_updates_after_marking_watched() 
     settle_library(&mut rt, |s| {
         s.library.up_next_loaded && s.library.up_next.len() == 200
     });
-    assert!(rt.find("watching-empty").is_some());
+    assert!(rt.find("watching-empty").is_none());
     assert!(rt.state.library.up_next_has_more);
     for _ in 0..30 {
         rt.frame(1.0 / 60.0);
@@ -142,5 +148,197 @@ fn next_pagination_reaches_all_saved_titles_and_updates_after_marking_watched() 
             .up_next
             .iter()
             .all(|(item, _)| item.key != movies[0].key)
+    );
+}
+
+#[test]
+fn rapid_home_scrolling_keeps_layout_bounded_and_restores_visible_artwork() {
+    let mut s = init();
+    let items: Vec<_> = (0..200)
+        .map(|index| {
+            (
+                media(MediaKind::Movie, &format!("movie-{index}"), None),
+                None,
+            )
+        })
+        .collect();
+    s.apply_up_next_entries(items.clone());
+    for (index, (item, _)) in items.iter().enumerate() {
+        s.library.posters.cache.insert(
+            item.key.clone(),
+            Some(crate::services::LibraryPoster {
+                poster: Some(format!("https://example.invalid/{index}.jpg")),
+                year: String::new(),
+            }),
+        );
+    }
+    let pixels = rune::Pixels::new();
+    pixels.set(2, 3, vec![180; 24]);
+    s.artwork = Some(crate::artwork::Artwork::player_fixture(&[
+        ("https://example.invalid/0.jpg", pixels.clone()),
+        ("https://example.invalid/199.jpg", pixels),
+    ]));
+    let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
+    rt.poll = Some(poll);
+    for _ in 0..30 {
+        rt.frame(1.0 / 60.0);
+    }
+    let viewport = rect(&rt, "watching-scroll");
+    // No settling between inputs: exercise work replacement during a fast fling.
+    for _ in 0..80 {
+        rt.wheel(viewport[0] + 20.0, viewport[1] + 20.0, -650.0);
+        rt.frame(1.0 / 60.0);
+    }
+    for direction in [-1.0, 1.0].into_iter().cycle().take(12) {
+        rt.wheel(
+            viewport[0] + 20.0,
+            viewport[1] + 20.0,
+            direction * 100_000.0,
+        );
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        let rows = rt
+            .elements()
+            .iter()
+            .filter(|el| {
+                !el.exiting
+                    && el
+                        .key
+                        .as_deref()
+                        .is_some_and(|key| key.starts_with("up-next-row-"))
+            })
+            .count();
+        assert!(
+            rows < 16,
+            "Offscreen rows must have no layout nodes: {rows}"
+        );
+    }
+    rt.wheel(viewport[0] + 20.0, viewport[1] + 20.0, -100_000.0);
+    for _ in 0..30 {
+        rt.frame(1.0 / 60.0);
+    }
+    assert!(
+        rt.state
+            .artwork_urls
+            .contains(&"https://example.invalid/199.jpg".into())
+    );
+    assert!(
+        !rt.state
+            .artwork_urls
+            .contains(&"https://example.invalid/0.jpg".into())
+    );
+    assert!(rt.find("poster-fallback-199").is_none());
+    rt.wheel(viewport[0] + 20.0, viewport[1] + 20.0, 100_000.0);
+    for _ in 0..30 {
+        rt.frame(1.0 / 60.0);
+    }
+    assert!(rt.find("up-next-open-0").is_some());
+    assert!(
+        rt.state
+            .artwork_urls
+            .contains(&"https://example.invalid/0.jpg".into())
+    );
+    assert!(rt.find("poster-fallback-0").is_none());
+    rt.wheel(viewport[0] + 20.0, viewport[1] + 20.0, -100_000.0);
+    settle_grid(&mut rt);
+    // A same-sized database refresh must not leave the viewport/geometry empty.
+    rt.update(|s, _| s.apply_up_next_entries(s.library.up_next.clone()));
+    settle_grid(&mut rt);
+    assert!(
+        rt.state
+            .artwork_urls
+            .contains(&"https://example.invalid/199.jpg".into())
+    );
+    tap(&mut rt, "up-next-open-199");
+    assert_eq!(rt.state.detail.as_ref().unwrap().id, "movie-199");
+}
+
+#[test]
+fn library_pagination_does_not_page_currently_watching() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("library.sqlite3");
+    let current = media(MediaKind::Movie, "current", None);
+    {
+        let mut db = Library::open(&path).unwrap();
+        for index in 0..201 {
+            let movie = media(MediaKind::Movie, &format!("movie-{index}"), None);
+            db.upsert_media(&movie).unwrap();
+            db.add_to_watchlist(&movie.key).unwrap();
+        }
+        db.upsert_media(&current).unwrap();
+        db.record_playback(&current.key, 10.0, 100.0, 10.0).unwrap();
+    }
+    let mut s = init();
+    s.library.worker = Some(crate::library_worker::Worker::start(path, Arc::new(|| {})).unwrap());
+    let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
+    rt.poll = Some(poll);
+    settle_library(&mut rt, |s| s.library.watching.len() == 1);
+    tap(&mut rt, "nav-library");
+    settle_library(&mut rt, |s| {
+        s.library
+            .entries
+            .as_ref()
+            .is_some_and(|items| items.len() == 200)
+    });
+    tap(&mut rt, "library-next");
+    settle_library(&mut rt, |s| {
+        s.library
+            .entries
+            .as_ref()
+            .is_some_and(|items| items.len() == 1)
+    });
+    tap(&mut rt, "nav-watching");
+    settle_library(&mut rt, |s| s.library.watching.len() == 1);
+    assert_eq!(rt.state.library.watching[0].0.key, current.key);
+    assert!(rt.find("watching-open-0").is_some());
+}
+
+#[test]
+fn currently_watching_episode_badge_does_not_use_the_whole_shows_status() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("library.sqlite3");
+    let show = media(MediaKind::Series, "show", None);
+    let episode = media(MediaKind::Episode, "episode", Some(show.key.clone()));
+    {
+        let mut db = Library::open(&path).unwrap();
+        db.upsert_media_batch(&[show.clone(), episode.clone()])
+            .unwrap();
+        db.record_playback(&episode.key, 80.0, 100.0, 80.0).unwrap();
+        assert!(!db.watched_state(&show.key).unwrap().watched);
+    }
+    let mut s = init();
+    s.library.worker = Some(crate::library_worker::Worker::start(path, Arc::new(|| {})).unwrap());
+    let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
+    rt.poll = Some(poll);
+    settle_library(&mut rt, |s| {
+        s.library.watching_watched.contains(&episode.key)
+    });
+    assert!(rt.find("watching-poster-0-watched").is_some());
+    assert!(rt.find("watching-poster-0-progress-track").is_none());
+}
+
+#[test]
+fn series_metadata_supplies_saved_poster_artwork_without_another_lookup() {
+    let mut s = init();
+    let show = MediaKey::new("test", MediaKind::Series, "show");
+    let episode = media(MediaKind::Episode, "episode", Some(show.clone()));
+    s.apply_up_next_entries(vec![(episode.clone(), None)]);
+    let meta = serde_json::from_value(serde_json::json!({
+        "id":"show", "type":"series", "name":"Show", "year":"2026",
+        "poster":"https://example.invalid/show.jpg", "videos":[
+            {"id":"episode", "season":1, "episode":1, "released":"2000-01-01"}
+        ]
+    }))
+    .unwrap();
+    s.apply_series_details(0, vec![(show, Some(meta))], true);
+    assert_eq!(
+        s.library_poster(&episode).unwrap().poster.as_deref(),
+        Some("https://example.invalid/show.jpg")
+    );
+    assert!(s.missing_library_posters().is_empty());
+    assert!(
+        s.artwork_urls
+            .contains(&"https://example.invalid/show.jpg".into())
     );
 }

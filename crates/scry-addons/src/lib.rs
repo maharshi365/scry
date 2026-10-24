@@ -224,6 +224,10 @@ impl Stream {
 }
 
 impl Catalog {
+    #[must_use]
+    pub fn supports_paging(&self) -> bool {
+        self.extra.iter().any(|extra| extra.name == "skip")
+    }
     /// This client supplies only the search extra, not genre, skip, date, etc.
     /// # Errors
     /// Returns an error if required catalog filters cannot be satisfied.
@@ -238,6 +242,34 @@ impl Catalog {
         }
         Ok(())
     }
+}
+
+/// # Errors
+/// Returns an error for an invalid catalog URL or unsupported pagination.
+pub fn catalog_page_url(addon: &Addon, catalog: &Catalog, skip: u32) -> Result<Url> {
+    if skip > 0 && !catalog.supports_paging() {
+        bail!("Catalog does not support pagination");
+    }
+    let mut url = resource_url(
+        &addon.manifest_url,
+        "catalog",
+        &catalog.kind,
+        &catalog.id,
+        None,
+    )?;
+    if skip > 0
+        || catalog
+            .extra
+            .iter()
+            .any(|extra| extra.name == "skip" && extra.is_required)
+    {
+        url.path_segments_mut()
+            .map_err(|()| anyhow::anyhow!("Invalid catalog URL"))?
+            .pop()
+            .push(&catalog.id)
+            .push(&format!("skip={skip}.json"));
+    }
+    Ok(url)
 }
 
 /// # Errors
@@ -344,6 +376,31 @@ impl Addon {
 }
 
 impl Client {
+    /// Retrieve one browse page. Providers that do not advertise skip are not paged.
+    /// # Errors
+    /// Returns an error for unsupported filters, network failures, or invalid data.
+    pub async fn catalog_page(
+        &self,
+        addon: &Addon,
+        catalog: &Catalog,
+        skip: u32,
+    ) -> Result<Vec<Meta>> {
+        #[derive(Deserialize)]
+        struct Response {
+            metas: Vec<Meta>,
+        }
+        if catalog
+            .extra
+            .iter()
+            .any(|extra| extra.is_required && extra.name != "skip")
+        {
+            bail!("Catalog requires extra filters that were not supplied");
+        }
+        let response: Response = self.json(catalog_page_url(addon, catalog, skip)?).await?;
+        // Keep the raw response count for the provider's skip cursor. The HTTP
+        // response already has a byte bound; do not truncate and silently skip titles.
+        Ok(response.metas)
+    }
     /// # Errors
     /// Returns an error if the HTTP client cannot be initialized.
     pub fn new() -> Result<Self> {

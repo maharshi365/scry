@@ -15,21 +15,30 @@ impl State {
         &mut self,
         items: Vec<(Media, Option<scry_library::Progress>)>,
     ) {
+        let relayout = self.library.up_next.len().div_ceil(self.poster_columns)
+            != items.len().div_ceil(self.poster_columns);
         self.library.up_next = items;
         self.library.up_next_loaded = true;
         self.sync_library_posters();
-        if self.navigation.page == crate::ui::Page::Watching {
+        if self.navigation.page == crate::ui::Page::Watching && relayout {
+            self.library.grid_generation += 1;
             self.poster_rects.clear();
-            self.poster_viewport = None;
         }
         self.refresh_artwork();
     }
     pub(in crate::ui) fn apply_library_entries(&mut self, items: Vec<Media>) {
+        let relayout = self
+            .library
+            .entries
+            .as_ref()
+            .map_or(0, Vec::len)
+            .div_ceil(self.poster_columns)
+            != items.len().div_ceil(self.poster_columns);
         self.library.entries = Some(items);
         self.sync_library_posters();
-        if self.navigation.page == crate::ui::Page::Library {
+        if self.navigation.page == crate::ui::Page::Library && relayout {
+            self.library.grid_generation += 1;
             self.poster_rects.clear();
-            self.poster_viewport = None;
         }
         self.refresh_artwork();
     }
@@ -38,11 +47,19 @@ impl State {
         &mut self,
         items: Vec<(Media, scry_library::Progress)>,
     ) {
+        let relayout = self.library.watching.len().div_ceil(self.poster_columns)
+            != items.len().div_ceil(self.poster_columns);
         self.library.watching = items;
+        self.library.watching_watched.retain(|key| {
+            self.library
+                .watching
+                .iter()
+                .any(|(media, _)| media.key == *key)
+        });
         self.sync_library_posters();
-        if self.navigation.page == crate::ui::Page::Watching {
+        if self.navigation.page == crate::ui::Page::Watching && relayout {
+            self.library.grid_generation += 1;
             self.poster_rects.clear();
-            self.poster_viewport = None;
         }
         self.refresh_artwork();
     }
@@ -98,6 +115,13 @@ impl State {
                 .iter()
                 .filter(|_| key.namespace == "imdb" || key.namespace == self.detail_namespace)
                 .chain(self.metas.iter().filter(|_| key.namespace == "imdb"))
+                .chain(
+                    self.library
+                        .series
+                        .details
+                        .get(&key)
+                        .and_then(|(meta, _)| meta.as_ref()),
+                )
                 .find(|m| {
                     m.id == key.id
                         && m.kind == kind
@@ -142,7 +166,16 @@ impl State {
         if self.library.posters.busy || self.services.is_none() || self.addons.is_empty() {
             return;
         }
-        let missing = self.missing_library_posters();
+        // A full series metadata request also supplies its poster. Let that
+        // request finish before falling back to a separate artwork lookup.
+        let missing: Vec<_> = self
+            .missing_library_posters()
+            .into_iter()
+            .filter(|media| {
+                media.key.kind != scry_library::MediaKind::Series
+                    || self.library.series.details.contains_key(&media.key)
+            })
+            .collect();
         if missing.is_empty() {
             return;
         }
@@ -152,6 +185,26 @@ impl State {
                 self.library.posters.generation,
                 self.addons.clone(),
                 missing,
+            );
+        }
+    }
+
+    pub(super) fn remember_series_poster(&mut self, key: &MediaKey, meta: &scry_addons::Meta) {
+        if meta
+            .poster
+            .as_deref()
+            .is_some_and(|poster| !poster.trim().is_empty())
+        {
+            self.apply_library_posters(
+                self.library.posters.generation,
+                vec![(
+                    key.clone(),
+                    Some(LibraryPoster {
+                        poster: meta.poster.clone(),
+                        year: meta.year.clone(),
+                    }),
+                )],
+                false,
             );
         }
     }

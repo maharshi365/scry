@@ -6,7 +6,7 @@ fn stale_catalog_and_playback_messages_do_not_replace_current_state() {
     s.catalog_id = 2;
     s.player.generation = 4;
     s.status = "current".into();
-    tx.try_send(Event::Catalog(1, Err("old catalog failed".into())))
+    tx.try_send(Event::Catalog(1, 0, Err("old catalog failed".into())))
         .unwrap();
     tx.try_send(Event::Stopped(3, Some("old player failed".into())))
         .unwrap();

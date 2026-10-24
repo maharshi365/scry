@@ -1,7 +1,7 @@
 //! Synchronous database requests. This module does not depend on the UI.
 use super::{Command, Event, MovieState, SelectedState, SeriesState, Snapshot};
 use anyhow::Result;
-use scry_library::{Library, MAX_PAGE_SIZE, MediaKind, Page, WatchedState};
+use scry_library::{Library, MAX_PAGE_SIZE, MediaKind, Page};
 
 #[expect(
     clippy::too_many_lines,
@@ -28,87 +28,55 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
                 items: library.list_tracked_series(Page::new(12, offset)?)?,
             });
         }
-        Command::ReconcileSeries { request, releases } => {
-            anyhow::ensure!(
-                request.released.len() <= 50_000
-                    && request.metadata_known
-                    && request.key.kind == MediaKind::Series
-                    && request
-                        .released
-                        .iter()
-                        .all(|key| key.kind == MediaKind::Episode),
-                "Invalid reconciliation request"
-            );
-            let (changed, inventory_changed) = if library.get_media(&request.key)?.is_some() {
-                let inventory_changed = library.is_in_watchlist(&request.key)?
-                    && library.sync_episode_releases(&request.key, &releases)?;
-                (
-                    library.reconcile_series(&request.key, &request.released)?,
-                    inventory_changed,
-                )
-            } else {
-                (false, false)
-            };
-            return Ok(Event::SeriesReconciled {
-                changed,
-                inventory_changed,
-            });
+        Command::SyncSeries { key, releases } => {
+            anyhow::ensure!(key.kind == MediaKind::Series, "Invalid series key");
+            let changed = library.get_media(&key)?.is_some()
+                && library.sync_episode_releases(&key, &releases)?;
+            return Ok(Event::SeriesSynced { changed });
         }
         Command::SetEpisodesWatched {
             parent,
             episodes,
+            inventory,
             watched,
         } => {
-            library.set_episodes_watched(&parent, &episodes, watched)?;
+            library.set_episodes_watched_with_inventory(
+                &parent,
+                &episodes,
+                Some(&inventory),
+                watched,
+            )?;
         }
-        Command::SeriesStates {
-            generation,
-            requests,
-        } => {
+        Command::SeriesStates { generation, keys } => {
             anyhow::ensure!(
-                requests.len() <= MAX_PAGE_SIZE as usize
-                    && requests.iter().map(|r| r.released.len()).sum::<usize>() <= 50_000,
+                keys.len() <= MAX_PAGE_SIZE as usize
+                    && keys.iter().all(|key| key.kind == MediaKind::Series),
                 "Too many series poster keys"
             );
             let mut states = Vec::new();
-            let mut changed = false;
-            for request in requests {
-                anyhow::ensure!(
-                    request.key.kind == MediaKind::Series
-                        && request
-                            .released
-                            .iter()
-                            .all(|key| key.kind == MediaKind::Episode),
-                    "Invalid series poster keys"
-                );
-                let tracked = library.get_media(&request.key)?.is_some();
-                if tracked && request.metadata_known {
-                    changed |= library.reconcile_series(&request.key, &request.released)?;
-                }
-                let (watched, progress) = if tracked {
-                    let (derived, progress) =
-                        library.series_poster_state(&request.key, &request.released)?;
-                    let watched = if request.metadata_known {
-                        derived
-                    } else {
-                        library.watched_state(&request.key)?.watched
-                    };
-                    (watched, progress)
+            for state in library.media_states(&keys)? {
+                let tracked = state.stored;
+                let summary = if tracked {
+                    Some(library.series_progress(&state.key, chrono::Utc::now().timestamp())?)
                 } else {
-                    (false, None)
+                    None
                 };
+                let progress = summary
+                    .and_then(scry_library::SeriesProgress::fraction)
+                    .filter(|fraction| *fraction > 0.0)
+                    .map(|fraction| scry_library::Progress {
+                        position_seconds: fraction,
+                        duration_seconds: 1.0,
+                    });
                 states.push(SeriesState {
-                    key: request.key,
+                    key: state.key,
                     tracked,
-                    watched,
+                    watched: state.watched.watched,
                     progress,
+                    summary,
                 });
             }
-            return Ok(Event::SeriesStates {
-                generation,
-                states,
-                changed,
-            });
+            return Ok(Event::SeriesStates { generation, states });
         }
         Command::MovieStates { generation, keys } => {
             anyhow::ensure!(
@@ -116,17 +84,15 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
                 "Too many visible movies"
             );
             let mut states = Vec::new();
-            for key in keys {
-                anyhow::ensure!(key.kind == MediaKind::Movie, "Expected a movie");
-                let stored = library.get_media(&key)?.is_some();
+            anyhow::ensure!(
+                keys.iter().all(|key| key.kind == MediaKind::Movie),
+                "Expected a movie"
+            );
+            for state in library.media_states(&keys)? {
                 states.push(MovieState {
-                    watched: stored && library.watched_state(&key)?.watched,
-                    progress: if stored {
-                        library.load_progress(&key)?
-                    } else {
-                        None
-                    },
-                    key,
+                    watched: state.watched.watched,
+                    progress: state.progress,
+                    key: state.key,
                 });
             }
             return Ok(Event::MovieStates { generation, states });
@@ -142,16 +108,33 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
                 items: library.list_library(watched, kind, Page::new(MAX_PAGE_SIZE, offset)?)?,
             });
         }
-        Command::Overview { generation, offset } => {
+        Command::Overview {
+            generation,
+            watching_offset,
+            calendar_offset,
+        } => {
+            let watching =
+                library.list_currently_watching(Page::new(MAX_PAGE_SIZE, watching_offset)?)?;
+            let keys: Vec<_> = watching
+                .iter()
+                .map(|(media, _)| media.key.clone())
+                .collect();
+            let watching_watched = library
+                .media_states(&keys)?
+                .into_iter()
+                .filter(|state| state.watched.watched)
+                .map(|state| state.key)
+                .collect();
             return Ok(Event::Overview {
                 generation,
-                watching: library.list_currently_watching(Page::new(MAX_PAGE_SIZE, offset)?)?,
-                series: library.list_calendar_titles(Page::new(20, offset)?)?,
+                watching,
+                watching_watched,
+                next_release_at: library.next_release_at(chrono::Utc::now().timestamp())?,
+                series: library.list_calendar_titles(Page::new(20, calendar_offset)?)?,
             });
         }
         Command::SavePlayback(item, position, duration, delta) => {
-            library.upsert_media(&item)?;
-            library.record_playback(&item.key, position, duration, delta)?;
+            library.record_media_playback(&item, position, duration, delta)?;
         }
         Command::FinishPlayback(key, next) => library.finish_playback(&key, next.as_ref())?,
         Command::Refresh {
@@ -177,22 +160,22 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
                 "Too many visible episodes"
             );
             if !episodes.is_empty() {
-                for key in episodes {
-                    let watched = if library.get_media(&key)?.is_some() {
-                        library.watched_state(&key)?
-                    } else {
-                        WatchedState {
-                            watched: false,
-                            manual_override: None,
-                        }
-                    };
-                    episode_states.push((key, watched));
-                }
+                episode_states = library
+                    .media_states(&episodes)?
+                    .into_iter()
+                    .map(|state| (state.key, state.watched))
+                    .collect();
             } else if let Some(series) = series {
-                for episode in library.list_episodes(series, page)? {
-                    let watched = library.watched_state(&episode.key)?;
-                    episode_states.push((episode.key, watched));
-                }
+                let keys: Vec<_> = library
+                    .list_episodes(series, page)?
+                    .into_iter()
+                    .map(|media| media.key)
+                    .collect();
+                episode_states = library
+                    .media_states(&keys)?
+                    .into_iter()
+                    .map(|state| (state.key, state.watched))
+                    .collect();
             }
             let selected_state = match selected_media {
                 Some(media) => Some(SelectedState {
@@ -213,9 +196,10 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
             });
         }
         Command::Upsert(items) => {
-            for item in items {
-                library.upsert_media(&item)?;
-            }
+            library.upsert_media_batch(&items)?;
+        }
+        Command::RegisterRelease(item, released_at) => {
+            library.register_release(&item, released_at)?;
         }
         Command::ToggleWatchlist(item) => {
             let item = match &item.parent {
@@ -246,12 +230,15 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
             }
         }
         Command::SetWatched(item, watched) => {
-            library.upsert_media(&item)?;
-            library.set_watched(&item.key, watched)?;
+            library.set_media_watched(&item, None, None, watched)?;
         }
-        Command::ClearOverride(item) => {
-            library.upsert_media(&item)?;
-            library.clear_watched_override(&item.key)?;
+        Command::SetWatchedMetadata {
+            item,
+            released_at,
+            inventory,
+            watched,
+        } => {
+            library.set_media_watched(&item, released_at, inventory.as_deref(), watched)?;
         }
         Command::Flush(token) => return Ok(Event::Flushed(token)),
     }

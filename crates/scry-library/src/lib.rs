@@ -10,20 +10,21 @@ mod up_next;
 pub use app_storage::AddonRecord;
 pub use models::*;
 
-use std::{cell::RefCell, path::Path};
+use std::{cell::RefCell, path::Path, sync::Mutex};
 
 use anyhow::{Context, Result, ensure};
 use diesel::{
     connection::SimpleConnection,
-    migration::MigrationSource,
     prelude::*,
     sql_types::{BigInt, Text},
 };
-use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 
 /// All persistent app state shares this database. Older pre-release stores are not imported.
-pub const DATABASE_NAME: &str = "scry.sqlite3";
-const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
+pub const DATABASE_NAME: &str = "scry-v2.sqlite3";
+const SCHEMA_VERSION: i64 = 1;
+// SQLite's initial journal-mode switch can return BUSY without using the
+// busy timeout. Serialize our workers' startup, not their normal database work.
+static INITIALIZE: Mutex<()> = Mutex::new(());
 
 pub struct Library {
     connection: RefCell<SqliteConnection>,
@@ -31,7 +32,7 @@ pub struct Library {
 
 impl Library {
     /// # Errors
-    /// Returns an error if the database cannot be opened, migrated, or validated.
+    /// Returns an error if the database cannot be opened, initialized, or validated.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path
             .as_ref()
@@ -47,29 +48,41 @@ impl Library {
     }
 
     fn initialize(mut connection: SqliteConnection) -> Result<Self> {
+        let _initializing = INITIALIZE
+            .lock()
+            .map_err(|_| anyhow::anyhow!("database initialization lock is poisoned"))?;
         connection.batch_execute(
             "PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;",
         )?;
         // Serialize startup across the library and add-on workers.
         connection.immediate_transaction::<_, anyhow::Error, _>(|connection| {
-            let known = <EmbeddedMigrations as MigrationSource<diesel::sqlite::Sqlite>>::migrations(&MIGRATIONS)
-                .map_err(|error| anyhow::anyhow!("read embedded migrations: {error}"))?;
-            let applied = connection.applied_migrations()
-                .map_err(|error| anyhow::anyhow!("read migration history: {error}"))?;
-            if applied.is_empty() {
+            #[derive(QueryableByName)]
+            struct Version {
+                #[diesel(sql_type = BigInt)]
+                user_version: i64,
+            }
+            let version = diesel::sql_query("PRAGMA user_version")
+                .get_result::<Version>(connection)?
+                .user_version;
+            if version == 0 {
                 #[derive(QueryableByName)]
                 struct Count {
                     #[diesel(sql_type = BigInt)]
                     count: i64,
                 }
-                let tables = diesel::sql_query("SELECT count(*) AS count FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' AND name != '__diesel_schema_migrations'")
-                    .get_result::<Count>(connection)?;
+                let tables = diesel::sql_query(
+                    "SELECT count(*) AS count FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'",
+                )
+                .get_result::<Count>(connection)?;
                 ensure!(tables.count == 0, "unversioned app database is not empty");
+                connection.batch_execute(include_str!("schema.sql"))?;
+                connection.batch_execute("PRAGMA user_version=1;")?;
+            } else {
+                ensure!(
+                    version == SCHEMA_VERSION,
+                    "unsupported app database schema; reset the local database"
+                );
             }
-            ensure!(applied.iter().all(|version| known.iter().any(|migration| migration.name().version() == *version)),
-                "unsupported app database migration version");
-            connection.run_pending_migrations(MIGRATIONS)
-                .map_err(|error| anyhow::anyhow!("migrate app database: {error}"))?;
             Self::validate(connection)?;
             Ok(())
         })?;
@@ -84,7 +97,7 @@ impl Library {
             #[diesel(sql_type = Text, column_name = "table")]
             _table: String,
         }
-        // Check every mapped column without loading data. Do not duplicate migration SQL.
+        // Check every mapped column without loading data.
         schema::media::table
             .limit(0)
             .load::<media::MediaRecord>(connection)?;
@@ -102,7 +115,7 @@ impl Library {
             .load::<(i64, f64, f64)>(connection)?;
         schema::watched::table
             .limit(0)
-            .load::<(i64, bool, Option<bool>)>(connection)?;
+            .load::<(i64, bool)>(connection)?;
         schema::viewing::table
             .limit(0)
             .load::<(i64, f64, bool, i64)>(connection)?;
@@ -112,6 +125,12 @@ impl Library {
         schema::episode_releases::table
             .limit(0)
             .load::<(i64, i64, Option<i64>, Option<i64>)>(connection)?;
+        schema::series_inventory::table
+            .limit(0)
+            .load::<(i64,)>(connection)?;
+        schema::effective_watched::table
+            .limit(0)
+            .load::<(i64, bool)>(connection)?;
         ensure!(
             diesel::sql_query("PRAGMA foreign_key_check")
                 .load::<ForeignKeyViolation>(connection)?

@@ -49,6 +49,7 @@ impl LibraryPoster {
 
 #[derive(Debug)]
 pub enum Event {
+    WatchMetadata(u64, scry_library::Media, bool, Result<Box<Meta>, String>),
     SeriesTrackingDetails(u64, Vec<(scry_library::MediaKey, Option<Meta>)>, bool),
     SeriesDetails(u64, Vec<(scry_library::MediaKey, Option<Meta>)>, bool),
     LibraryPosters(
@@ -58,7 +59,7 @@ pub enum Event {
     ),
     Calendar(u64, Vec<(scry_library::Media, Meta)>, usize),
     Addons(Result<Vec<Addon>, String>),
-    Catalog(u64, Result<Vec<Meta>, String>),
+    Catalog(u64, u32, Result<Vec<Meta>, String>),
     Search(u64, Vec<SearchResult>, Vec<String>, bool),
     Detail(u64, Result<(Meta, String), String>),
     Streams(u64, Vec<(String, Stream)>, Vec<String>, bool),
@@ -115,6 +116,7 @@ pub struct Services {
     library_poster_task: Option<tokio::task::JoinHandle<()>>,
     series_detail_task: Option<tokio::task::JoinHandle<()>>,
     series_tracking_task: Option<tokio::task::JoinHandle<()>>,
+    watch_tasks: Vec<tokio::task::JoinHandle<()>>,
     control: Option<watch::Sender<Option<Control>>>,
     commands: Option<mpsc::Sender<(u64, Vec<String>)>>,
     player: Option<JoinHandle<()>>,
@@ -162,6 +164,7 @@ impl Services {
             library_poster_task: None,
             series_detail_task: None,
             series_tracking_task: None,
+            watch_tasks: Vec::new(),
             control: Some(control),
             commands: Some(commands),
             player: Some(player),
@@ -231,18 +234,57 @@ impl Services {
         });
     }
 
-    pub fn catalog(&mut self, generation: u64, addon: Addon, catalog: Catalog, query: String) {
+    pub fn watch_metadata(
+        &mut self,
+        token: u64,
+        mut addons: Vec<Addon>,
+        media: scry_library::Media,
+        watched: bool,
+    ) -> Result<()> {
+        self.watch_tasks.retain(|task| !task.is_finished());
+        anyhow::ensure!(
+            self.watch_tasks.len() < 8,
+            "Watched actions are busy; try again"
+        );
+        let (client, inbox) = (self.client.clone(), self.inbox.clone());
+        self.watch_tasks.push(self.runtime.spawn(async move {
+            let kind = if media.key.kind == scry_library::MediaKind::Movie {
+                "movie"
+            } else {
+                "series"
+            };
+            addons.sort_by_key(|addon| addon.manifest.id != media.key.namespace);
+            let mut result = Err("Cannot load release metadata for this watched action".into());
+            for addon in addons
+                .iter()
+                .filter(|addon| addon.supports("meta", kind, &media.key.id))
+            {
+                if let Ok(meta) = client.meta(addon, kind, &media.key.id).await
+                    && meta.id == media.key.id
+                    && meta.kind == kind
+                {
+                    result = Ok(Box::new(meta));
+                    break;
+                }
+            }
+            inbox
+                .send(Event::WatchMetadata(token, media, watched, result))
+                .await;
+        }));
+        Ok(())
+    }
+
+    pub fn catalog(&mut self, generation: u64, addon: Addon, catalog: Catalog, offset: u32) {
         if let Some(task) = self.catalog_task.take() {
             task.abort();
         }
         let (client, inbox) = (self.client.clone(), self.inbox.clone());
         self.catalog_task = Some(self.runtime.spawn(async move {
-            let search = (!query.trim().is_empty()).then_some(query.trim());
             let result = client
-                .catalog(&addon, &catalog, search)
+                .catalog_page(&addon, &catalog, offset)
                 .await
                 .map_err(|e| e.to_string());
-            inbox.send(Event::Catalog(generation, result)).await;
+            inbox.send(Event::Catalog(generation, offset, result)).await;
         }));
     }
 
@@ -632,6 +674,9 @@ impl Services {
     }
 
     pub fn shutdown_then(&mut self, finished: impl FnOnce() + Send + 'static) {
+        for task in self.watch_tasks.drain(..) {
+            task.abort();
+        }
         for task in [
             &mut self.catalog_task,
             &mut self.search_task,

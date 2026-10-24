@@ -8,6 +8,8 @@ CREATE TABLE media (
     CHECK(parent_id IS NULL OR kind = 'episode'),
     UNIQUE(namespace, kind, external_id)
 );
+CREATE INDEX media_parent ON media(parent_id, media_id);
+CREATE INDEX media_kind ON media(kind, media_id DESC);
 CREATE TABLE watchlist (
     entry_id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     media_id INTEGER NOT NULL UNIQUE REFERENCES media(media_id) ON DELETE CASCADE
@@ -23,6 +25,7 @@ CREATE TABLE playlist_items (
     PRIMARY KEY(playlist_id, media_id),
     UNIQUE(playlist_id, position)
 );
+CREATE INDEX playlist_items_media ON playlist_items(media_id);
 CREATE TABLE progress (
     media_id INTEGER PRIMARY KEY NOT NULL REFERENCES media(media_id) ON DELETE CASCADE,
     position_seconds REAL NOT NULL CHECK(position_seconds >= 0 AND position_seconds <= duration_seconds),
@@ -30,10 +33,8 @@ CREATE TABLE progress (
 );
 CREATE TABLE watched (
     media_id INTEGER PRIMARY KEY NOT NULL REFERENCES media(media_id) ON DELETE CASCADE,
-    watched BOOLEAN NOT NULL CHECK(watched IN (0,1)),
-    manual_override BOOLEAN CHECK(manual_override IN (0,1))
+    watched BOOLEAN NOT NULL CHECK(watched IN (0,1))
 );
-CREATE INDEX media_parent ON media(parent_id, media_id);
 CREATE INDEX watched_status ON watched(watched, media_id);
 CREATE TABLE viewing (
     media_id INTEGER PRIMARY KEY NOT NULL REFERENCES media(media_id) ON DELETE CASCADE,
@@ -41,9 +42,34 @@ CREATE TABLE viewing (
     active BOOLEAN NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
     touched INTEGER NOT NULL
 );
+CREATE INDEX viewing_touched ON viewing(touched DESC);
+CREATE INDEX viewing_active ON viewing(active, touched DESC, media_id);
 CREATE TABLE addons (
     id TEXT PRIMARY KEY NOT NULL CHECK(length(trim(id)) > 0),
     position INTEGER NOT NULL UNIQUE CHECK(position >= 0),
     manifest_url TEXT NOT NULL CHECK(length(trim(manifest_url)) > 0),
     manifest_json TEXT NOT NULL CHECK(json_valid(manifest_json))
 );
+CREATE TABLE series_inventory (
+    media_id INTEGER PRIMARY KEY NOT NULL REFERENCES media(media_id) ON DELETE CASCADE
+);
+CREATE TABLE episode_releases (
+    media_id INTEGER PRIMARY KEY NOT NULL REFERENCES media(media_id) ON DELETE CASCADE,
+    released_at BIGINT NOT NULL,
+    season BIGINT CHECK(season IS NULL OR season >= 0),
+    episode BIGINT CHECK(episode IS NULL OR episode >= 0)
+);
+CREATE INDEX episode_releases_date ON episode_releases(released_at, media_id);
+
+-- Show completion is a query, not a second copy of episode state. Time is read
+-- locally so known releases become eligible even when providers are offline.
+CREATE VIEW effective_watched AS
+SELECT m.media_id,
+    CASE WHEN m.kind='series' THEN
+            EXISTS(SELECT 1 FROM media e JOIN episode_releases r ON r.media_id=e.media_id
+                WHERE e.parent_id=m.media_id AND r.released_at<=unixepoch())
+            AND NOT EXISTS(SELECT 1 FROM media e JOIN episode_releases r ON r.media_id=e.media_id
+                LEFT JOIN watched v ON v.media_id=e.media_id
+                WHERE e.parent_id=m.media_id AND r.released_at<=unixepoch() AND COALESCE(v.watched,0)=0)
+        ELSE COALESCE(w.watched,0) END AS watched
+FROM media m LEFT JOIN watched w ON w.media_id=m.media_id;

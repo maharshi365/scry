@@ -19,6 +19,21 @@ fn watched_titles_leave_to_watch_and_unwatched_saved_titles_return() -> anyhow::
         };
         db.upsert_media(&item)?;
         db.add_to_watchlist(&item.key)?;
+        if kind == MediaKind::Series {
+            db.sync_episode_releases(
+                &item.key,
+                &[scry_library::EpisodeRelease {
+                    media: Media {
+                        key: MediaKey::new("test", MediaKind::Episode, "pilot"),
+                        title: "Pilot".into(),
+                        parent: Some(item.key.clone()),
+                    },
+                    released_at: 0,
+                    season: Some(1),
+                    episode: Some(1),
+                }],
+            )?;
+        }
         db.set_watched(&item.key, true)?;
         assert!(db.list_library(false, kind, Page::default())?.is_empty());
         assert_eq!(
@@ -181,7 +196,7 @@ fn type_filter_is_applied_before_pagination() -> anyhow::Result<()> {
 }
 
 #[test]
-fn migrations_run_once_and_preserve_saved_state_on_reopen() -> anyhow::Result<()> {
+fn schema_initialization_preserves_saved_state_on_reopen() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("library.db");
     let item = movie("saved");
@@ -216,5 +231,65 @@ fn invalid_playback_does_not_write_resume_state() -> anyhow::Result<()> {
     }
     assert!(db.load_progress(&item.key)?.is_none());
     assert!(db.list_currently_watching(Page::default())?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn advancing_preserves_next_episode_resume_and_does_not_reactivate_watched_episodes()
+-> anyhow::Result<()> {
+    let mut db = Library::memory()?;
+    let show = Media {
+        key: MediaKey::new("test", MediaKind::Series, "show"),
+        title: "Show".into(),
+        parent: None,
+    };
+    db.upsert_media(&show)?;
+    let first = Media {
+        key: MediaKey::new("test", MediaKind::Episode, "first"),
+        title: "First".into(),
+        parent: Some(show.key.clone()),
+    };
+    let next = Media {
+        key: MediaKey::new("test", MediaKind::Episode, "next"),
+        title: "Next".into(),
+        parent: Some(show.key.clone()),
+    };
+    db.upsert_media(&first)?;
+    db.upsert_media(&next)?;
+    db.record_playback(&next.key, 35.0, 100.0, 35.0)?;
+    db.record_playback(&first.key, 95.0, 100.0, 80.0)?;
+    db.finish_playback(&first.key, Some(&next))?;
+    assert!(
+        db.load_progress(&next.key)?
+            .is_some_and(|progress| (progress.position_seconds - 35.0).abs() < 0.001)
+    );
+    assert_eq!(
+        db.list_currently_watching(Page::default())?[0].0.key,
+        next.key
+    );
+    db.set_watched(&next.key, true)?;
+    db.record_playback(&first.key, 95.0, 100.0, 0.0)?;
+    db.finish_playback(&first.key, Some(&next))?;
+    assert!(db.list_currently_watching(Page::default())?.is_empty());
+    assert!(db.load_progress(&next.key)?.is_none());
+    Ok(())
+}
+
+#[test]
+fn calendar_tracks_an_unsaved_show_with_manually_watched_episodes() -> anyhow::Result<()> {
+    let mut db = Library::memory()?;
+    let show = Media {
+        key: MediaKey::new("test", MediaKind::Series, "show"),
+        title: "Show".into(),
+        parent: None,
+    };
+    let episode = Media {
+        key: MediaKey::new("test", MediaKind::Episode, "episode"),
+        title: "Pilot".into(),
+        parent: Some(show.key.clone()),
+    };
+    db.upsert_media_batch(&[show.clone(), episode.clone()])?;
+    db.set_watched(&episode.key, true)?;
+    assert_eq!(db.list_calendar_titles(Page::default())?, vec![show]);
     Ok(())
 }

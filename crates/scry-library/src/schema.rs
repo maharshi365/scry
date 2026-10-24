@@ -1,4 +1,4 @@
-// Diesel's schema types mirror the versioned SQL migrations.
+// Diesel's schema types mirror schema.sql.
 diesel::table! {
     media (media_id) {
         media_id -> BigInt,
@@ -40,7 +40,18 @@ diesel::table! {
         media_id -> BigInt,
         #[sql_name = "watched"]
         is_watched -> Bool,
-        manual_override -> Nullable<Bool>,
+    }
+}
+diesel::table! {
+    effective_watched (media_id) {
+        media_id -> BigInt,
+        #[sql_name = "watched"]
+        is_watched -> Bool,
+    }
+}
+diesel::table! {
+    series_inventory (media_id) {
+        media_id -> BigInt,
     }
 }
 diesel::table! {
@@ -73,6 +84,7 @@ diesel::joinable!(playlist_items -> media (media_id));
 diesel::joinable!(playlist_items -> playlists (playlist_id));
 diesel::joinable!(progress -> media (media_id));
 diesel::joinable!(watched -> media (media_id));
+diesel::joinable!(effective_watched -> media (media_id));
 diesel::joinable!(viewing -> media (media_id));
 diesel::allow_tables_to_appear_in_same_query!(
     media,
@@ -81,6 +93,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     playlist_items,
     progress,
     watched,
+    effective_watched,
+    series_inventory,
     viewing,
     addons,
     episode_releases

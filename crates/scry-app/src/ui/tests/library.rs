@@ -19,10 +19,7 @@ fn movie_detail_overlay_handles_missing_duration_and_watched_state() {
         s.library.snapshot = Some(Snapshot {
             selected_state: Some(SelectedState {
                 key: s.library_media().unwrap().key,
-                watched: WatchedState {
-                    watched,
-                    manual_override: None,
-                },
+                watched: WatchedState { watched },
                 watchlist: false,
                 progress: Some(Progress {
                     position_seconds: position,

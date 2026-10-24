@@ -23,8 +23,9 @@ In **Add-ons → Supported**, choose Cinemeta or Torrentio to open the install d
 
 Supported: HTTP and HTTPS manifests, catalog browsing/search, movie and series metadata,
 episode IDs, direct HTTP/debrid streams, and BitTorrent v1 `infoHash` sources
-with optional file indices and tracker hints. Required catalog filters other
-than search are not implemented.
+with optional file indices and tracker hints. Movie and TV catalogs load more
+automatically near the bottom when the provider supports `skip`. Required catalog
+filters other than search and skip are not implemented.
 
 Not yet supported: subtitle add-on resources, streams requiring proxy headers,
 YouTube/external-player sources, DRM, add-on configuration web pages, or
@@ -55,25 +56,28 @@ Player shortcuts apply only during playback and do not intercept text input.
 ## Your local library
 
 - The app starts on **Currently watching**. Open a title to select a source and resume its saved position.
-- **What to watch next**, below Currently watching, lists unwatched movies and known released episodes from saved library titles. Partly watched cards show that movie's or episode's own progress. The list uses 200-item pages and keeps known release metadata for offline use; future and undated episodes are not listed.
+- **What to watch next**, below Currently watching, lists unwatched movies and one next released, unwatched episode per saved show. Open the card to use the full season/episode picker. Cards show that video's resume progress. Show posters instead show aggregate progress and watched/released episode counts. The list uses 200-title pages and retains release metadata for offline use; future and undated episodes are omitted.
 - Open a title and choose **Add to library** to track it, or **Mark watched** to set its status. Right-click titles for quick actions; right-click the page to refresh provider data.
 - **Library** has **To watch** and **Watched** lists, with Movies selected by default and a TV series filter. There are no playlist controls.
 - Progress saves every 12 seconds and on Stop/close. More than 70% of the duration accumulated as playback marks the item watched; seeking does not count.
 - Stopping beyond 90% removes a finished movie from Currently watching or advances to the next known released episode. An unknown/future release is not offered as the next episode.
-- **Mark unwatched** clears progress and sets a manual override. Choose **Auto track** to let playback update its status again.
+- **Mark unwatched** clears progress and watched time. Playback tracking resumes automatically; there is no Auto track button.
 - **Series actions** manages the whole show separately from individual episodes.
 - Right-click the season selector or a season in its list to mark all of that season's episodes watched or unwatched, including episodes beyond the visible page.
-- Tracked shows are checked in the background. Watching all known released episodes moves a show to **Watched**; a new unwatched release moves a saved show back to **To watch**. Explicit show-level watched/unwatched choices take priority.
+- Season and source-provider dropdowns overlay the page without shifting content. Escape or an outside click closes them.
+- A show's watched badge means every known released episode is watched. **Mark show watched** marks its released episodes; **Mark show unwatched** resets its stored episodes. A newly released, unwatched episode clears the show's badge and moves a saved show back to **To watch**, including known releases while the app stays open.
+- Marking a known future movie or episode watched is a silent no-op. Season/show actions skip future episodes. Missing dates are not treated as proof of a future release.
 
-The database is `scry.sqlite3` in the OS-local Scry application-data folder
+The database is `scry-v2.sqlite3` in the OS-local Scry application-data folder
 (`%LOCALAPPDATA%\Scry\Scry\data` on Windows). It contains installed add-ons,
 library metadata, playlists, watched state, and playback progress. Add-on URLs
 can contain credentials: the database is local and unencrypted, so do not share it.
 Close the app before copying it for backup. Images, temporary media, and diagnostic
 reports remain external files. There is no cloud account or sync.
 
-Storage uses Diesel with embedded, versioned migrations. This pre-release storage
-starts fresh; old `library.sqlite3` and `addons.json` stores are not imported or deleted.
+Storage uses Diesel with one embedded schema and no migrations. This build starts
+fresh; old databases and add-on settings are not imported or deleted. Reinstall
+your add-ons and save titles again. See [library semantics](docs/library.md).
 
 Episode browsing uses 100-item pages. Library lists use 200-item pages.
 **Calendar** has Week and Month views; each day has its own scrollable release
@@ -107,8 +111,9 @@ poster again. Cache work stays off the UI thread. Cache failures fall back to th
 network. On Windows, the cache is `%LOCALAPPDATA%\Scry\Scry\cache\artwork`;
 close Scry before clearing it. It contains image pixels and opaque hashed keys,
 not plaintext URLs or credentials, but artwork can still reveal browsing history.
-Only nearby catalog rows build full cards; distant rows keep cheap placeholders
-for scroll position and back/forward navigation.
+Only nearby rows build cards and layout nodes. Spacer blocks represent offscreen
+rows, preserving scroll position and back/forward navigation. Geometry and requests
+update per section rather than per row.
 
 To exercise other screens, with Cinemeta already installed and Windows display
 scaling at 100%:
@@ -164,7 +169,7 @@ flowchart LR
 - `crates/scry-playback/`: `PlaybackEngine` contract, dynamic libmpv client binding, playback telemetry, and OS process counters. No Rune dependency.
 - `crates/scry-app/src/platform/`: `VideoHost` contract and OS implementations. Win32 stays in `windows.rs`; other systems return a clear unsupported error for embedding.
 - `crates/scry-app/src/diagnostics.rs`: no-window playback probes and report analysis.
-- `crates/scry-library/`: Diesel/SQLite repository and embedded migrations for installed add-ons, watchlists, ordered playlists, watched state, and per-episode progress. See [library semantics](docs/library.md).
+- `crates/scry-library/`: Diesel/SQLite repository and a single embedded schema for installed add-ons, watchlists, ordered playlists, watched state, per-video progress, and derived show summaries. See [library semantics](docs/library.md).
 
 The root manifest contains only workspace configuration. `crates/scry-app/`
 owns the `scry` binary, Rune UI, workers, search, artwork, and native window host.
@@ -178,6 +183,8 @@ the service crates depends on the app or Rune.
 
 See [UI state and shortcut ownership](docs/ui-state.md) for feature APIs,
 binding registration, and the remaining state extraction work.
+See [the persistence and UI review](docs/architecture-review.md) for the rebuild,
+its findings, regression coverage, and remaining limits.
 See [the shared UI system](docs/ui-system.md) for colors, icons, primitives,
 and the Clippy and test rules that prevent visual drift.
 

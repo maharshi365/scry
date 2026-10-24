@@ -1,5 +1,5 @@
 use anyhow::Context;
-use scry_library::{Library, Media, MediaKey, MediaKind, Page};
+use scry_library::{EpisodeRelease, Library, Media, MediaKey, MediaKind, Page};
 
 fn show() -> Media {
     Media {
@@ -17,8 +17,28 @@ fn episode(parent: &Media, index: usize) -> Media {
     }
 }
 
+fn sync(db: &mut Library, parent: &Media, keys: &[MediaKey]) -> anyhow::Result<bool> {
+    db.sync_episode_releases(
+        &parent.key,
+        &keys
+            .iter()
+            .map(|key| EpisodeRelease {
+                media: Media {
+                    key: key.clone(),
+                    title: key.id.clone(),
+                    parent: Some(parent.key.clone()),
+                },
+                released_at: 0,
+                season: Some(1),
+                episode: None,
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
 #[test]
-fn series_progress_uses_the_latest_unfinished_episode_not_episode_order() -> anyhow::Result<()> {
+fn series_progress_aggregates_episode_completion_independently_of_resume_order()
+-> anyhow::Result<()> {
     let mut db = Library::memory()?;
     let parent = show();
     db.upsert_media(&parent)?;
@@ -27,21 +47,29 @@ fn series_progress_uses_the_latest_unfinished_episode_not_episode_order() -> any
     for item in [&first, &later] {
         db.upsert_media(item)?;
     }
-    db.record_playback(&later.key, 40.0, 100.0, 0.0)?;
-    db.record_playback(&first.key, 25.0, 100.0, 0.0)?;
-    let progress = db
-        .series_poster_state(&parent.key, &[])?
-        .1
-        .context("missing first progress")?;
-    assert!((progress.position_seconds - 25.0).abs() < 0.01);
-    db.record_playback(&first.key, 95.0, 100.0, 0.0)?;
-    let progress = db
-        .series_poster_state(&parent.key, &[])?
-        .1
-        .context("missing earlier unfinished progress")?;
-    assert!((progress.position_seconds - 40.0).abs() < 0.01);
+    db.record_playback(&later.key, 40.0, 100.0, 40.0)?;
+    db.record_playback(&first.key, 25.0, 100.0, 25.0)?;
+    let released = vec![
+        first.key.clone(),
+        later.key.clone(),
+        episode(&parent, 201).key,
+    ];
+    sync(&mut db, &parent, &released)?;
+    let progress = db.series_progress(&parent.key, 100)?;
+    assert_eq!(progress.released_episodes, 3);
+    assert_eq!(progress.watched_episodes, 0);
+    assert!((progress.fraction().context("missing fraction")? - 0.65 / 3.0).abs() < 0.001);
+    db.record_playback(&first.key, 95.0, 100.0, 80.0)?;
+    db.finish_playback(&first.key, None)?;
+    let progress = db.series_progress(&parent.key, 100)?;
+    assert_eq!(progress.watched_episodes, 1);
+    assert!((progress.completed_equivalents - 1.4).abs() < 0.001);
     db.set_watched(&later.key, true)?;
-    assert!(db.series_poster_state(&parent.key, &[])?.1.is_none());
+    assert_eq!(db.series_progress(&parent.key, 100)?.watched_episodes, 2);
+    db.set_watched(&first.key, false)?;
+    let progress = db.series_progress(&parent.key, 100)?;
+    assert_eq!(progress.watched_episodes, 1);
+    assert!((progress.completed_equivalents - 1.0).abs() < 0.001);
     Ok(())
 }
 
@@ -57,15 +85,17 @@ fn series_check_requires_every_released_episode_across_all_pages() -> anyhow::Re
         db.set_watched(&item.key, true)?;
         released.push(item.key);
     }
-    assert!(db.series_poster_state(&parent.key, &released)?.0);
-    assert!(!db.series_poster_state(&parent.key, &[])?.0);
+    sync(&mut db, &parent, &released)?;
+    assert!(db.series_poster_state(&parent.key, 100)?.0);
+    assert!(!db.series_poster_state(&parent.key, -1)?.0);
     let unknown = episode(&parent, 251).key;
     released.push(unknown);
-    assert!(!db.series_poster_state(&parent.key, &released)?.0);
+    sync(&mut db, &parent, &released)?;
+    assert!(!db.series_poster_state(&parent.key, 100)?.0);
     released.pop();
     db.set_watched(&released[249], false)?;
     db.set_watched(&parent.key, true)?;
-    assert!(db.series_poster_state(&parent.key, &released)?.0);
+    assert!(db.series_poster_state(&parent.key, 100)?.0);
     Ok(())
 }
 
@@ -79,7 +109,7 @@ fn episode_completion_moves_a_series_between_library_lists_without_creating_an_o
     let first = episode(&parent, 1);
     db.upsert_media(&first)?;
     db.set_watched(&first.key, true)?;
-    assert!(db.reconcile_series(&parent.key, std::slice::from_ref(&first.key))?);
+    assert!(sync(&mut db, &parent, std::slice::from_ref(&first.key))?);
     assert_eq!(
         db.list_library(true, MediaKind::Series, Page::default())?,
         vec![parent.clone()]
@@ -88,10 +118,9 @@ fn episode_completion_moves_a_series_between_library_lists_without_creating_an_o
         db.list_library(false, MediaKind::Series, Page::default())?
             .is_empty()
     );
-    assert_eq!(db.watched_state(&parent.key)?.manual_override, None);
-    assert!(!db.reconcile_series(&parent.key, std::slice::from_ref(&first.key))?);
+    assert!(!sync(&mut db, &parent, std::slice::from_ref(&first.key))?);
     let new_release = episode(&parent, 2).key;
-    assert!(db.reconcile_series(&parent.key, &[first.key.clone(), new_release])?);
+    assert!(sync(&mut db, &parent, &[first.key.clone(), new_release])?);
     assert!(
         db.list_library(true, MediaKind::Series, Page::default())?
             .is_empty()
@@ -101,7 +130,7 @@ fn episode_completion_moves_a_series_between_library_lists_without_creating_an_o
         vec![parent.clone()]
     );
     db.set_watched(&parent.key, false)?;
-    assert!(!db.reconcile_series(&parent.key, &[first.key])?);
+    sync(&mut db, &parent, &[first.key])?;
     assert!(!db.watched_state(&parent.key)?.watched);
     Ok(())
 }
@@ -127,5 +156,88 @@ fn bulk_episode_changes_are_atomic_and_do_not_touch_other_seasons() -> anyhow::R
             .is_err()
     );
     assert!(!db.watched_state(&items[0].key)?.watched);
+    Ok(())
+}
+
+#[test]
+fn seeking_and_future_releases_do_not_inflate_show_watch_progress() -> anyhow::Result<()> {
+    let mut db = Library::memory()?;
+    let parent = show();
+    db.upsert_media(&parent)?;
+    let first = episode(&parent, 1);
+    let future = episode(&parent, 2);
+    db.sync_episode_releases(
+        &parent.key,
+        &[
+            EpisodeRelease {
+                media: first.clone(),
+                released_at: 100,
+                season: Some(1),
+                episode: Some(1),
+            },
+            EpisodeRelease {
+                media: future.clone(),
+                released_at: 200,
+                season: Some(1),
+                episode: Some(2),
+            },
+        ],
+    )?;
+    db.record_playback(&first.key, 95.0, 100.0, 10.0)?;
+    let summary = db.series_progress(&parent.key, 150)?;
+    assert_eq!(summary.released_episodes, 1);
+    assert_eq!(summary.watched_episodes, 0);
+    assert!((summary.completed_equivalents - 0.1).abs() < 0.001);
+    assert!((summary.resume_equivalents - 0.95).abs() < 0.001);
+    db.finish_playback(&first.key, None)?;
+    assert!((db.series_progress(&parent.key, 150)?.completed_equivalents - 0.1).abs() < 0.001);
+    db.set_watched(&first.key, true)?;
+    assert!(db.series_poster_state(&parent.key, 150)?.0);
+    let after_release = db.series_progress(&parent.key, 250)?;
+    assert_eq!(after_release.released_episodes, 2);
+    assert_eq!(after_release.watched_episodes, 1);
+    assert!(
+        (after_release
+            .fraction()
+            .context("missing released progress")?
+            - 0.5)
+            .abs()
+            < 0.001
+    );
+    assert!(!db.series_poster_state(&parent.key, 250)?.0);
+    db.set_watched(&parent.key, true)?;
+    assert!(db.series_poster_state(&parent.key, 250)?.0);
+    assert_eq!(db.series_progress(&parent.key, 250)?.watched_episodes, 2);
+    db.set_watched(&future.key, false)?;
+    assert!(!db.series_poster_state(&parent.key, 250)?.0);
+    Ok(())
+}
+
+#[test]
+fn stored_inventory_and_episode_actions_update_all_library_views_without_reconciliation()
+-> anyhow::Result<()> {
+    let mut db = Library::memory()?;
+    let parent = show();
+    db.upsert_media(&parent)?;
+    db.add_to_watchlist(&parent.key)?;
+    let first = episode(&parent, 1);
+    sync(&mut db, &parent, std::slice::from_ref(&first.key))?;
+    db.set_watched(&first.key, true)?;
+    assert!(db.watched_state(&parent.key)?.watched);
+    assert_eq!(
+        db.list_library(true, MediaKind::Series, Page::default())?,
+        vec![parent.clone()]
+    );
+    assert!(db.list_up_next(100, Page::default())?.is_empty());
+    db.set_watched(&first.key, false)?;
+    assert!(!db.watched_state(&parent.key)?.watched);
+    assert_eq!(
+        db.list_library(false, MediaKind::Series, Page::default())?,
+        vec![parent.clone()]
+    );
+    assert_eq!(db.list_up_next(100, Page::default())?[0].0.key, first.key);
+    sync(&mut db, &parent, &[])?;
+    assert!(!db.watched_state(&parent.key)?.watched);
+    assert_eq!(db.series_progress(&parent.key, 100)?.fraction(), None);
     Ok(())
 }

@@ -57,10 +57,7 @@ pub(super) fn scene_detail_watched(s: &mut State) {
     let Some(media) = s.library_media() else {
         return;
     };
-    let watched = scry_library::WatchedState {
-        watched: true,
-        manual_override: Some(true),
-    };
+    let watched = scry_library::WatchedState { watched: true };
     s.library.snapshot = Some(Snapshot {
         selected_state: Some(crate::library_worker::SelectedState {
             key: media.key.clone(),

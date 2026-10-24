@@ -7,11 +7,11 @@ use super::{
         tokens::{accent, edge, panel, theme, type_, warning},
     },
     primitives::{
-        surface::{badge, card, scroll},
+        surface::{badge, card, dropdown, scroll},
         text::label,
     },
 };
-use rune::{El, ScrollSpec, col, el, icon, row, text};
+use rune::{Cx, El, col, el, icon, row, text};
 use scry_addons::Stream;
 
 // Add-on names often put the quality on a second line. Keep that information
@@ -45,6 +45,61 @@ fn filter(
     f: impl Fn(&mut State) + 'static,
 ) -> El {
     select_action(key, title, selected, f).w_full()
+}
+
+fn providers(s: &State) -> Vec<(String, usize)> {
+    let mut providers: Vec<(String, usize)> = Vec::new();
+    for (addon, _) in &s.streams {
+        if let Some((_, count)) = providers.iter_mut().find(|(name, _)| name == addon) {
+            *count += 1;
+        } else {
+            providers.push((addon.clone(), 1));
+        }
+    }
+    providers
+}
+
+pub(super) fn provider_menu(s: &State, cx: &Cx<State>) -> Option<El> {
+    if !s.source_menu_open {
+        return None;
+    }
+    let anchor = cx.layout("source-select")?;
+    let providers = providers(s);
+    if providers.len() < 2 {
+        return None;
+    }
+    let visible = u16::try_from(providers.len().saturating_add(1).min(4)).unwrap_or(4);
+    let mut filters = col().key("source-filters").w_full().gap(6.0).child(filter(
+        "source-all",
+        format!("All add-ons · {}", s.streams.len()),
+        s.stream_provider.is_none(),
+        |s| {
+            s.stream_provider = None;
+            s.source_menu_open = false;
+        },
+    ));
+    for (index, (provider, count)) in providers.into_iter().enumerate() {
+        let selected = s.stream_provider.as_ref() == Some(&provider);
+        filters = filters.child(filter(
+            format!("source-provider-{index}"),
+            format!("{provider} · {count}"),
+            selected,
+            move |s| {
+                s.stream_provider = Some(provider.clone());
+                s.source_menu_open = false;
+            },
+        ));
+    }
+    Some(
+        dropdown(
+            "source-menu",
+            "source-select",
+            anchor[2],
+            f32::from(visible) * 38.0,
+            |s: &mut State| s.source_menu_open = false,
+        )
+        .child(filters),
+    )
 }
 
 #[expect(
@@ -106,60 +161,20 @@ pub(super) fn view(s: &State) -> El {
             .key("source-episode"),
         );
     }
-    let mut providers: Vec<(String, usize)> = Vec::new();
-    for (addon, _) in &s.streams {
-        if let Some((_, count)) = providers.iter_mut().find(|(name, _)| name == addon) {
-            *count += 1;
-        } else {
-            providers.push((addon.clone(), 1));
-        }
-    }
+    let providers = providers(s);
     if providers.len() > 1 {
         header = header.child(
             action(
                 "source-select",
                 s.stream_provider.as_deref().unwrap_or("All add-ons"),
                 |s| {
+                    s.season_menu_open = false;
                     s.source_menu_open = !s.source_menu_open;
                 },
             )
             .w_full()
             .gap(6.0)
             .child(icon(&icons::DOWN, 14.0).color(t.text)),
-        );
-    }
-    if providers.len() > 1 && s.source_menu_open {
-        let visible = u16::try_from(providers.len().saturating_add(1).min(4)).unwrap_or(4);
-        let menu_height = f32::from(visible) * 38.0;
-        let mut filters = col().key("source-filters").w_full().gap(6.0).child(filter(
-            "source-all",
-            format!("All add-ons · {}", s.streams.len()),
-            s.stream_provider.is_none(),
-            |s| {
-                s.stream_provider = None;
-                s.source_menu_open = false;
-            },
-        ));
-        for (index, (provider, count)) in providers.into_iter().enumerate() {
-            let selected = s.stream_provider.as_ref() == Some(&provider);
-            filters = filters.child(filter(
-                format!("source-provider-{index}"),
-                format!("{provider} · {count}"),
-                selected,
-                move |s| {
-                    s.stream_provider = Some(provider.clone());
-                    s.source_menu_open = false;
-                },
-            ));
-        }
-        header = header.child(
-            col()
-                .w_full()
-                .h(menu_height)
-                .scroll(ScrollSpec {
-                    stick_bottom: false,
-                })
-                .child(filters),
         );
     }
 

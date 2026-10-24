@@ -8,9 +8,10 @@ fn completed_catalogs_have_no_title_count_footer() {
         s.kind = kind.into();
         s.status = "Loading catalog…".into();
         let metas = s.metas.to_vec();
+        s.catalog_paging.pending = Some(0);
         let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
         rt.poll = Some(poll);
-        tx.try_send(Event::Catalog(rt.state.catalog_id, Ok(metas)))
+        tx.try_send(Event::Catalog(rt.state.catalog_id, 0, Ok(metas)))
             .unwrap();
         for _ in 0..30 {
             rt.frame(1.0 / 60.0);
@@ -19,6 +20,117 @@ fn completed_catalogs_have_no_title_count_footer() {
         assert!(rt.find("status").is_none());
         assert!(rt.find("title-0").is_some());
     }
+}
+
+fn paged_catalog(kind: &str) -> State {
+    let mut s = init();
+    scene_discover(&mut s);
+    s.kind = kind.into();
+    let (addon, mut catalog) = s.catalog.take().unwrap();
+    catalog.kind = kind.into();
+    catalog.extra.push(scry_addons::Extra {
+        name: "skip".into(),
+        is_required: false,
+    });
+    s.catalog = Some((addon, catalog));
+    s.metas = Arc::default();
+    s.catalog_paging.pending = Some(0);
+    let titles = (0..40).map(|index| catalog_title(kind, index)).collect();
+    s.apply_catalog_page(s.catalog_id, 0, Ok(titles));
+    s
+}
+
+fn catalog_title(kind: &str, index: usize) -> Meta {
+    serde_json::from_value(serde_json::json!({"id":format!("title-{index}"), "type":kind, "name":format!("Title {index}")})).unwrap()
+}
+
+#[test]
+fn movie_and_tv_catalogs_load_on_scroll_append_without_jumping_and_stop_on_repeats() {
+    for kind in ["movie", "series"] {
+        let s = paged_catalog(kind);
+        let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
+        rt.poll = Some(poll);
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        assert_eq!(rt.state.catalog_paging.pending, None);
+        let viewport = rect(&rt, "titles-scroll-0");
+        rt.wheel(viewport[0] + 20.0, viewport[1] + 20.0, -100_000.0);
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        assert_eq!(rt.state.catalog_paging.pending, Some(40));
+        let last_before = rect(&rt, "title-39");
+        rt.update(|s, _| {
+            s.apply_catalog_page(s.catalog_id + 1, 40, Ok(vec![catalog_title(kind, 999)]));
+            s.apply_catalog_page(s.catalog_id, 0, Ok(vec![catalog_title(kind, 998)]));
+            let mut more = vec![catalog_title(kind, 0)];
+            more.extend((40..50).map(|index| catalog_title(kind, index)));
+            s.apply_catalog_page(s.catalog_id, 40, Ok(more));
+        });
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        assert_eq!(rt.state.metas.len(), 50);
+        assert_eq!(rt.state.catalog_paging.next_offset, 51);
+        assert!((rect(&rt, "title-39")[1] - last_before[1]).abs() < 0.1);
+        rt.wheel(viewport[0] + 20.0, viewport[1] + 20.0, -100_000.0);
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        assert_eq!(rt.state.catalog_paging.pending, Some(51));
+        rt.update(|s, _| s.apply_catalog_page(s.catalog_id, 51, Ok(vec![catalog_title(kind, 0)])));
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        assert!(!rt.state.catalog_paging.has_more);
+        assert_eq!(rt.state.metas.len(), 50);
+        tap(&mut rt, "title-49");
+        tap(&mut rt, "nav-back");
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        assert_eq!(rt.state.metas.len(), 50);
+        assert!(!rt.state.catalog_paging.has_more);
+        assert!(rt.find("title-49").is_some());
+        rt.update(|s, _| {
+            s.fetch_catalog();
+            s.apply_catalog_page(
+                s.catalog_id,
+                0,
+                Ok((0..10).map(|index| catalog_title(kind, index)).collect()),
+            );
+        });
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        assert_eq!(rt.state.metas.len(), 10);
+        assert!(
+            rt.state
+                .poster_rects
+                .keys()
+                .all(|row| *row < 10usize.div_ceil(rt.state.poster_columns))
+        );
+    }
+}
+
+#[test]
+fn catalog_page_failures_keep_loaded_titles_and_require_explicit_retry() {
+    let mut s = paged_catalog("movie");
+    s.catalog_paging.pending = Some(40);
+    s.apply_catalog_page(s.catalog_id, 40, Err("Provider unavailable".into()));
+    assert_eq!(s.metas.len(), 40);
+    assert!(s.catalog_paging.failed);
+    s.poster_viewport = Some([0.0, 0.0, 600.0, 400.0]);
+    s.poster_rects.insert(0, [0.0, 0.0, 600.0, 320.0]);
+    s.request_more_catalog();
+    assert_eq!(s.catalog_paging.pending, None);
+    s.catalog_paging.failed = false;
+    s.request_more_catalog();
+    assert_eq!(s.catalog_paging.pending, Some(40));
+    s.apply_catalog_page(s.catalog_id, 40, Ok(Vec::new()));
+    assert!(!s.catalog_paging.has_more);
+    assert_eq!(s.metas.len(), 40);
 }
 
 #[test]

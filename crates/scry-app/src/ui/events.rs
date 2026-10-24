@@ -58,6 +58,18 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
         | s.artwork
             .as_mut()
             .is_some_and(crate::artwork::Artwork::poll);
+    if let Some(release) = s.library.next_release_at {
+        let now = chrono::Utc::now().timestamp();
+        if release <= now {
+            s.library.next_release_at = None;
+            s.refresh_library();
+            changed = true;
+        } else {
+            tx.wake_after(std::time::Duration::from_secs(
+                u64::try_from(release - now).unwrap_or(u64::MAX).min(3600),
+            ));
+        }
+    }
     if !headless()
         && s.services.is_some()
         && s.host.target().is_ok()
@@ -95,6 +107,9 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
 )]
 fn apply(s: &mut State, event: Event) {
     match event {
+        Event::WatchMetadata(token, media, watched, result) => {
+            s.apply_watch_metadata(token, media, watched, result);
+        }
         Event::SeriesTrackingDetails(generation, found, done) => {
             s.apply_series_tracking_details(generation, found, done);
         }
@@ -131,16 +146,7 @@ fn apply(s: &mut State, event: Event) {
                 Err(error) => s.error = Some(error),
             }
         }
-        Event::Catalog(id, result) if id == s.catalog_id && s.navigation.page == Page::Discover => {
-            s.loading = false;
-            match result {
-                Ok(metas) => {
-                    s.status.clear();
-                    s.metas = Arc::new(metas);
-                }
-                Err(error) => s.error = Some(error),
-            }
-        }
+        Event::Catalog(id, offset, result) => s.apply_catalog_page(id, offset, result),
         Event::Search(id, results, warnings, done)
             if id == s.catalog_id && s.navigation.page == Page::Discover =>
         {

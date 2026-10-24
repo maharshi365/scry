@@ -83,10 +83,6 @@ fn season_actions_cover_every_episode_on_all_pages_but_not_other_seasons() {
         })
     });
     assert!(!db.watched_state(&last).unwrap().watched);
-    assert_eq!(
-        db.watched_state(&last).unwrap().manual_override,
-        Some(false)
-    );
     assert!(db.load_progress(&other.key).unwrap().is_some());
     tap(&mut rt, "season-select");
     right_click(&mut rt, "season-option-1");

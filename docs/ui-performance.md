@@ -1,5 +1,61 @@
 # UI performance checks
 
+## Current persistence and grid rebuild
+
+The earlier measurements below describe the first optimization pass, not a new
+native-GPU measurement of the current build.
+
+The current grid uses contiguous spacer blocks instead of one layout placeholder
+per offscreen row. Only nearby rows and the history anchor build row/card trees.
+One layout callback per section updates a coherent geometry snapshot and its
+artwork/state requests. It no longer performs full-list selection after every
+row callback. The fixed row stride is preserved across mount/unmount cycles.
+
+The home regression fixture has 200 distinct titles. It drives 80 wheel inputs
+with one frame between inputs, then six full down/up passes. It checks that fewer
+than 16 next-up rows have layout nodes, the last card remains clickable, visible
+artwork requests switch correctly, and cached pixels reappear on return to the
+first and last cards. Catalog tests also cover 1,000 titles and history restoration.
+These tests use the real headless Rune runtime, not a mocked layout engine.
+The stress route also reapplies a same-sized library response at the bottom.
+Unchanged row geometry and the viewport are retained; when row structure changes,
+both home sections get a coherent new measurement. Catalog resets carry a source
+generation so even an equal-sized refreshed page reports geometry again. This
+prevents a response from clearing image visibility until the next scroll.
+
+The pinned Rune virtual growth list was tried, but failed the populated-home
+scroll/click checks. This build keeps fixed-height spacer windowing instead of
+changing the renderer dependency or retaining the failing path.
+
+Next-up now pages titles, with one next released, unwatched episode per show.
+Batch state reads use bound identities and keyed reads of derived show state;
+they must not LEFT JOIN the multi-table `effective_watched` view, which can make
+SQLite materialize the entire library for a small visible batch. Query-plan
+inspection confirmed keyed primary-key/identity/parent-index reads for the
+chosen query shape. Playback recency has its own index; sibling deactivation
+updates only active entries. Release refreshes write changed rows, not the
+whole inventory. See [the state model](library.md).
+
+Season and provider dropdowns are now root overlays. Geometry regression tests
+check that opening and dismissing them does not move episode/source content at
+880×600 and 1280×820. Escape, outside clicks, keyboard season selection, and
+provider filtering are covered.
+
+Movie and TV browse catalogs now request the provider's next `skip` page near
+the bottom. The cursor advances by raw response count, not unique-card count or
+a guessed page size. Live Cinemeta checks returned 49/50-item initial pages;
+offsets can overlap because upstream records are omitted, so cards are deduplicated.
+Empty and duplicate-only pages stop paging. A failed page preserves existing
+titles and waits for explicit retry. History retains loaded pages and the cursor.
+Only mounted rows now build presentation entries or clone their metadata; growing
+the loaded catalog does not allocate a full offscreen card-description vector
+on every layout pass. Visible status queries filter before cloning identities.
+
+These checks do not prove a GPU-driver hang or atlas-fragmentation issue is gone.
+Repeat the native populated-library workload on the affected machine before
+making renderer-memory or freeze-free claims. The 32-image RAM cache and disk
+cache remain bounded; no new atlas-compaction API is available.
+
 ## First optimization pass
 
 Release builds, Windows, no video playback. These are observations on one

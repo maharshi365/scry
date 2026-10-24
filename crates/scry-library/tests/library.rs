@@ -174,7 +174,7 @@ fn playlist_order_and_failed_reorder_are_atomic() -> anyhow::Result<()> {
 }
 
 #[test]
-fn episodes_and_manual_overrides_are_independent() -> anyhow::Result<()> {
+fn episode_resets_allow_automatic_tracking_without_affecting_the_parent() -> anyhow::Result<()> {
     let mut db = Library::memory()?;
     let show = Media {
         key: MediaKey::new("test", MediaKind::Series, "show"),
@@ -198,8 +198,6 @@ fn episodes_and_manual_overrides_are_independent() -> anyhow::Result<()> {
     db.set_watched(&episode.key, false)?;
     assert_eq!(db.load_progress(&episode.key)?, None);
     db.record_playback(&episode.key, 100.0, 100.0, 100.0)?;
-    assert!(!db.watched_state(&episode.key)?.watched);
-    db.clear_watched_override(&episode.key)?;
     assert!(db.watched_state(&episode.key)?.watched);
     db.set_watched(&episode.key, true)?;
     db.record_playback(&episode.key, 1.0, 100.0, 1.0)?;
@@ -230,6 +228,8 @@ fn progress_validation_and_pagination() -> anyhow::Result<()> {
         db.load_progress(&item.key)?.unwrap().position_seconds,
         100.0
     );
+    assert!(!db.watched_state(&item.key)?.watched);
+    db.record_playback(&item.key, 100.0, 100.0, 80.0)?;
     assert!(db.watched_state(&item.key)?.watched);
     db.save_progress(&item.key, 1.0, 100.0)?;
     assert!(db.watched_state(&item.key)?.watched);
@@ -244,9 +244,9 @@ fn rejects_unknown_and_damaged_schema() -> anyhow::Result<()> {
     let path = dir.path().join("library.db");
     drop(Library::open(&path)?);
     let mut raw = SqliteConnection::establish(path.to_str().unwrap())?;
-    raw.batch_execute("INSERT INTO __diesel_schema_migrations(version) VALUES('99999999999999')")?;
+    raw.batch_execute("PRAGMA user_version=999")?;
     assert!(Library::open(&path).is_err());
-    raw.batch_execute("DELETE FROM __diesel_schema_migrations WHERE version='99999999999999'; DROP TABLE progress;")?;
+    raw.batch_execute("PRAGMA user_version=1; DROP TABLE progress;")?;
     assert!(Library::open(&path).is_err());
     let unversioned = dir.path().join("unversioned.db");
     let mut raw = SqliteConnection::establish(unversioned.to_str().unwrap())?;

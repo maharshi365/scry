@@ -4,8 +4,8 @@ use anyhow::{Context, Result, ensure};
 use diesel::{prelude::*, upsert::excluded};
 
 use crate::{
-    Library, Media, MediaKey, MediaKind, Page,
-    schema::{media, watched, watchlist},
+    Library, Media, MediaKey, MediaKind, Page, Progress,
+    schema::{effective_watched, media, watchlist},
 };
 
 #[derive(Queryable, Selectable, QueryableByName)]
@@ -17,6 +17,40 @@ pub(crate) struct MediaRecord {
     external_id: String,
     title: String,
     parent_id: Option<i64>,
+}
+
+#[derive(QueryableByName)]
+pub(crate) struct MediaProgressRecord {
+    #[diesel(embed)]
+    media: MediaRecord,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Double>)]
+    position_seconds: Option<f64>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Double>)]
+    duration_seconds: Option<f64>,
+}
+
+pub(crate) fn hydrate_progress(
+    connection: &mut SqliteConnection,
+    records: Vec<MediaProgressRecord>,
+) -> Result<Vec<(Media, Option<Progress>)>> {
+    let (media, progress): (Vec<_>, Vec<_>) = records
+        .into_iter()
+        .map(|record| {
+            (
+                record.media,
+                record.position_seconds.zip(record.duration_seconds).map(
+                    |(position_seconds, duration_seconds)| Progress {
+                        position_seconds,
+                        duration_seconds,
+                    },
+                ),
+            )
+        })
+        .unzip();
+    Ok(hydrate(connection, media)?
+        .into_iter()
+        .zip(progress)
+        .collect())
 }
 
 impl MediaRecord {
@@ -107,6 +141,21 @@ pub(crate) fn upsert_media(connection: &mut SqliteConnection, item: &Media) -> R
 }
 
 impl Library {
+    /// Register a bounded batch atomically, with parents before their episodes.
+    /// # Errors
+    /// Returns an error for an oversized batch, invalid metadata, or failed writes.
+    pub fn upsert_media_batch(&mut self, items: &[Media]) -> Result<()> {
+        ensure!(items.len() <= 50_000, "too many media records");
+        self.connection
+            .borrow_mut()
+            .immediate_transaction(|connection| {
+                for item in items {
+                    upsert_media(connection, item)?;
+                }
+                Ok(())
+            })
+    }
+
     /// # Errors
     /// Returns an error for invalid metadata, missing parent, or failed writes.
     pub fn upsert_media(&mut self, item: &Media) -> Result<()> {
@@ -196,8 +245,8 @@ impl Library {
     pub fn list_watched(&self, page: Page) -> Result<Vec<Media>> {
         let connection = &mut *self.connection.borrow_mut();
         let records = media::table
-            .inner_join(watched::table)
-            .filter(watched::is_watched.eq(true))
+            .inner_join(effective_watched::table)
+            .filter(effective_watched::is_watched.eq(true))
             .order(media::media_id.desc())
             .limit(i64::from(page.limit))
             .offset(i64::from(page.offset))
@@ -216,26 +265,13 @@ impl Library {
     ) -> Result<Vec<Media>> {
         let connection = &mut *self.connection.borrow_mut();
         let mut query = media::table
+            .inner_join(effective_watched::table)
             .filter(media::kind.eq(kind.as_str()))
+            .filter(effective_watched::is_watched.eq(is_watched))
             .into_boxed();
-        if is_watched {
-            query = query.filter(
-                media::media_id.eq_any(
-                    watched::table
-                        .filter(watched::is_watched.eq(true))
-                        .select(watched::media_id),
-                ),
-            );
-        } else {
-            query = query
-                .filter(media::media_id.eq_any(watchlist::table.select(watchlist::media_id)))
-                .filter(
-                    media::media_id.ne_all(
-                        watched::table
-                            .filter(watched::is_watched.eq(true))
-                            .select(watched::media_id),
-                    ),
-                );
+        if !is_watched {
+            query =
+                query.filter(media::media_id.eq_any(watchlist::table.select(watchlist::media_id)));
         }
         let records = query
             .order(media::media_id.desc())
@@ -252,7 +288,7 @@ impl Library {
     pub fn list_calendar_titles(&self, page: Page) -> Result<Vec<Media>> {
         let connection = &mut *self.connection.borrow_mut();
         // Correlated self-reference is clearer in SQL than in Diesel's alias DSL.
-        let records = diesel::sql_query("SELECT m.* FROM media m WHERE m.kind IN ('movie','series') AND (EXISTS(SELECT 1 FROM watchlist w WHERE w.media_id=m.media_id) OR EXISTS(SELECT 1 FROM watched w WHERE w.media_id=m.media_id) OR EXISTS(SELECT 1 FROM viewing v WHERE v.media_id=m.media_id) OR EXISTS(SELECT 1 FROM media e JOIN viewing v ON v.media_id=e.media_id WHERE e.parent_id=m.media_id)) ORDER BY m.media_id DESC LIMIT ? OFFSET ?")
+        let records = diesel::sql_query("SELECT m.* FROM media m WHERE m.kind IN ('movie','series') AND (EXISTS(SELECT 1 FROM watchlist w WHERE w.media_id=m.media_id) OR EXISTS(SELECT 1 FROM watched w WHERE w.media_id=m.media_id) OR EXISTS(SELECT 1 FROM viewing v WHERE v.media_id=m.media_id) OR EXISTS(SELECT 1 FROM media e WHERE e.parent_id=m.media_id AND (EXISTS(SELECT 1 FROM viewing v WHERE v.media_id=e.media_id) OR EXISTS(SELECT 1 FROM watched w WHERE w.media_id=e.media_id)))) ORDER BY m.media_id DESC LIMIT ? OFFSET ?")
             .bind::<diesel::sql_types::BigInt, _>(i64::from(page.limit))
             .bind::<diesel::sql_types::BigInt, _>(i64::from(page.offset)).load(connection)?;
         hydrate(connection, records)

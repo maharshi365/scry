@@ -93,6 +93,14 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
                 .child(sidebar(s))
                 .child(content),
         );
+    if s.navigation.page == Page::Detail {
+        if let Some(menu) = super::detail::season_menu(s, cx) {
+            root = root.child(menu);
+        }
+        if let Some(menu) = super::source_picker::provider_menu(s, cx) {
+            root = root.child(menu);
+        }
+    }
     if let Some(menu) = super::context_menu::view(s, cx) {
         root = root.child(menu);
     }

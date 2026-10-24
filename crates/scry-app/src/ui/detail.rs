@@ -11,12 +11,12 @@ use super::{
     formatting::excerpt,
     library_view,
     primitives::{
-        surface::{scroll, watched_badge},
+        surface::{dropdown, scroll},
         text::{heading, label},
     },
     source_picker,
 };
-use rune::{El, ScrollSpec, col, icon, row, text};
+use rune::{Cx, El, col, el, icon, row, text};
 
 pub(super) fn detail(s: &State) -> El {
     let mut header = col().gap(8.0).w_full();
@@ -96,7 +96,15 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
                 .color(if selected { accent() } else { t.text_secondary }),
         );
         if s.episode_watched(&video.id) {
-            status = status.child(watched_badge(format!("episode-watched-{index}")));
+            status = status.child(
+                el().key(format!("episode-watched-{index}"))
+                    .role("img")
+                    .label("Watched")
+                    .w(22.0)
+                    .h(22.0)
+                    .center()
+                    .child(icon(&icons::CHECK, 16.0).color(tokens::success())),
+            );
         }
         episodes = episodes.child(
             col()
@@ -229,6 +237,7 @@ fn season_selector(s: &State) -> El {
     }
     bar = bar.child(
         action("season-select", season_label(current), |s| {
+            s.source_menu_open = false;
             s.season_menu_open = !s.season_menu_open;
         })
         .w(0.0)
@@ -245,36 +254,42 @@ fn season_selector(s: &State) -> El {
             .w(32.0),
         );
     }
-    let mut selector = col().w_full().gap(6.0).child(bar);
-    if s.season_menu_open {
-        let mut choices = col().w_full().gap(4.0);
-        for (index, season) in seasons.iter().copied().enumerate() {
-            choices = choices.child(
-                select_action(
-                    format!("season-option-{index}"),
-                    season_label(season),
-                    season == current,
-                    move |s| {
-                        s.select_season(season);
-                    },
-                )
-                .w_full()
-                .on_secondary_press(move |s: &mut State, point, _| {
-                    s.open_season_menu(point, season);
-                }),
-            );
-        }
-        let visible = u16::try_from(seasons.len().min(4)).unwrap_or(4);
-        selector = selector.child(
-            col()
-                .key("season-menu")
-                .w_full()
-                .h(f32::from(visible) * 36.0)
-                .scroll(ScrollSpec {
-                    stick_bottom: false,
-                })
-                .child(choices),
+    bar
+}
+
+pub(super) fn season_menu(s: &State, cx: &Cx<State>) -> Option<El> {
+    if !s.season_menu_open {
+        return None;
+    }
+    let anchor = cx.layout("season-select")?;
+    let seasons = s.seasons();
+    let current = s.active_season();
+    let mut choices = col().w_full().gap(4.0);
+    for (index, season) in seasons.iter().copied().enumerate() {
+        choices = choices.child(
+            select_action(
+                format!("season-option-{index}"),
+                season_label(season),
+                season == current,
+                move |s| {
+                    s.select_season(season);
+                },
+            )
+            .w_full()
+            .on_secondary_press(move |s: &mut State, point, _| {
+                s.open_season_menu(point, season);
+            }),
         );
     }
-    selector
+    let visible = u16::try_from(seasons.len().min(4)).unwrap_or(4);
+    Some(
+        dropdown(
+            "season-menu",
+            "season-select",
+            anchor[2].max(200.0),
+            f32::from(visible) * 36.0,
+            |s: &mut State| s.season_menu_open = false,
+        )
+        .child(choices),
+    )
 }

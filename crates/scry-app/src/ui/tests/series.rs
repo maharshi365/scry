@@ -139,16 +139,12 @@ fn tv_completion_waits_for_matching_metadata_and_reacts_to_new_releases() {
     ))
     .unwrap();
     settle_library(&mut rt, |s| {
-        s.library
-            .series
-            .requested
-            .first()
-            .is_some_and(|request| request.released.len() == 2)
-            && s.library
-                .series
-                .states
-                .first()
-                .is_some_and(|state| !state.watched)
+        s.library.series.states.first().is_some_and(|state| {
+            !state.watched
+                && state
+                    .progress
+                    .is_some_and(|p| (p.position_seconds - 0.5).abs() < 0.001)
+        })
     });
     assert!(rt.find("title-poster-0-watched").is_none());
 }
@@ -180,7 +176,7 @@ fn tv_posters_share_episode_progress_and_released_completion_across_routes() {
             }
             db.add_to_watchlist(&parent.key).unwrap();
             db.set_watched(&first.key, true).unwrap();
-            db.record_playback(&second.key, 30.0, 120.0, 0.0).unwrap();
+            db.record_playback(&second.key, 30.0, 120.0, 30.0).unwrap();
         }
         let meta: Meta = serde_json::from_value(serde_json::json!({
             "id":"tt123", "type":"series", "name":"Show", "poster":"https://example.com/poster.jpg", "videos":[
@@ -222,7 +218,8 @@ fn tv_posters_share_episode_progress_and_released_completion_across_routes() {
         };
         let track = rect(&rt, &format!("{poster}-progress-track"));
         let fill = rect(&rt, &format!("{poster}-progress-fill"));
-        assert!((fill[2] / track[2] - 0.25).abs() < 0.01);
+        let expected = if page == Page::Watching { 0.25 } else { 0.625 };
+        assert!((fill[2] / track[2] - expected).abs() < 0.01);
         assert!(rt.find(&format!("{poster}-watched")).is_none());
         rt.update(|s, _| {
             s.db(

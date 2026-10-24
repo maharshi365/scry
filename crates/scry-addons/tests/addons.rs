@@ -7,6 +7,39 @@ use scry_addons::{Addon, Catalog, Stream, manifest_url, resource_url};
 use serde_json::json;
 
 #[test]
+fn catalog_paging_preserves_configured_paths_and_requires_provider_support() {
+    let addon: Addon = serde_json::from_value(json!({
+        "manifest_url":"https://example.com/config/private/manifest.json",
+        "manifest":{"id":"test", "name":"Test", "catalogs":[]}
+    }))
+    .unwrap();
+    let mut catalog: Catalog =
+        serde_json::from_value(json!({"id":"popular", "type":"movie", "extra":[{"name":"skip"}]}))
+            .unwrap();
+    assert_eq!(
+        scry_addons::catalog_page_url(&addon, &catalog, 0)
+            .unwrap()
+            .path(),
+        "/config/private/catalog/movie/popular.json"
+    );
+    assert_eq!(
+        scry_addons::catalog_page_url(&addon, &catalog, 100)
+            .unwrap()
+            .path(),
+        "/config/private/catalog/movie/popular/skip=100.json"
+    );
+    catalog.extra[0].is_required = true;
+    assert_eq!(
+        scry_addons::catalog_page_url(&addon, &catalog, 0)
+            .unwrap()
+            .path(),
+        "/config/private/catalog/movie/popular/skip=0.json"
+    );
+    catalog.extra.clear();
+    assert!(scry_addons::catalog_page_url(&addon, &catalog, 100).is_err());
+}
+
+#[test]
 fn title_logo_is_optional_and_preserved_with_the_backdrop() {
     let meta: scry_addons::Meta = serde_json::from_value(json!({
         "id":"tt123", "type":"movie", "name":"A movie",

@@ -3,7 +3,7 @@ use super::super::design::{
     tokens::{accent, edge, panel, success, theme, type_},
 };
 use super::text::label;
-use rune::{Color, El, Icon, ScrollSpec, col, el, icon, row, text};
+use rune::{Align, Color, El, Icon, ScrollSpec, Side, col, el, icon, row, text};
 
 pub(in crate::ui) fn card() -> El {
     surface(col())
@@ -69,4 +69,28 @@ pub(in crate::ui) fn scroll(key: impl Into<String>, content: El) -> El {
             stick_bottom: false,
         })
         .child(content)
+}
+
+/// Attach at the window root, after the trigger, to escape page clipping.
+pub(in crate::ui) fn dropdown<S: 'static>(
+    key: &str,
+    trigger: &str,
+    width: f32,
+    height: f32,
+    dismiss: impl Fn(&mut S) + 'static,
+) -> El {
+    card()
+        .key(key)
+        .role("menu")
+        .w(width)
+        .h(height + 12.0)
+        .padding(6.0)
+        .radius(8.0)
+        .anchored(trigger, Side::Bottom, Align::Start, 6.0)
+        .modal(true, dismiss)
+        .focus_group()
+        .focus_return(trigger)
+        .scroll(ScrollSpec {
+            stick_bottom: false,
+        })
 }

@@ -11,18 +11,19 @@ pub enum Command {
         generation: u64,
         offset: u32,
     },
-    ReconcileSeries {
-        request: SeriesRequest,
+    SyncSeries {
+        key: MediaKey,
         releases: Vec<scry_library::EpisodeRelease>,
     },
     SetEpisodesWatched {
         parent: Media,
         episodes: Vec<Media>,
+        inventory: Vec<scry_library::EpisodeRelease>,
         watched: bool,
     },
     SeriesStates {
         generation: u64,
-        requests: Vec<SeriesRequest>,
+        keys: Vec<MediaKey>,
     },
     MovieStates {
         generation: u64,
@@ -36,7 +37,8 @@ pub enum Command {
     },
     Overview {
         generation: u64,
-        offset: u32,
+        watching_offset: u32,
+        calendar_offset: u32,
     },
     SavePlayback(Media, f64, f64, f64),
     FinishPlayback(MediaKey, Option<Media>),
@@ -48,10 +50,16 @@ pub enum Command {
     },
     /// Entries are upserted in order (parents before episodes).
     Upsert(Vec<Media>),
+    RegisterRelease(Media, Option<i64>),
     ToggleWatchlist(Media),
     SetWatchlist(Media, bool),
     SetWatched(Media, bool),
-    ClearOverride(Media),
+    SetWatchedMetadata {
+        item: Media,
+        released_at: Option<i64>,
+        inventory: Option<Vec<scry_library::EpisodeRelease>>,
+        watched: bool,
+    },
     /// A FIFO barrier for shutdown: all preceding writes finish before this ack.
     Flush(u64),
 }
@@ -71,19 +79,13 @@ pub struct MovieState {
     pub progress: Option<Progress>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SeriesRequest {
-    pub key: MediaKey,
-    pub released: Vec<MediaKey>,
-    pub metadata_known: bool,
-}
-
 #[derive(Debug)]
 pub struct SeriesState {
     pub key: MediaKey,
     pub tracked: bool,
     pub watched: bool,
     pub progress: Option<Progress>,
+    pub summary: Option<scry_library::SeriesProgress>,
 }
 
 #[derive(Debug)]
@@ -106,14 +108,12 @@ pub enum Event {
         generation: u64,
         items: Vec<Media>,
     },
-    SeriesReconciled {
+    SeriesSynced {
         changed: bool,
-        inventory_changed: bool,
     },
     SeriesStates {
         generation: u64,
         states: Vec<SeriesState>,
-        changed: bool,
     },
     MovieStates {
         generation: u64,
@@ -126,6 +126,8 @@ pub enum Event {
     Overview {
         generation: u64,
         watching: Vec<(Media, Progress)>,
+        watching_watched: Vec<MediaKey>,
+        next_release_at: Option<i64>,
         series: Vec<Media>,
     },
     Ready,
@@ -137,4 +139,23 @@ pub enum Event {
     Flushed(u64),
     /// Fixed messages only: database details and media values stay private.
     Error(String),
+    /// A failed read/sync request is not an acknowledgement of a queued UI mutation.
+    RequestError(String),
+}
+
+impl Command {
+    pub(super) fn acknowledges_mutation(&self) -> bool {
+        matches!(
+            self,
+            Self::SetEpisodesWatched { .. }
+                | Self::SavePlayback(..)
+                | Self::FinishPlayback(..)
+                | Self::Upsert(..)
+                | Self::ToggleWatchlist(..)
+                | Self::SetWatchlist(..)
+                | Self::SetWatched(..)
+                | Self::SetWatchedMetadata { .. }
+                | Self::RegisterRelease(..)
+        )
+    }
 }

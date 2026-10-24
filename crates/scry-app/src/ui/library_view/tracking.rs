@@ -1,10 +1,6 @@
 //! Refresh tracked shows even when the active Library filter hides them.
-use super::{
-    Media, MediaKey, State,
-    series_status::{episode_inventory, released_episodes},
-};
-use crate::library_worker::{Command, SeriesRequest};
-use chrono::Utc;
+use super::{Media, MediaKey, State, series_status::episode_inventory};
+use crate::library_worker::Command;
 use scry_addons::Meta;
 use std::time::{Duration, Instant};
 
@@ -77,6 +73,7 @@ impl State {
             if let Some((meta, _)) = cached {
                 if let Some(meta) = meta.clone() {
                     self.reconcile_series_metadata(&key, &meta);
+                    self.remember_series_poster(&key, &meta);
                 }
             } else {
                 missing.push(key);
@@ -108,6 +105,7 @@ impl State {
             let meta = meta.filter(|meta| meta.kind == "series" && meta.id == key.id);
             if let Some(meta) = &meta {
                 self.reconcile_series_metadata(&key, meta);
+                self.remember_series_poster(&key, meta);
             }
             self.library
                 .series
@@ -120,14 +118,14 @@ impl State {
     }
 
     pub(super) fn reconcile_series_metadata(&mut self, key: &MediaKey, meta: &Meta) {
+        // An omitted episode list is not evidence that the stored inventory is empty.
+        if meta.videos.is_empty() {
+            return;
+        }
         if let Some(worker) = &self.library.worker
             && worker
-                .send(Command::ReconcileSeries {
-                    request: SeriesRequest {
-                        key: key.clone(),
-                        released: released_episodes(key, meta, Utc::now()),
-                        metadata_known: true,
-                    },
+                .send(Command::SyncSeries {
+                    key: key.clone(),
                     releases: episode_inventory(key, meta),
                 })
                 .is_err()

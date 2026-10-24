@@ -156,20 +156,11 @@ fn episode_names_and_watched_badge_do_not_expose_tracking_mode() {
     s.library.snapshot = Some(Snapshot {
         selected_state: Some(SelectedState {
             key: media.key.clone(),
-            watched: WatchedState {
-                watched: true,
-                manual_override: Some(true),
-            },
+            watched: WatchedState { watched: true },
             watchlist: false,
             progress: None,
         }),
-        episode_states: vec![(
-            media.key,
-            WatchedState {
-                watched: true,
-                manual_override: Some(true),
-            },
-        )],
+        episode_states: vec![(media.key, WatchedState { watched: true })],
     });
     let mut rt = rune::Runtime::new(s, view, (1280.0, 820.0), rune::Env::default());
     rt.frame(0.0);

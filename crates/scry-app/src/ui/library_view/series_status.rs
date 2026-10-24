@@ -1,7 +1,7 @@
 //! Show posters summarize episode state across all seasons, not a paged episode list.
 use super::{MediaKey, MediaKind, State};
-use crate::library_worker::{Command, SeriesRequest, SeriesState};
-use chrono::{DateTime, Utc};
+use crate::library_worker::{Command, SeriesState};
+use chrono::DateTime;
 use scry_addons::Meta;
 use scry_library::Progress;
 use std::{
@@ -12,33 +12,14 @@ use std::{
 #[derive(Default)]
 pub(in crate::ui) struct SeriesUi {
     pub generation: u64,
-    pub requested: Vec<SeriesRequest>,
+    pub requested: Vec<MediaKey>,
     pub states: Vec<SeriesState>,
     pub metadata_generation: u64,
     pub busy: bool,
     pub details: HashMap<MediaKey, (Option<Meta>, Instant)>,
 }
 
-pub(super) fn released_episodes(key: &MediaKey, meta: &Meta, now: DateTime<Utc>) -> Vec<MediaKey> {
-    let mut released = Vec::new();
-    let mut seen = HashSet::new();
-    for video in &meta.videos {
-        let aired = video
-            .released
-            .as_deref()
-            .and_then(release_timestamp)
-            .is_some_and(|date| date <= now.timestamp());
-        if aired && !video.id.trim().is_empty() {
-            let episode = super::key(&key.namespace, MediaKind::Episode, &video.id);
-            if seen.insert(episode.clone()) {
-                released.push(episode);
-            }
-        }
-    }
-    released
-}
-
-fn release_timestamp(value: &str) -> Option<i64> {
+pub(in crate::ui) fn release_timestamp(value: &str) -> Option<i64> {
     DateTime::parse_from_rfc3339(value)
         .map(|date| date.timestamp())
         .ok()
@@ -50,7 +31,25 @@ fn release_timestamp(value: &str) -> Option<i64> {
         })
 }
 
-pub(super) fn episode_inventory(key: &MediaKey, meta: &Meta) -> Vec<scry_library::EpisodeRelease> {
+pub(in crate::ui) fn meta_release_timestamp(meta: &Meta) -> Option<i64> {
+    meta.released
+        .as_deref()
+        .and_then(release_timestamp)
+        .or_else(|| {
+            // A future release year is a lower bound, not proof of a past release date.
+            let year = meta.year.get(..4)?.parse::<i32>().ok()?;
+            let date = chrono::NaiveDate::from_ymd_opt(year, 1, 1)?
+                .and_hms_opt(0, 0, 0)?
+                .and_utc()
+                .timestamp();
+            (date > chrono::Utc::now().timestamp()).then_some(date)
+        })
+}
+
+pub(in crate::ui) fn episode_inventory(
+    key: &MediaKey,
+    meta: &Meta,
+) -> Vec<scry_library::EpisodeRelease> {
     let mut seen = HashSet::new();
     meta.videos
         .iter()
@@ -89,6 +88,23 @@ pub(super) fn episode_inventory(key: &MediaKey, meta: &Meta) -> Vec<scry_library
 }
 
 impl State {
+    pub(in crate::ui) fn series_progress_label(&self, key: &MediaKey) -> Option<String> {
+        let summary = self
+            .library
+            .series
+            .states
+            .iter()
+            .find(|state| state.key == *key)?
+            .summary?;
+        let fraction = summary.fraction()?;
+        Some(format!(
+            "{} / {} episodes watched · {:.0}%",
+            summary.watched_episodes,
+            summary.released_episodes,
+            fraction * 100.0
+        ))
+    }
+
     pub(in crate::ui) fn request_series_states(&mut self) {
         let keys = super::super::poster_grid::series_keys(self);
         self.library
@@ -107,47 +123,19 @@ impl State {
                 self.library.series.details.remove(&key);
             }
         }
-        let requests: Vec<_> = keys
-            .iter()
-            .map(|key| {
-                let meta = self
-                    .detail
-                    .as_ref()
-                    .filter(|meta| {
-                        self.navigation.page == super::super::Page::Detail
-                            && meta.kind == "series"
-                            && meta.id == key.id
-                            && (key.namespace == "imdb" || key.namespace == self.detail_namespace)
-                            && !meta.videos.is_empty()
-                    })
-                    .or_else(|| {
-                        self.library
-                            .series
-                            .details
-                            .get(key)
-                            .and_then(|(meta, _)| meta.as_ref())
-                    });
-                SeriesRequest {
-                    key: key.clone(),
-                    metadata_known: meta.is_some(),
-                    released: meta
-                        .map_or_else(Vec::new, |meta| released_episodes(key, meta, Utc::now())),
-                }
-            })
-            .collect();
-        if requests != self.library.series.requested
+        if keys != self.library.series.requested
             && let Some(worker) = &self.library.worker
         {
             let generation = self.library.series.generation + 1;
             if worker
                 .send(Command::SeriesStates {
                     generation,
-                    requests: requests.clone(),
+                    keys: keys.clone(),
                 })
                 .is_ok()
             {
                 self.library.series.generation = generation;
-                self.library.series.requested = requests;
+                self.library.series.requested.clone_from(&keys);
             }
         }
         if self.library.series.busy || self.addons.is_empty() {
@@ -198,6 +186,7 @@ impl State {
                 let meta = meta.filter(|m| m.kind == "series" && m.id == key.id);
                 if let Some(meta) = &meta {
                     self.reconcile_series_metadata(&key, meta);
+                    self.remember_series_poster(&key, meta);
                 }
                 self.library
                     .series
@@ -255,9 +244,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn released_episodes_include_all_seasons_but_not_future_unknown_or_duplicate_releases()
+    fn inventory_includes_dated_future_releases_but_not_unknown_or_duplicate_releases()
     -> anyhow::Result<()> {
-        let now = DateTime::parse_from_rfc3339("2026-10-24T12:00:00Z")?.with_timezone(&Utc);
         let meta: Meta = serde_json::from_value(serde_json::json!({
             "id":"tt123", "type":"series", "name":"Show", "videos":[
                 {"id":"tt123:1:1", "season":1, "episode":1, "released":"2020-01-01"},
@@ -271,10 +259,15 @@ mod tests {
         }))?;
         let key = MediaKey::new("imdb", MediaKind::Series, "tt123");
         assert_eq!(
-            released_episodes(&key, &meta, now),
+            episode_inventory(&key, &meta)
+                .into_iter()
+                .map(|release| release.media.key)
+                .collect::<Vec<_>>(),
             vec![
                 MediaKey::new("imdb", MediaKind::Episode, "tt123:1:1"),
                 MediaKey::new("imdb", MediaKind::Episode, "tt123:2:1"),
+                MediaKey::new("imdb", MediaKind::Episode, "tt123:2:2"),
+                MediaKey::new("imdb", MediaKind::Episode, "tt123:3:1"),
             ]
         );
         Ok(())

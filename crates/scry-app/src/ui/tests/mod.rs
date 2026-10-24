@@ -17,6 +17,7 @@ mod catalog;
 mod context_menu;
 mod controls;
 mod design_contract;
+mod dropdowns;
 mod episodes;
 mod layout;
 mod library;
@@ -26,6 +27,7 @@ mod player;
 mod presentation;
 mod series;
 mod up_next;
+mod watch_rules;
 
 fn rect(rt: &rune::Runtime<State>, key: &str) -> [f32; 4] {
     rt.elements()

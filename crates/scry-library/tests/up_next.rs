@@ -42,23 +42,12 @@ fn next_items_use_saved_membership_release_dates_watched_flags_and_item_progress
         next.iter()
             .map(|(media, _)| media.key.clone())
             .collect::<Vec<_>>(),
-        vec![
-            movie.key.clone(),
-            releases[1].media.key.clone(),
-            releases[2].media.key.clone()
-        ]
+        vec![movie.key.clone(), releases[1].media.key.clone()]
     );
     assert_eq!(
         next[1].1,
         Some(scry_library::Progress {
             position_seconds: 25.0,
-            duration_seconds: 100.0
-        })
-    );
-    assert_eq!(
-        next[2].1,
-        Some(scry_library::Progress {
-            position_seconds: 50.0,
             duration_seconds: 100.0
         })
     );
@@ -97,10 +86,15 @@ fn next_items_cover_all_episode_pages_and_survive_reopening() -> anyhow::Result<
     let db = Library::open(&path)?;
     let first = db.list_up_next(150, Page::new(200, 0)?)?;
     let second = db.list_up_next(150, Page::new(200, 200)?)?;
-    assert_eq!(first.len(), 200);
-    assert_eq!(second.len(), 49);
+    assert_eq!(first.len(), 1);
+    assert!(second.is_empty());
     assert_eq!(first[0].0.key, releases[1].media.key);
-    assert_eq!(second[48].0.key, releases[249].media.key);
+    let mut db = db;
+    db.set_watched(&releases[1].media.key, true)?;
+    assert_eq!(
+        db.list_up_next(150, Page::default())?[0].0.key,
+        releases[2].media.key
+    );
     Ok(())
 }
 

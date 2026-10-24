@@ -1,165 +1,155 @@
-# Local library
+# Local library and progress
 
-`crates/scry-library/src/lib.rs` provides synchronous SQLite storage. Run **all** calls, including
-open and reads, on a dedicated database worker or `tokio::task::spawn_blocking`.
-Do not hold a UI lock across a database call. Keep a long-lived `Library` on the
-worker and send it commands. The caller selects a database path in local app data
-and creates its parent directory. No network, stream URLs, or addon secrets are
-stored. Titles, identity keys, and playlist names are the only text fields.
+`scry-library` owns synchronous SQLite access. The app calls it on a dedicated
+database worker; add-on configuration uses blocking tasks. No database calls run
+on the UI thread or a network executor thread.
 
-## Public API
+## Fresh build
 
-All fallible calls return `anyhow::Result<T>`. Writes use `&mut self`; reads use
-`&self`. The module must be exported as `pub mod library;` by the integration.
+The app now uses **`scry-v2.sqlite3`** in the OS-local application-data folder
+(`%LOCALAPPDATA%\Scry\Scry\data` on Windows). This is a new, empty store. Older
+databases and add-on settings are not imported. Existing files are left untouched.
+You must install your add-ons and save titles again.
 
-- `Library::open(impl AsRef<Path>) -> Result<Library>`; `Library::memory()` for tests.
-- `MediaKind::{Movie, Series, Episode}`.
-- `MediaKey { namespace: String, kind: MediaKind, id: String }`;
-  `MediaKey::new(namespace, kind, id)`. Use a stable provider namespace, not its
-  display name. The full tuple is the identity, so providers and kinds cannot collide.
-- `Media { key: MediaKey, title: String, parent: Option<MediaKey> }`.
-  Parent is optional and only valid for an episode pointing to an existing series.
-- `upsert_media(&Media) -> Result<()>`, `get_media(&MediaKey) -> Result<Option<Media>>`.
-  Upsert replaces title and parent; provide the parent again when refreshing an episode.
-  Upsert metadata before adding membership, status, or progress.
-- `Page::new(limit: u32, offset: u32) -> Result<Page>`; default is 50 at offset 0.
-  Limits must be 1–200 (`MAX_PAGE_SIZE`). Every list takes a page. Offset pagination
-  is deterministic on unchanged data, not a cross-request snapshot.
-- `add_to_watchlist`, `remove_from_watchlist`: `(&MediaKey) -> Result<()>`.
-  `is_in_watchlist(&MediaKey) -> Result<bool>`.
-  `list_watchlist(Page) -> Result<Vec<Media>>` returns newest additions first.
-- `Playlist { id: i64, name: String }`.
-  `create_playlist(&str) -> Result<Playlist>`, `rename_playlist(i64, &str)`,
-  `delete_playlist(i64)` return `Result<()>` for the latter two.
-  `list_playlists(Page) -> Result<Vec<Playlist>>` uses creation order.
-  Names must not be blank; duplicate names are allowed, IDs identify playlists.
-- `add_playlist_item(i64, &MediaKey)`, `remove_playlist_item(i64, &MediaKey)`
-  return `Result<()>`. Add appends; repeated add is a no-op. Removing an absent
-  member is a no-op. Membership has unique positions; removal may leave gaps.
-  `reorder_playlist(i64, &[MediaKey]) -> Result<()>` requires exactly the current
-  membership, once each. It validates and replaces order in one transaction.
-  `list_playlist_items(i64, Page) -> Result<Vec<Media>>` returns explicit order.
-- `WatchedState { watched: bool, manual_override: Option<bool> }`.
-  `watched_state(&MediaKey) -> Result<WatchedState>`,
-  `set_watched(&MediaKey, bool) -> Result<()>`,
-  `clear_watched_override(&MediaKey) -> Result<()>`,
-  `list_watched(Page) -> Result<Vec<Media>>` (newest metadata insertion first).
-- `Progress { position_seconds: f64, duration_seconds: f64 }`.
-  `save_progress(&MediaKey, position_seconds: f64, duration_seconds: f64) -> Result<()>`,
-  `load_progress(&MediaKey) -> Result<Option<Progress>>`.
-- `list_episodes(&MediaKey, Page) -> Result<Vec<Media>>` requires a series and
-  returns episode metadata insertion order, not season/episode sorting.
-- `is_complete(position_seconds: f64, duration_seconds: f64) -> bool` and
-  `COMPLETION_THRESHOLD` (0.9).
+There is one embedded schema: `crates/scry-library/src/schema.sql`. There are no
+migration files, migration runner, or compatibility layer. `PRAGMA user_version`
+identifies the schema, but does not upgrade it. Startup creates the schema only
+in an empty database, inside an immediate transaction. A process-local startup
+gate also serializes the initial WAL switch, which can otherwise return BUSY
+without honoring the busy timeout. Concurrent workers cannot
+partly initialize it. Unknown versions, nonempty unversioned stores, missing
+mapped columns, and invalid foreign keys are rejected.
 
-Data models derive serde serialization/deserialization. `Page` is validated at
-construction. Unknown media keys are errors for state/membership operations;
-`get_media` alone returns `None`. Missing playlists are errors except delete,
-which is idempotent. Watchlist removal and playlist add are idempotent.
+For another pre-release schema reset, edit `schema.sql`, update the Diesel types
+in `schema.rs`, and use an empty database. Close the app before removing a local
+database, including its SQLite sidecars. Do not copy a live WAL database as if the
+main file alone were a complete backup.
 
-## Playback semantics
+Installed add-on manifests and URLs are stored in the same database as the
+library. URLs can contain credentials. The database is local and unencrypted;
+do not share it. Artwork pixels and temporary media remain external files.
 
-Position must be finite and is clamped to `[0, duration]`. Duration must be finite
-and strictly positive. Invalid input leaves stored progress and watched state
-unchanged. Native playback uses `record_playback(key, position, duration,
-watched_delta)`. It stores accumulated playback time separately from position.
-More than **70% actual playback time** marks the item watched. Seek events and
-position jumps do not add watched time. Automatic watched status is sticky.
-The older standalone `save_progress` API still has its original position-based
-behaviour; it is not used by the app's playback path.
+## Sources of truth
 
-`finish_playback(key, next)` reconciles resume state when playback stops beyond
-90% of its position. It hides the finished item from `list_currently_watching`
-and optionally registers the next released episode. The UI supplies that episode
-from dated metadata captured when playback starts. There is one active resume
-entry per series, ordered by most recent save. Unknown/future episodes are not
-selected. Natural EOF clears resume state, but does not invent watched time.
+| Record | Meaning |
+| --- | --- |
+| `media` | Namespaced movie, show, or episode identity; episode parent |
+| `watchlist` | Saved library membership, independent of watch state |
+| `progress` | One video's resume position and known duration, in seconds |
+| `viewing` | Accumulated actual playback seconds, active resume entry, recency |
+| `watched` | Per-video watched state, set by playback or explicit actions |
+| `episode_releases` | Dated release metadata, including future episodes and movies (movie rows have no season/episode) |
+| `series_inventory` | Whether a show's inventory has been synchronized, even if empty |
+| `effective_watched` | A SQL view; derives show completion from episode records |
 
-`list_library(watched, kind, page)` filters Movies or TV series before pagination.
-To watch includes saved titles that are not watched; Watched includes watched
-titles regardless of saved membership. Marking a saved title unwatched makes it
-visible in To watch again. These two views do not show the same title at once.
-The native UI has no playlist controls; existing standalone playlist storage
-APIs are not part of the application workflow.
+Show-level automatic watched flags are **not stored separately**. A show is
+automatically watched only when it has at least one known released episode and
+all known released episodes are watched. There is no independent show override.
+Episode changes affect Library filtering and badges immediately;
+there is no reconciliation write or network round trip to make them agree.
+Known release dates are evaluated locally, so an already-known new release can
+change the result without downloading metadata again. The worker returns the
+next known release timestamp and the UI schedules a wake to refresh cached
+lists and badges when that release becomes eligible.
 
-An explicit `set_watched(true)` overrides later progress saves.
-`set_watched(false)` clears progress and the finished marker in one transaction,
-and installs a false override. Further playback does not mark it watched until
-the user clears the override or explicitly marks it watched. Clearing the
-override recalculates watched status from accumulated playback time (or false if absent).
-Watchlist membership is independent and is never removed automatically.
-`list_watchlist` returns that raw membership, including saved watched titles;
-the UI uses `list_library` for its mutually exclusive tabs.
+Marking a show watched marks all its known released episodes, atomically, across
+all pages and seasons. Future and undated episodes are not invented as watched.
+Marking a show unwatched resets its stored episodes. The resulting show status
+is always derived from its episodes. Season actions use their captured full
+release inventory in the same transaction, so a pending background refresh
+cannot accidentally allow a future episode through.
 
-Marking a series watched never cascades to episodes. Its explicit watched/unwatched
-override takes priority over automatic tracking. Otherwise, `reconcile_series`
-uses the full set of known released episode keys supplied by the metadata provider
-to update the stored show status. This is the same rule as the poster badge, so
-Library filtering and pagination use the reconciled status. An empty released set
-does not count as complete. No status is rewritten when metadata cannot load.
+## Resume, watched time, and show progress are different
 
-The app checks tracked shows independently of the current Library filter, in
-12-show pages with at most four metadata requests in flight. Checks run at startup,
-after library changes, on Refresh, and when a ten-minute recheck is due during UI
-polling. The bounded metadata cache avoids repeat requests. A newly released,
-unwatched episode can clear an automatic show-level watched flag without changing
-membership in the library or overriding an explicit user choice.
+- `record_playback(key, position, duration, watched_delta)` saves a video's resume
+  sample and adds actual playback time. The UI excludes seeks, pauses, and
+  buffering from the delta. More than 70% accumulated playback marks the video
+  watched. That automatic result is sticky.
+- `save_progress` writes **resume only**. Jumping to 95% cannot mark a video watched.
+- Accumulated playback is not unique time-range coverage: replayed time counts.
+  Callers must not resend an already-acknowledged delta as new playback.
+- `set_watched(false)` clears that video's resume and accumulated playback in
+  one transaction. Automatic tracking is immediately available again. There is
+  no Auto track button and no permanent false override in the app's actions.
+- Marking a known future release watched is a successful no-op, not an error.
+  A debug log records the skip without title names or identities. Bulk actions
+  continue with eligible episodes. Known future dates also prevent playback
+  samples from setting watched status. Missing dates are not classified as future.
+  If new metadata identifies a previously undated item as future, its watched
+  flag is cleared without deleting its resume history.
+- Movie and show actions capture release metadata before mutating state; saved
+  titles without cached metadata fetch it in a bounded background task. Superseded
+  responses cannot undo a newer watched/unwatched action. Future release years
+  provide a lower bound when an exact movie date is missing.
+  Already-stored episode inventories can be used directly. Provider failures
+  fall back to local release facts rather than making offline watched actions fail.
+- Position is finite and clamped to `[0, duration]`. Duration must be finite and
+  positive. Shows themselves cannot receive video playback samples.
+- `finish_playback` beyond 90% removes the finished active resume entry. It does
+  not invent watched time. Advancing preserves any existing next-episode resume
+  position and does not reactivate an already-watched next episode.
 
-`set_episodes_watched` applies a captured season's episode list in one transaction.
-It registers missing episodes, sets each manual override, and clears that episode's
-resume state. It is not limited by the visible episode page and leaves other
-seasons unchanged. Invalid batches are rolled back in full.
+`SeriesProgress` is an episode-weighted summary over the full stored inventory,
+not the visible episode page:
 
-`sync_episode_releases` stores the provider's dated episode inventory for saved
-shows in `episode_releases`, preserving watched overrides and playback progress.
-The feature's schema migration adds only that table and its release-date index;
-existing library membership and watch state are unchanged. Metadata fetch failures
-leave the last known inventory in place. Refreshing metadata can remove outdated
-release entries without deleting episode history.
+```text
+released_episodes       = count of episodes released by the requested time
+watched_episodes        = count of those episodes marked watched
+completed_equivalents   = watched episodes + sum(partial actual playback / duration)
+resume_equivalents      = watched episodes + sum(partial resume position / duration)
+show fraction           = completed_equivalents / released_episodes
+```
 
-`list_up_next(now, page)` returns unwatched saved movies and dated episodes of
-saved shows whose release time has passed. A watched show-level override hides
-its episodes. It includes partial playback and returns each item's own saved
-progress. Membership, watched, and release filters apply before pagination.
-Episodes are ordered within their show by season and episode number, with specials
-and unnumbered entries last. No partial episode-page registration is used to
-decide the complete list. The stored inventory remains available offline.
+Partial actual-playback fractions are capped at one. An empty inventory has no
+fraction. Future, undated, and withdrawn release entries do not inflate the
+denominator. Each episode has equal weight; this is not a runtime-weighted
+estimate of a show's total duration, because providers often omit durations.
 
-## Storage and concurrency
+Show posters use the aggregate fraction and show the watched/released episode
+count. Currently-watching and next-episode cards use that specific video's
+resume progress. A 25%-played episode is not presented as a 25%-completed show.
 
-The app stores installed add-ons and library state together in `scry.sqlite3` in
-the OS-local application-data folder. Add-on order and full manifests are retained.
-Replacing the add-on list is atomic. Images and temporary media remain external
-files; they are not app state. Add-on URLs may contain credentials, so the
-unencrypted database must not be shared.
+## Lists and metadata
 
-Diesel provides typed queries and row mapping. Two correlated media queries use
-bound raw SQL where a self-join is clearer. Connections use WAL, foreign keys,
-and a five-second busy timeout. Multi-statement writes use immediate transactions.
-Database access runs on the library worker or a blocking task, not the UI or
-network executor threads. SQLite in-memory databases use the memory journal.
+- `list_library(watched, kind, page)` filters before pagination. To watch contains
+  saved, unwatched titles. Watched contains watched titles regardless of membership.
+- `list_up_next(now, page)` returns saved unwatched movies and **one earliest
+  released, unwatched episode per saved show**. Shows do not occupy hundreds of
+  cards. Clicking a card opens the exact episode in the existing season/episode
+  picker, where all other episodes remain available.
+- Episode order is regular seasons, then specials, then unnumbered seasons;
+  ties use episode number and stable database identity. Watched and release
+  filters apply before the 200-title page limit.
+- `sync_episode_releases` preserves watch history and progress. It writes only
+  changed/new release rows and removes withdrawn release entries, not history.
+  Provider failures and omitted episode lists leave the previous inventory intact.
+- Background metadata checks use 12-show pages and bounded concurrency. Cached
+  metadata expires after ten minutes. Showing a poster no longer serializes and
+  sends the full released-episode key list on each viewport change.
+- Library, currently-watching, next-up, and calendar paging are independent.
 
-`diesel_migrations` embeds the SQL files in `crates/scry-library/migrations/`.
-Opening a database applies pending migrations inside an immediate transaction,
-which serializes concurrent startup. Diesel tracks applied versions in
-`__diesel_schema_migrations`. Unknown versions, missing mapped tables/columns,
-invalid foreign keys, and nonempty unversioned databases are rejected. Do not
-open arbitrary third-party databases as app databases.
+## Query and worker boundaries
 
-This is a fresh pre-release schema. The old `library.sqlite3`, `addons.json`, and
-their contents are not imported or deleted. There is no legacy compatibility path.
+`media_states(keys)` reads up to 200 identities in one bound query, preserving
+input order, duplicates, missing identities, namespaces, watched state,
+resume samples, and accumulated playback seconds. Visible movie and episode
+state reads do not perform one metadata lookup and several status queries per card.
+Resume-list progress is joined into the page query, not loaded in an N+1 loop.
+Metadata batches, metadata-plus-playback samples, and season actions use one transaction.
 
-### Changing the schema
+Indexes cover namespaced identity, parent episodes, media kind/order, watchlist
+membership, watched status, active/recent viewing, release dates, and playlist
+reverse membership. The viewing recency index also avoids scanning all playback
+rows to obtain the next ordering value.
 
-1. Add a new versioned directory under `crates/scry-library/migrations/`, with
-   `up.sql` and `down.sql`. Do not edit migrations already used by deployed apps.
-2. Update `crates/scry-library/src/schema.rs` and affected record mappings.
-   SQLite identity and ordering columns use Rust `i64` / Diesel `BigInt`.
-3. Add behavior tests for the change, including upgrades that retain existing
-   state where applicable. Run `cargo test -p scry-library`.
+Connections use WAL, foreign keys, and a five-second busy timeout. Commands and
+events use bounded queues. Generation checks reject stale reads. Read failures
+do not consume mutation acknowledgements. The UI keeps its last keyed poster
+states during refresh instead of flashing empty status while new reads finish.
+Shutdown drains completions and waits for a FIFO write barrier off the UI thread.
 
-The build script tracks migration-file changes. The app runs embedded migrations
-on startup; end users do not need the Diesel CLI or loose SQL files.
+The repository also has standalone ordered-playlist APIs. The app does not expose
+playlist controls; that existing storage is retained, not expanded by this work.
 
-Run `cargo test -p scry-library`. The integration tests use the crate's public API
-and do not build the app, UI, or torrent engine.
+Run `cargo test -p scry-library` for the storage tests, or
+`cargo test --workspace --all-targets` for the full regression suite.

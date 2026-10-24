@@ -12,10 +12,7 @@ fn watched_episode_badges_do_not_move_episode_cards_or_titles() {
     s.library.snapshot = Some(crate::library_worker::Snapshot {
         selected_state: Some(crate::library_worker::SelectedState {
             key: key.clone(),
-            watched: scry_library::WatchedState {
-                watched: false,
-                manual_override: None,
-            },
+            watched: scry_library::WatchedState { watched: false },
             watchlist: true,
             progress: Some(scry_library::Progress {
                 position_seconds: 30.0,
@@ -37,20 +34,11 @@ fn watched_episode_badges_do_not_move_episode_cards_or_titles() {
         s.library.snapshot = Some(crate::library_worker::Snapshot {
             selected_state: Some(crate::library_worker::SelectedState {
                 key: key.clone(),
-                watched: scry_library::WatchedState {
-                    watched: true,
-                    manual_override: Some(true),
-                },
+                watched: scry_library::WatchedState { watched: true },
                 watchlist: true,
                 progress: None,
             }),
-            episode_states: vec![(
-                key,
-                scry_library::WatchedState {
-                    watched: true,
-                    manual_override: Some(true),
-                },
-            )],
+            episode_states: vec![(key, scry_library::WatchedState { watched: true })],
         });
     });
     for _ in 0..30 {

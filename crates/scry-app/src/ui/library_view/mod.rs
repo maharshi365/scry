@@ -2,8 +2,9 @@
 mod movie_status;
 mod posters;
 mod progress;
-mod series_status;
+pub(super) mod series_status;
 mod tracking;
+mod watch_actions;
 use super::{
     State,
     controls::action,
@@ -26,14 +27,20 @@ pub(super) struct LibraryUi {
     pub worker: Option<Worker>,
     pub snapshot: Option<Snapshot>,
     pub error: Option<String>,
+    watch_generation: u64,
+    watch_pending: std::collections::HashMap<MediaKey, u64>,
+    pub next_release_at: Option<i64>,
+    pub grid_generation: u64,
     generation: u64,
     pending: VecDeque<bool>,
     list: u8,
     offset: u32,
+    watching_offset: u32,
     kind: MediaKind,
     pub(in crate::ui) entries: Option<Vec<Media>>,
     pub(in crate::ui) posters: posters::PosterUi,
     pub watching: Vec<(Media, scry_library::Progress)>,
+    pub watching_watched: std::collections::HashSet<MediaKey>,
     pub(in crate::ui) up_next: Vec<(Media, Option<scry_library::Progress>)>,
     pub(in crate::ui) up_next_offset: u32,
     pub(in crate::ui) up_next_loaded: bool,
@@ -57,14 +64,20 @@ impl Default for LibraryUi {
             worker: None,
             snapshot: None,
             error: None,
+            watch_generation: 0,
+            watch_pending: std::collections::HashMap::new(),
+            next_release_at: None,
+            grid_generation: 0,
             generation: 0,
             pending: VecDeque::new(),
             list: 0,
             offset: 0,
+            watching_offset: 0,
             kind: MediaKind::Movie,
             entries: None,
             posters: posters::PosterUi::default(),
             watching: Vec::new(),
+            watching_watched: std::collections::HashSet::new(),
             up_next: Vec::new(),
             up_next_offset: 0,
             up_next_loaded: false,
@@ -175,10 +188,8 @@ impl State {
         self.library.generation += 1;
         self.library.movies.generation += 1;
         self.library.movies.requested.clear();
-        self.library.movies.states.clear();
         self.library.series.generation += 1;
         self.library.series.requested.clear();
-        self.library.series.states.clear();
         let command = Command::Refresh {
             generation: self.library.generation,
             selected: self.library_media().map(|m| m.key),
@@ -201,11 +212,8 @@ impl State {
                 .and_then(|()| {
                     worker.send(Command::Overview {
                         generation,
-                        offset: if self.navigation.page == super::Page::Calendar {
-                            self.calendar.offset
-                        } else {
-                            self.library.offset
-                        },
+                        watching_offset: self.library.watching_offset,
+                        calendar_offset: self.calendar.offset,
                     })
                 })
                 .and_then(|()| {
@@ -224,6 +232,15 @@ impl State {
         let Some(parent) = self.parent_media() else {
             return;
         };
+        if parent.key.kind == MediaKind::Movie {
+            let date = self
+                .detail
+                .as_ref()
+                .and_then(series_status::meta_release_timestamp);
+            self.library.generation += 1;
+            self.db(Command::RegisterRelease(parent, date), true);
+            return;
+        }
         let mut entries = vec![parent.clone()];
         if parent.key.kind == MediaKind::Series {
             for video in self
@@ -312,16 +329,8 @@ impl State {
                 DbEvent::TrackedSeries { generation, items } => {
                     self.apply_tracked_series(generation, items);
                 }
-                DbEvent::SeriesReconciled {
-                    changed,
-                    inventory_changed,
-                } => refresh |= changed || inventory_changed,
-                DbEvent::SeriesStates {
-                    generation,
-                    states,
-                    changed,
-                } => {
-                    refresh |= changed;
+                DbEvent::SeriesSynced { changed } => refresh |= changed,
+                DbEvent::SeriesStates { generation, states } => {
                     if generation == self.library.series.generation {
                         self.library.series.states = states;
                     }
@@ -342,9 +351,13 @@ impl State {
                 DbEvent::Overview {
                     generation,
                     watching,
+                    watching_watched,
+                    next_release_at,
                     series,
                 } if generation == self.library.generation => {
                     self.apply_watching_entries(watching);
+                    self.library.watching_watched = watching_watched.into_iter().collect();
+                    self.library.next_release_at = next_release_at;
                     self.calendar.series = series;
                     if self.navigation.page == super::Page::Calendar {
                         self.fetch_calendar();
@@ -363,6 +376,10 @@ impl State {
                 }
                 DbEvent::Error(error) => {
                     self.library.pending.pop_front();
+                    self.library.error = Some(error);
+                    self.library.tracking.busy = false;
+                }
+                DbEvent::RequestError(error) => {
                     self.library.error = Some(error);
                     self.library.tracking.busy = false;
                 }
@@ -427,10 +444,15 @@ pub(super) fn detail_actions(s: &State) -> El {
             clock(Some(progress.duration_seconds))
         )));
     }
+    if let Some(summary) = s
+        .parent_media()
+        .and_then(|media| s.series_progress_label(&media.key))
+    {
+        status = status.child(label(format!("TV show: {summary}")).key("series-progress-summary"));
+    }
     let mut body = col().gap(8.0).child(status);
     let a = media.clone();
     let b = media.clone();
-    let c = media.clone();
     body = body.child(
         row()
             .gap(8.0)
@@ -445,20 +467,20 @@ pub(super) fn detail_actions(s: &State) -> El {
                     s.db(Command::ToggleWatchlist(a.clone()), true);
                 },
             ))
-            .child(action(
-                "library-watched",
-                if watched {
-                    "Mark unwatched"
-                } else {
-                    "Mark watched"
-                },
-                move |s| {
-                    s.db(Command::SetWatched(b.clone(), !watched), true);
-                },
-            ))
-            .child(action("library-auto", "Auto track", move |s| {
-                s.db(Command::ClearOverride(c.clone()), true);
-            })),
+            .child(
+                Button::new(
+                    "library-watched",
+                    if watched {
+                        "Mark unwatched"
+                    } else {
+                        "Mark watched"
+                    },
+                )
+                .enabled(watched || s.can_mark_released(&media))
+                .on_press(move |s: &mut State| {
+                    s.mark_media_watched(b.clone(), !watched);
+                }),
+            ),
     );
     if s.selected_video_id.is_some() && media.key.kind == MediaKind::Episode {
         body = body.child(row().child(action("library-series", "Series actions", |s| {
@@ -611,20 +633,20 @@ fn library_empty(s: &State) -> El {
 }
 
 pub(super) fn watching(s: &State, cx: &rune::Cx<State>) -> El {
-    let body = col()
-        .w_full()
-        .gap(12.0)
-        .child(heading("Currently watching"));
+    let mut body = col().w_full().gap(12.0);
+    if !s.library.watching.is_empty() || s.library.up_next.is_empty() {
+        body = body.child(heading("Currently watching").key("watching-heading"));
+    }
     let mut pages = row().gap(8.0);
-    if s.library.offset > 0 {
+    if s.library.watching_offset > 0 {
         pages = pages.child(action("watching-prev", "Previous", |s| {
-            s.library.offset = s.library.offset.saturating_sub(200);
+            s.library.watching_offset = s.library.watching_offset.saturating_sub(200);
             s.refresh_library();
         }));
     }
     if s.library.watching.len() == 200 {
         pages = pages.child(action("watching-next", "Next", |s| {
-            s.library.offset = s.library.offset.saturating_add(200);
+            s.library.watching_offset = s.library.watching_offset.saturating_add(200);
             s.refresh_library();
         }));
     }
@@ -833,10 +855,7 @@ mod tests {
             selected_state: None,
             episode_states: vec![(
                 MediaKey::new("other", MediaKind::Episode, &episode.id),
-                scry_library::WatchedState {
-                    watched: true,
-                    manual_override: Some(true),
-                },
+                scry_library::WatchedState { watched: true },
             )],
         });
         assert!(!s.episode_watched(&episode.id));

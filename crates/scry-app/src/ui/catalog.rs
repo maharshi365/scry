@@ -4,6 +4,14 @@ use rune::TextEdit;
 use scry_addons::{Addon, Catalog, Meta};
 use std::sync::Arc;
 
+#[derive(Clone, Default)]
+pub(super) struct CatalogPaging {
+    pub next_offset: u32,
+    pub pending: Option<u32>,
+    pub has_more: bool,
+    pub failed: bool,
+}
+
 impl State {
     pub(super) fn install(&mut self, input: String) {
         if self.config_busy {
@@ -25,7 +33,9 @@ impl State {
                     .iter()
                     .filter(|c| {
                         c.kind == self.kind
-                            && !c.extra.iter().any(|e| e.is_required && e.name != "search")
+                            && !c.extra.iter().any(|e| {
+                                e.is_required && !matches!(e.name.as_str(), "search" | "skip")
+                            })
                     })
                     .map(|c| (a.clone(), c.clone()))
             })
@@ -51,7 +61,9 @@ impl State {
             return;
         }
         self.catalog_id += 1;
+        self.catalog_paging = CatalogPaging::default();
         self.metas = Arc::default();
+        self.poster_rects.clear();
         self.providers = Arc::default();
         self.error = None;
         let Some((addon, catalog)) = self.catalog.clone() else {
@@ -69,9 +81,10 @@ impl State {
             return;
         }
         self.loading = true;
+        self.catalog_paging.pending = Some(0);
         self.status = "Loading catalog…".into();
         if let Some(services) = &mut self.services {
-            services.catalog(self.catalog_id, addon, catalog, self.search.text.clone());
+            services.catalog(self.catalog_id, addon, catalog, 0);
         }
     }
 
@@ -87,6 +100,8 @@ impl State {
     }
 
     fn fetch_search(&mut self) {
+        self.catalog_paging = CatalogPaging::default();
+        self.poster_rects.clear();
         self.catalog_id += 1;
         self.metas = Arc::default();
         self.providers = Arc::default();
@@ -100,6 +115,88 @@ impl State {
                 self.addons.clone(),
                 self.search.text.trim().to_owned(),
             );
+        }
+    }
+
+    pub(super) fn request_more_catalog(&mut self) {
+        if self.navigation.page != Page::Discover
+            || !self.displayed_query.is_empty()
+            || !self.catalog_paging.has_more
+            || self.catalog_paging.pending.is_some()
+            || self.catalog_paging.failed
+        {
+            return;
+        }
+        let near_end = self.poster_viewport.is_some_and(|viewport| {
+            self.poster_rects
+                .values()
+                .next_back()
+                .is_some_and(|last| last[1] + last[3] <= viewport[1] + viewport[3] * 2.0)
+        });
+        if !near_end {
+            return;
+        }
+        let Some((addon, catalog)) = self
+            .catalog
+            .clone()
+            .filter(|(_, catalog)| catalog.supports_paging())
+        else {
+            return;
+        };
+        let offset = self.catalog_paging.next_offset;
+        self.catalog_paging.pending = Some(offset);
+        if let Some(services) = &mut self.services {
+            services.catalog(self.catalog_id, addon, catalog, offset);
+        }
+    }
+
+    pub(super) fn apply_catalog_page(
+        &mut self,
+        generation: u64,
+        offset: u32,
+        result: Result<Vec<Meta>, String>,
+    ) {
+        if generation != self.catalog_id
+            || self.navigation.page != Page::Discover
+            || self.catalog_paging.pending != Some(offset)
+        {
+            return;
+        }
+        self.catalog_paging.pending = None;
+        self.loading = false;
+        match result {
+            Ok(metas) => {
+                let count = u32::try_from(metas.len()).unwrap_or(u32::MAX);
+                let mut seen: std::collections::HashSet<_> = self
+                    .metas
+                    .iter()
+                    .map(|meta| (meta.kind.clone(), meta.id.clone()))
+                    .collect();
+                let mut added = 0;
+                let titles = Arc::make_mut(&mut self.metas);
+                for meta in metas {
+                    if !meta.id.trim().is_empty()
+                        && seen.insert((meta.kind.clone(), meta.id.clone()))
+                    {
+                        titles.push(meta);
+                        added += 1;
+                    }
+                }
+                self.catalog_paging.next_offset = offset.saturating_add(count);
+                self.catalog_paging.has_more = added > 0
+                    && count > 0
+                    && self.catalog_paging.next_offset > offset
+                    && self
+                        .catalog
+                        .as_ref()
+                        .is_some_and(|(_, catalog)| catalog.supports_paging());
+                self.status.clear();
+            }
+            Err(error) => {
+                self.catalog_paging.failed = true;
+                self.status.clear();
+                self.error = Some(error);
+            }
         }
     }
 

@@ -39,6 +39,7 @@ pub(super) struct CalendarUi {
     pub offset: u32,
     pub series: Vec<Media>,
     pub releases: Vec<Release>,
+    pub release_times: std::collections::HashMap<(scry_library::MediaKey, String), i64>,
     pub generation: u64,
     pub loading: bool,
     pub failed: usize,
@@ -58,6 +59,7 @@ impl Default for CalendarUi {
             offset: 0,
             series: Vec::new(),
             releases: Vec::new(),
+            release_times: std::collections::HashMap::new(),
             generation: 0,
             loading: false,
             failed: 0,
@@ -104,6 +106,7 @@ impl State {
         self.calendar.failed = 0;
         if self.calendar.series.is_empty() {
             self.calendar.releases.clear();
+            self.calendar.release_times.clear();
         }
         if let Some(services) = &mut self.services {
             services.calendar(
@@ -124,6 +127,7 @@ impl State {
             return;
         }
         let mut releases = Vec::new();
+        let mut release_times = std::collections::HashMap::new();
         for (media, meta) in found {
             let kind = if media.key.kind == MediaKind::Movie {
                 "movie"
@@ -135,6 +139,11 @@ impl State {
                 continue;
             }
             if kind == "movie" {
+                if let Some(date) =
+                    super::library_view::series_status::meta_release_timestamp(&meta)
+                {
+                    release_times.insert((media.key.clone(), media.key.id.clone()), date);
+                }
                 if let Some(date) = meta.released.as_deref().and_then(release_date) {
                     releases.push(Release {
                         date,
@@ -149,6 +158,13 @@ impl State {
                 continue;
             }
             for video in meta.videos {
+                if let Some(date) = video
+                    .released
+                    .as_deref()
+                    .and_then(super::library_view::series_status::release_timestamp)
+                {
+                    release_times.insert((media.key.clone(), video.id.clone()), date);
+                }
                 let Some(date) = video.released.as_deref().and_then(release_date) else {
                     continue;
                 };
@@ -173,6 +189,7 @@ impl State {
             ))
         });
         releases.dedup_by(|a, b| a.media.key == b.media.key && a.episode_id == b.episode_id);
+        self.calendar.release_times = release_times;
         self.calendar.releases = releases;
         self.calendar.artwork_rects.clear();
         self.calendar.dialog_artwork_rects.clear();
