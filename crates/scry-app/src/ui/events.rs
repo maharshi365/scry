@@ -61,11 +61,16 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
 )]
 fn apply(s: &mut State, event: Event) {
     match event {
+        Event::Calendar(generation, found, failed) => s.apply_calendar(generation, found, failed),
         Event::Addons(result) => {
             s.config_busy = false;
             match result {
                 Ok(addons) => {
                     s.addons = addons;
+                    s.addon_install_open = false;
+                    if s.navigation.page == Page::Calendar {
+                        s.fetch_calendar();
+                    }
                     if s.catalog.as_ref().is_none_or(|(a, _)| {
                         !s.addons
                             .iter()
@@ -136,6 +141,10 @@ fn apply(s: &mut State, event: Event) {
         }
         Event::Ready(id) if id == s.player.generation && s.player.playing => {
             s.player.ready = true;
+            if let Some(position) = s.library.resume_position.take() {
+                s.command(&["seek", &position.to_string(), "absolute"]);
+                s.library.observed = None;
+            }
             if s.navigation.page == Page::Player {
                 s.host.show();
             }

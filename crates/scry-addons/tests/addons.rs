@@ -264,3 +264,25 @@ fn stremio_install_scheme_keeps_configured_path_and_search_spaces() {
     .unwrap();
     assert!(url.as_str().ends_with("/search=public%20domain.json"));
 }
+
+#[test]
+fn episode_names_accept_cinemeta_name_and_prefer_nonempty_title() {
+    for (fields, expected) in [
+        (serde_json::json!({"name":"First Period"}), "First Period"),
+        (
+            serde_json::json!({"title":"Provider title","name":"Other name"}),
+            "Provider title",
+        ),
+        (
+            serde_json::json!({"title":"  ","name":"Half Loop"}),
+            "Half Loop",
+        ),
+        (serde_json::json!({"title":null,"name":"Pilot"}), "Pilot"),
+        (serde_json::json!({}), ""),
+    ] {
+        let mut data = fields;
+        data["id"] = serde_json::json!("show:1:1");
+        let video: scry_addons::Video = serde_json::from_value(data).unwrap();
+        assert_eq!(video.title, expected);
+    }
+}

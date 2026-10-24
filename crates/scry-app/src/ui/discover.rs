@@ -4,7 +4,6 @@ use super::{
     artwork::{POSTER_CARD_HEIGHT, POSTER_GAP, poster, poster_columns},
     components::{action, heading, label, panel, scroll},
 };
-use crate::services::CINEMETA;
 use rune::{
     Cx, El, col, row, text,
     tok::{self, TextStyle},
@@ -30,15 +29,9 @@ pub(super) fn discover(s: &State, cx: &Cx<State>) -> El {
                 .fill(t.card)
                 .child(heading("No catalogs installed"))
                 .child(label("Add Cinemeta to browse movies and TV shows."))
-                .child(action(
-                    "setup-cinemeta",
-                    if s.config_busy {
-                        "Loading configuration…"
-                    } else {
-                        "Add Cinemeta catalogs"
-                    },
-                    |s| s.install(CINEMETA.into()),
-                )),
+                .child(action("setup-cinemeta", "Open add-ons", |s| {
+                    s.navigate(super::Page::Addons);
+                })),
         );
     } else if s.metas.is_empty() && !s.loading {
         cards = cards.child(label(
@@ -93,6 +86,9 @@ pub(super) fn discover(s: &State, cx: &Cx<State>) -> El {
                     .fill(panel())
                     .hover(t.hover)
                     .on_press(move |s: &mut State| s.open_result(index))
+                    .on_secondary_press(move |s: &mut State, p, _| {
+                        s.context_menu = Some((p, s.result_media(index)));
+                    })
                     .child(poster(s, meta, index))
                     .child(
                         col()

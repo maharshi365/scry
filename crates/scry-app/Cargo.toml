@@ -29,6 +29,7 @@ directories = "6"
 same-file = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 blake3 = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dev-dependencies]
 tempfile.workspace = true

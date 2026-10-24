@@ -187,7 +187,7 @@ fn episodes_and_manual_overrides_are_independent() -> anyhow::Result<()> {
         parent: Some(show.key.clone()),
     };
     db.upsert_media(&episode)?;
-    db.save_progress(&episode.key, 90.0, 100.0)?;
+    db.record_playback(&episode.key, 90.0, 100.0, 90.0)?;
     assert!(db.watched_state(&episode.key)?.watched);
     assert!(!db.watched_state(&show.key)?.watched);
     assert_eq!(
@@ -196,12 +196,12 @@ fn episodes_and_manual_overrides_are_independent() -> anyhow::Result<()> {
     );
     db.set_watched(&episode.key, false)?;
     assert_eq!(db.load_progress(&episode.key)?, None);
-    db.save_progress(&episode.key, 100.0, 100.0)?;
+    db.record_playback(&episode.key, 100.0, 100.0, 100.0)?;
     assert!(!db.watched_state(&episode.key)?.watched);
     db.clear_watched_override(&episode.key)?;
     assert!(db.watched_state(&episode.key)?.watched);
     db.set_watched(&episode.key, true)?;
-    db.save_progress(&episode.key, 1.0, 100.0)?;
+    db.record_playback(&episode.key, 1.0, 100.0, 1.0)?;
     assert!(db.watched_state(&episode.key)?.watched);
     assert_eq!(db.list_watched(Page::default())?, vec![episode]);
     Ok(())
@@ -243,7 +243,7 @@ fn rejects_unknown_and_damaged_schema() -> anyhow::Result<()> {
     let path = dir.path().join("library.db");
     drop(Library::open(&path)?);
     let raw = rusqlite::Connection::open(&path)?;
-    raw.pragma_update(None, "user_version", 2)?;
+    raw.pragma_update(None, "user_version", 3)?;
     assert!(Library::open(&path).is_err());
     raw.pragma_update(None, "user_version", 1)?;
     raw.execute_batch("DROP TABLE progress")?;

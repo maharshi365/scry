@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 pub const MAX_PAGE_SIZE: u32 = 200;
 pub const COMPLETION_THRESHOLD: f64 = 0.9;
+pub const WATCHED_THRESHOLD: f64 = 0.7;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -155,6 +156,12 @@ const SCHEMA: &[(&str, &str)] = &[
     )"),
     ("media_parent", "CREATE INDEX media_parent ON media(parent_id, media_id)"),
     ("watched_status", "CREATE INDEX watched_status ON watched(watched, media_id)"),
+    ("viewing", "CREATE TABLE viewing (
+        media_id INTEGER PRIMARY KEY REFERENCES media(media_id) ON DELETE CASCADE,
+        watched_seconds REAL NOT NULL DEFAULT 0 CHECK(watched_seconds >= 0),
+        active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+        touched INTEGER NOT NULL
+    )"),
 ];
 
 const MEDIA_SELECT: &str = "SELECT m.namespace,m.kind,m.external_id,m.title,p.namespace,p.kind,p.external_id FROM media m LEFT JOIN media p ON p.media_id=m.parent_id";
@@ -235,10 +242,17 @@ impl Library {
                 for (_, sql) in SCHEMA {
                     tx.execute_batch(sql)?;
                 }
-                tx.pragma_update(None, "user_version", 1)?;
+                tx.pragma_update(None, "user_version", 2)?;
             }
-            1 => {}
-            _ => bail!("unsupported library schema version {version}; expected 1"),
+            1 => {
+                // Approved v1 -> v2 migration. Existing viewing time cannot be
+                // inferred from a seek position, so its accumulated time is zero.
+                tx.execute_batch(SCHEMA[SCHEMA.len() - 1].1)?;
+                tx.execute("INSERT INTO viewing(media_id,watched_seconds,active,touched) SELECT media_id,0,1,media_id FROM progress WHERE position_seconds>0 AND position_seconds/duration_seconds<=0.9", [])?;
+                tx.pragma_update(None, "user_version", 2)?;
+            }
+            2 => {}
+            _ => bail!("unsupported library schema version {version}; expected 2"),
         }
         // Check table constraints and indexes too, not just whether SELECT succeeds.
         let normalize = |sql: &str| {
@@ -527,9 +541,8 @@ impl Library {
         let id = media_id(&tx, key)?;
         tx.execute("INSERT INTO watched(media_id,watched,manual_override) VALUES(?1,?2,?2)
             ON CONFLICT(media_id) DO UPDATE SET watched=excluded.watched,manual_override=excluded.manual_override", params![id, watched])?;
-        if !watched {
-            tx.execute("DELETE FROM progress WHERE media_id=?1", [id])?;
-        }
+        tx.execute("DELETE FROM progress WHERE media_id=?1", [id])?;
+        tx.execute("DELETE FROM viewing WHERE media_id=?1", [id])?;
         tx.commit()?;
         Ok(())
     }
@@ -542,8 +555,8 @@ impl Library {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let id = media_id(&tx, key)?;
         tx.execute("INSERT INTO watched(media_id,watched,manual_override)
-            VALUES(?1,COALESCE((SELECT position_seconds/duration_seconds>=?2 FROM progress WHERE media_id=?1),0),NULL)
-            ON CONFLICT(media_id) DO UPDATE SET watched=excluded.watched,manual_override=NULL", params![id, COMPLETION_THRESHOLD])?;
+             VALUES(?1,COALESCE((SELECT v.watched_seconds>p.duration_seconds*?2 FROM viewing v JOIN progress p ON p.media_id=v.media_id WHERE v.media_id=?1),0),NULL)
+             ON CONFLICT(media_id) DO UPDATE SET watched=excluded.watched,manual_override=NULL", params![id, WATCHED_THRESHOLD])?;
         tx.commit()?;
         Ok(())
     }
@@ -597,5 +610,113 @@ impl Library {
                 },
             )
             .optional()?)
+    }
+
+    /// Store a playback sample and actual playback time, excluding seeks.
+    /// # Errors
+    /// Returns an error for invalid values, missing media, or failed writes.
+    pub fn record_playback(
+        &mut self,
+        key: &MediaKey,
+        position: f64,
+        duration: f64,
+        watched_delta: f64,
+    ) -> Result<()> {
+        ensure!(
+            position.is_finite()
+                && duration.is_finite()
+                && duration > 0.0
+                && watched_delta.is_finite()
+                && watched_delta >= 0.0,
+            "invalid playback sample"
+        );
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let id = media_id(&tx, key)?;
+        tx.execute("INSERT INTO progress(media_id,position_seconds,duration_seconds) VALUES(?1,?2,?3) ON CONFLICT(media_id) DO UPDATE SET position_seconds=excluded.position_seconds,duration_seconds=excluded.duration_seconds", params![id, position.clamp(0.0,duration),duration])?;
+        tx.execute("UPDATE viewing SET active=0 WHERE media_id IN(SELECT sibling.media_id FROM media sibling JOIN media current ON sibling.parent_id=current.parent_id WHERE current.media_id=?1 AND sibling.media_id!=?1)",[id])?;
+        tx.execute("INSERT INTO viewing(media_id,watched_seconds,active,touched) VALUES(?1,?2,1,(SELECT COALESCE(MAX(touched),0)+1 FROM viewing)) ON CONFLICT(media_id) DO UPDATE SET watched_seconds=viewing.watched_seconds+excluded.watched_seconds,active=1,touched=excluded.touched",params![id,watched_delta])?;
+        tx.execute("INSERT INTO watched(media_id,watched) VALUES(?1,(SELECT watched_seconds>?2 FROM viewing WHERE media_id=?1)) ON CONFLICT(media_id) DO UPDATE SET watched=CASE WHEN watched.manual_override IS NOT NULL THEN watched.manual_override ELSE MAX(watched.watched,excluded.watched) END",params![id,duration*WATCHED_THRESHOLD])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Reconcile resume state when playback stops beyond the credits threshold.
+    /// The caller supplies only a known released next episode.
+    /// # Errors
+    /// Returns an error for missing media, invalid next identity, or failed writes.
+    pub fn finish_playback(&mut self, key: &MediaKey, next: Option<&Media>) -> Result<()> {
+        let Some(progress) = self.load_progress(key)? else {
+            return Ok(());
+        };
+        if progress.position_seconds <= progress.duration_seconds * COMPLETION_THRESHOLD {
+            return Ok(());
+        }
+        if let Some(next) = next {
+            let current = self.get_media(key)?.context("missing current media")?;
+            ensure!(
+                key.kind == MediaKind::Episode && next.parent == current.parent && next.key != *key,
+                "invalid next episode"
+            );
+            self.upsert_media(next)?;
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let id = media_id(&tx, key)?;
+        tx.execute("UPDATE viewing SET active=0 WHERE media_id=?1", [id])?;
+        tx.execute(
+            "UPDATE progress SET position_seconds=0 WHERE media_id=?1",
+            [id],
+        )?;
+        if let Some(next) = next {
+            let next_id = media_id(&tx, &next.key)?;
+            tx.execute("INSERT INTO progress(media_id,position_seconds,duration_seconds) VALUES(?1,0,1) ON CONFLICT(media_id) DO UPDATE SET position_seconds=0",[next_id])?;
+            tx.execute("INSERT INTO viewing(media_id,watched_seconds,active,touched) VALUES(?1,0,1,(SELECT COALESCE(MAX(touched),0)+1 FROM viewing)) ON CONFLICT(media_id) DO UPDATE SET active=1,touched=excluded.touched",[next_id])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// # Errors
+    /// Returns an error on database reads. One most-recent entry per series.
+    pub fn list_currently_watching(&self, page: Page) -> Result<Vec<(Media, Progress)>> {
+        let mut statement=self.connection.prepare(&format!("{MEDIA_SELECT} JOIN viewing v ON v.media_id=m.media_id WHERE v.active=1 AND NOT EXISTS(SELECT 1 FROM viewing newer JOIN media nm ON nm.media_id=newer.media_id WHERE newer.active=1 AND m.parent_id IS NOT NULL AND nm.parent_id=m.parent_id AND newer.touched>v.touched) ORDER BY v.touched DESC LIMIT ?1 OFFSET ?2"))?;
+        let media = statement
+            .query_map(params![page.limit, page.offset], read_media)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        media
+            .into_iter()
+            .map(|m| {
+                let progress = self
+                    .load_progress(&m.key)?
+                    .context("missing viewing progress")?;
+                Ok((m, progress))
+            })
+            .collect()
+    }
+
+    /// # Errors
+    /// Returns an error on database reads. Filter is applied before pagination.
+    pub fn list_library(&self, watched: bool, kind: MediaKind, page: Page) -> Result<Vec<Media>> {
+        let join = if watched {
+            "JOIN watched w ON w.media_id=m.media_id AND w.watched=1"
+        } else {
+            "JOIN watchlist w ON w.media_id=m.media_id"
+        };
+        let mut statement = self.connection.prepare(&format!(
+            "{MEDIA_SELECT} {join} WHERE m.kind=?1 ORDER BY m.media_id DESC LIMIT ?2 OFFSET ?3"
+        ))?;
+        Ok(statement
+            .query_map(params![kind.as_str(), page.limit, page.offset], read_media)?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Series saved, watched, or with episode playback. No unrelated metadata.
+    /// # Errors
+    /// Returns an error on database reads.
+    pub fn list_calendar_series(&self, page: Page) -> Result<Vec<Media>> {
+        self.list_media("WHERE m.kind='series' AND ?1=0 AND (EXISTS(SELECT 1 FROM watchlist w WHERE w.media_id=m.media_id) OR EXISTS(SELECT 1 FROM watched w WHERE w.media_id=m.media_id) OR EXISTS(SELECT 1 FROM media e JOIN viewing v ON v.media_id=e.media_id WHERE e.parent_id=m.media_id)) ORDER BY m.media_id DESC",0,page)
     }
 }

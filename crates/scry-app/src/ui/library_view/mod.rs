@@ -2,10 +2,12 @@
 mod progress;
 use super::{
     State,
-    components::{action, clock, heading, input, label, scroll},
+    components::{accent, action, clock, empty_state, heading, label, scroll, watched_badge},
 };
 use crate::library_worker::{Command, Event as DbEvent, Snapshot, Worker};
-use rune::{El, TextEdit, col, row, tok};
+#[cfg(test)]
+use rune::TextEdit;
+use rune::{El, col, row, tok};
 use scry_library::{Media, MediaKey, MediaKind};
 use std::{collections::VecDeque, time::Instant};
 
@@ -15,10 +17,15 @@ pub(super) struct LibraryUi {
     pub error: Option<String>,
     generation: u64,
     pending: VecDeque<bool>,
-    selected_playlist: Option<i64>,
     list: u8,
     offset: u32,
-    name: TextEdit,
+    kind: MediaKind,
+    pub(in crate::ui) entries: Option<Vec<Media>>,
+    pub watching: Vec<(Media, scry_library::Progress)>,
+    pub next_episode: Option<Media>,
+    pub watched_pending: f64,
+    pub observed: Option<scry_playback::telemetry::Sample>,
+    pub resume_position: Option<f64>,
     pub playing: Option<Media>,
     pub last_sample: Option<(f64, f64)>,
     pub last_save: Instant,
@@ -33,10 +40,15 @@ impl Default for LibraryUi {
             error: None,
             generation: 0,
             pending: VecDeque::new(),
-            selected_playlist: None,
             list: 0,
             offset: 0,
-            name: TextEdit::new(""),
+            kind: MediaKind::Movie,
+            entries: None,
+            watching: Vec::new(),
+            next_episode: None,
+            watched_pending: 0.0,
+            observed: None,
+            resume_position: None,
             playing: None,
             last_sample: None,
             last_save: Instant::now(),
@@ -45,7 +57,7 @@ impl Default for LibraryUi {
     }
 }
 
-fn key(namespace: &str, kind: MediaKind, id: &str) -> MediaKey {
+pub(in crate::ui) fn key(namespace: &str, kind: MediaKind, id: &str) -> MediaKey {
     let base = id.split(':').next().unwrap_or("");
     let imdb = base
         .strip_prefix("tt")
@@ -112,7 +124,7 @@ impl State {
         })
     }
 
-    fn db(&mut self, command: Command, refresh: bool) -> bool {
+    pub(in crate::ui) fn db(&mut self, command: Command, refresh: bool) -> bool {
         let Some(worker) = &self.library.worker else {
             self.library.error = Some("Local library is unavailable".into());
             return false;
@@ -138,13 +150,34 @@ impl State {
             generation: self.library.generation,
             selected: self.library_media().map(|m| m.key),
             episodes: self.visible_episode_keys(),
-            playlist: self.library.selected_playlist,
-            offset: self.library.offset,
         };
         if let Some(worker) = &self.library.worker
             && let Err(error) = worker.send(command)
         {
             self.library.error = Some(error.to_string());
+        }
+        if let Some(worker) = &self.library.worker {
+            let generation = self.library.generation;
+            let result = worker
+                .send(Command::Browse {
+                    generation,
+                    watched: self.library.list == 1,
+                    kind: self.library.kind,
+                    offset: self.library.offset,
+                })
+                .and_then(|()| {
+                    worker.send(Command::Overview {
+                        generation,
+                        offset: if self.navigation.page == super::Page::Calendar {
+                            self.calendar.offset
+                        } else {
+                            self.library.offset
+                        },
+                    })
+                });
+            if let Err(error) = result {
+                self.library.error = Some(error.to_string());
+            }
         }
     }
 
@@ -220,12 +253,26 @@ impl State {
             match event {
                 DbEvent::Ready => refresh = true,
                 DbEvent::Snapshot { generation, data } => self.apply_snapshot(generation, data),
+                DbEvent::Browse { generation, items } if generation == self.library.generation => {
+                    self.library.entries = Some(items);
+                }
+                DbEvent::Overview {
+                    generation,
+                    watching,
+                    series,
+                } if generation == self.library.generation => {
+                    self.library.watching = watching;
+                    self.calendar.series = series;
+                    if self.navigation.page == super::Page::Calendar {
+                        self.fetch_calendar();
+                    }
+                }
+                DbEvent::Browse { .. } | DbEvent::Overview { .. } | DbEvent::Flushed(_) => {}
                 DbEvent::Changed => refresh |= self.library.pending.pop_front().unwrap_or(false),
                 DbEvent::Error(error) => {
                     self.library.pending.pop_front();
                     self.library.error = Some(error);
                 }
-                DbEvent::Flushed(_) => {}
             }
         }
         if refresh {
@@ -234,26 +281,21 @@ impl State {
         changed
     }
 
-    pub(super) fn episode_label(&self, id: &str) -> &'static str {
+    pub(super) fn episode_watched(&self, id: &str) -> bool {
         let Some(snapshot) = &self.library.snapshot else {
-            return "";
+            return false;
         };
         let Some(parent) = self.parent_media() else {
-            return "";
+            return false;
         };
         let episode = key(&parent.key.namespace, MediaKind::Episode, id);
-        if snapshot
+        snapshot
             .episode_states
             .iter()
             .any(|(k, state)| *k == episode && state.watched)
-        {
-            " · Watched"
-        } else {
-            ""
-        }
     }
 
-    fn open_library_media(&mut self, media: &Media) {
+    pub(in crate::ui) fn open_library_media(&mut self, media: &Media) {
         let target = media.parent.as_ref().unwrap_or(&media.key);
         self.detail_namespace.clone_from(&target.namespace);
         self.pending_episode = media.parent.as_ref().map(|_| media.key.id.clone());
@@ -263,35 +305,6 @@ impl State {
         match meta {
             Ok(meta) => self.open_detail_from(meta),
             Err(_) => self.library.error = Some("Cannot open the saved title".into()),
-        }
-    }
-
-    fn choose_playlist(&mut self, id: i64, name: String) {
-        self.library.selected_playlist = Some(id);
-        self.library.list = 2;
-        self.library.offset = 0;
-        self.library.name = TextEdit::new(name);
-        self.refresh_library();
-    }
-
-    fn move_item(&mut self, index: usize, delta: isize) {
-        let Some(snapshot) = &self.library.snapshot else {
-            return;
-        };
-        // Backend reorder is whole-membership. Never submit a truncated page.
-        if self.library.offset != 0 || snapshot.items.len() >= 200 {
-            return;
-        }
-        let Some(other) = index.checked_add_signed(delta) else {
-            return;
-        };
-        if other >= snapshot.items.len() {
-            return;
-        }
-        let mut keys: Vec<_> = snapshot.items.iter().map(|m| m.key.clone()).collect();
-        keys.swap(index, other);
-        if let Some(id) = self.library.selected_playlist {
-            self.db(Command::ReorderPlaylist(id, keys), true);
         }
     }
 }
@@ -308,15 +321,10 @@ pub(super) fn detail_actions(s: &State) -> El {
         .filter(|v| v.key == media.key);
     let in_watchlist = state.is_some_and(|v| v.watchlist);
     let watched = state.is_some_and(|v| v.watched.watched);
-    let mut body = col().gap(8.0).child(label(format!(
-        "{}{}",
-        if watched { "Watched" } else { "Unwatched" },
-        if state.is_some_and(|v| v.watched.manual_override.is_some()) {
-            " · manual"
-        } else {
-            " · auto tracking"
-        }
-    )));
+    let mut body = col().gap(8.0);
+    if watched {
+        body = body.child(row().child(watched_badge("library-watched-status")));
+    }
     if let Some(progress) = state.and_then(|v| v.progress) {
         body = body.child(label(format!(
             "Saved: {} / {}",
@@ -333,9 +341,9 @@ pub(super) fn detail_actions(s: &State) -> El {
             .child(action(
                 "library-watchlist",
                 if in_watchlist {
-                    "Remove watchlist"
+                    "Remove from to watch"
                 } else {
-                    "Want to watch"
+                    "Watch later"
                 },
                 move |s| {
                     s.db(Command::ToggleWatchlist(a.clone()), true);
@@ -365,205 +373,228 @@ pub(super) fn detail_actions(s: &State) -> El {
             s.refresh_library();
         })));
     }
-    let mut playlists = col().equal_columns(3).gap(6.0).w_full();
-    if let Some(snapshot) = &s.library.snapshot {
-        for playlist in &snapshot.playlists {
-            let id = playlist.id;
-            let item = media.clone();
-            playlists = playlists.child(action(
-                format!("add-playlist-{id}"),
-                format!("+ {}", playlist.name),
-                move |s| {
-                    s.db(Command::AddToPlaylist(id, item.clone()), true);
-                },
-            ));
-        }
-    }
-    if s.library
-        .snapshot
-        .as_ref()
-        .is_some_and(|data| !data.playlists.is_empty())
-    {
-        body = body.child(scroll("detail-playlists", playlists).h(40.0).grow(0.0));
-    }
     body
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "Declarative library layout keeps control bindings beside their UI elements"
-)]
 pub(super) fn view(s: &State) -> El {
     let mut body = col()
         .w_full()
-        .gap(10.0)
+        .gap(12.0)
         .child(heading("Library"))
         .child(
             row()
                 .gap(8.0)
-                .child(action("library-watchlist-tab", "Want to watch", |s| {
-                    s.library.list = 0;
-                    s.library.offset = 0;
-                    s.refresh_library();
-                }))
-                .child(action("library-watched-tab", "Watched", |s| {
-                    s.library.list = 1;
-                    s.library.offset = 0;
-                    s.refresh_library();
-                })),
+                .child(
+                    action("library-watchlist-tab", "To watch", |s| {
+                        s.library.list = 0;
+                        s.library.offset = 0;
+                        s.refresh_library();
+                    })
+                    .fill(if s.library.list == 0 {
+                        rune::oklch(0.29, 0.05, 220.0)
+                    } else {
+                        super::components::panel()
+                    }),
+                )
+                .child(
+                    action("library-watched-tab", "Watched", |s| {
+                        s.library.list = 1;
+                        s.library.offset = 0;
+                        s.refresh_library();
+                    })
+                    .fill(if s.library.list == 1 {
+                        rune::oklch(0.29, 0.05, 220.0)
+                    } else {
+                        super::components::panel()
+                    }),
+                ),
         )
         .child(
             row()
                 .gap(8.0)
-                .child(input(
-                    "playlist-name",
-                    &s.library.name,
-                    "Playlist name…",
-                    |s| &mut s.library.name,
-                ))
-                .child(action("playlist-create", "Create playlist", |s| {
-                    let name = s.library.name.text.trim().to_owned();
-                    if !name.is_empty() {
-                        s.db(Command::CreatePlaylist(name), true);
-                    }
-                })),
-        );
-    let Some(snapshot) = &s.library.snapshot else {
-        return body.child(label("Loading local library…"));
-    };
-    for playlist in &snapshot.playlists {
-        let id = playlist.id;
-        let name = playlist.name.clone();
-        body = body.child(action(
-            format!("playlist-{id}"),
-            format!(
-                "Playlist: {}{}",
-                playlist.name,
-                if s.library.selected_playlist == Some(id) {
-                    " · selected"
-                } else {
-                    ""
-                }
-            ),
-            move |s| s.choose_playlist(id, name.clone()),
-        ));
-    }
-    if let Some(id) = s.library.selected_playlist {
-        body = body.child(
-            row()
-                .gap(8.0)
-                .child(action("playlist-rename", "Rename selected", move |s| {
-                    let name = s.library.name.text.trim().to_owned();
-                    if !name.is_empty() {
-                        s.db(Command::RenamePlaylist(id, name), true);
-                    }
-                }))
-                .child(action("playlist-delete", "Delete selected", move |s| {
-                    s.library.selected_playlist = None;
-                    s.library.list = 0;
-                    s.library.offset = 0;
-                    s.db(Command::DeletePlaylist(id), true);
-                })),
-        );
-    }
-    let items = match s.library.list {
-        1 => &snapshot.watched,
-        2 => &snapshot.items,
-        _ => &snapshot.watchlist,
-    };
-    body = body.child(label(match s.library.list {
-        1 => "Watched",
-        2 => "Selected playlist",
-        _ => "Want to watch",
-    }));
-    if items.is_empty() {
-        body = body.child(label("No titles here yet. Add titles from Discover."));
-    }
-    for (index, media) in items.iter().enumerate() {
-        let item = media.clone();
-        let mut entry = row()
-            .w_full()
-            .padding(6.0)
-            .radius(8.0)
-            .fill(tok::theme(true).card)
-            .gap(8.0)
-            .child(
-                action(
-                    format!("library-open-{index}"),
-                    media.title.clone(),
-                    move |s| s.open_library_media(&item),
-                )
-                .grow(1.0)
-                .justify_start()
-                .fill(tok::theme(true).card),
-            );
-        let item = media.clone();
-        if s.library.list == 2 {
-            if let Some(id) = s.library.selected_playlist {
-                entry = entry.child(action(
-                    format!("library-remove-{index}"),
-                    "Remove",
-                    move |s| {
-                        s.db(Command::RemoveFromPlaylist(id, item.key.clone()), true);
+                .child(action(
+                    "library-movies",
+                    if s.library.kind == MediaKind::Movie {
+                        "Movies ✓"
+                    } else {
+                        "Movies"
                     },
-                ));
-                if s.library.offset == 0 && items.len() < 200 {
-                    entry = entry
-                        .child(action(format!("library-up-{index}"), "↑", move |s| {
-                            s.move_item(index, -1);
-                        }))
-                        .child(action(format!("library-down-{index}"), "↓", move |s| {
-                            s.move_item(index, 1);
-                        }));
-                }
+                    |s| {
+                        s.library.kind = MediaKind::Movie;
+                        s.library.offset = 0;
+                        s.refresh_library();
+                    },
+                ))
+                .child(action(
+                    "library-series-filter",
+                    if s.library.kind == MediaKind::Series {
+                        "TV series ✓"
+                    } else {
+                        "TV series"
+                    },
+                    |s| {
+                        s.library.kind = MediaKind::Series;
+                        s.library.offset = 0;
+                        s.refresh_library();
+                    },
+                )),
+        );
+    if let Some(items) = &s.library.entries {
+        if items.is_empty() {
+            if s.library.offset == 0 {
+                return body.grow(1.0).min_h(0.0).child(library_empty(s));
             }
-        } else if s.library.list == 0 {
-            entry = entry.child(action(
-                format!("library-remove-{index}"),
-                "Remove",
-                move |s| {
-                    s.db(Command::ToggleWatchlist(item.clone()), true);
-                },
-            ));
-        } else {
-            entry = entry.child(action(
-                format!("library-unwatched-{index}"),
-                "Mark unwatched",
-                move |s| {
-                    s.db(Command::SetWatched(item.clone(), false), true);
-                },
-            ));
+            body = body.child(label("No more titles on this page."));
         }
-        body = body.child(entry);
+        for (index, media) in items.iter().enumerate() {
+            body = body.child(media_row(media, index, "library-open"));
+        }
+    } else {
+        body = body.child(label("Loading local library…"));
     }
+    let mut pages = row().gap(8.0);
+    if s.library.offset > 0 {
+        pages = pages.child(action("library-prev", "Previous", |s| {
+            s.library.offset = s.library.offset.saturating_sub(200);
+            s.refresh_library();
+        }));
+    }
+    if s.library
+        .entries
+        .as_ref()
+        .is_some_and(|items| items.len() == 200)
     {
-        body = body
-            .child(
-                row()
-                    .gap(8.0)
-                    .child(action("playlist-prev", "Previous 200", |s| {
-                        s.library.offset = s.library.offset.saturating_sub(200);
-                        s.refresh_library();
-                    }))
-                    .child(label(format!("Offset {}", s.library.offset)))
-                    .child(action("playlist-next", "Next 200", |s| {
-                        s.library.offset = s.library.offset.saturating_add(200);
-                        s.refresh_library();
-                    })),
-            )
-            .child(label(
-                "Reorder is available for complete playlists under 200 items.",
-            ));
+        pages = pages.child(action("library-next", "Next", |s| {
+            s.library.offset = s.library.offset.saturating_add(200);
+            s.refresh_library();
+        }));
     }
+    body = body.child(pages);
     scroll(
         format!(
-            "library-scroll-{}-{}-{}",
-            s.library.list,
-            s.library.offset,
-            s.library.selected_playlist.unwrap_or(0)
+            "library-scroll-{}-{}-{:?}",
+            s.library.list, s.library.offset, s.library.kind
         ),
         body,
     )
+}
+
+fn library_empty(s: &State) -> El {
+    let series = s.library.kind == MediaKind::Series;
+    let watched = s.library.list == 1;
+    let title = match (watched, series) {
+        (false, false) => "No movies saved",
+        (false, true) => "No TV series saved",
+        (true, false) => "No watched movies",
+        (true, true) => "No watched TV series",
+    };
+    let description = if watched {
+        "Titles marked as watched will appear here."
+    } else {
+        "Choose Watch later on a title to add it here."
+    };
+    empty_state(
+        "library-empty",
+        title,
+        description,
+        if watched { "✓" } else { "＋" },
+        row().child(
+            action(
+                "library-browse",
+                if series {
+                    "Browse TV series"
+                } else {
+                    "Browse movies"
+                },
+                move |s| {
+                    s.choose_kind(if series { "series" } else { "movie" });
+                },
+            )
+            .fill(accent().alpha(0.18)),
+        ),
+    )
+}
+
+fn media_row(media: &Media, index: usize, prefix: &str) -> El {
+    let item = media.clone();
+    let menu = media.clone();
+    row()
+        .w_full()
+        .padding(8.0)
+        .radius(8.0)
+        .fill(tok::theme(true).card)
+        .gap(8.0)
+        .on_secondary_press(move |s: &mut State, p, _| {
+            s.context_menu = Some((p, Some(menu.clone())));
+        })
+        .child(
+            action(format!("{prefix}-{index}"), media.title.clone(), move |s| {
+                s.open_library_media(&item);
+            })
+            .grow(1.0)
+            .justify_start()
+            .fill(tok::theme(true).card),
+        )
+}
+
+pub(super) fn watching(s: &State) -> El {
+    let mut body = col()
+        .w_full()
+        .gap(12.0)
+        .child(heading("Currently watching"));
+    if s.library.watching.is_empty() {
+        if s.library.offset == 0 {
+            return body.grow(1.0).min_h(0.0).child(empty_state(
+                "watching-empty",
+                "Nothing in progress",
+                "Start a movie or series to save your place here.",
+                "▶",
+                row()
+                    .gap(10.0)
+                    .child(
+                        action("watching-browse-movies", "Browse movies", |s| {
+                            s.choose_kind("movie");
+                        })
+                        .fill(accent().alpha(0.18)),
+                    )
+                    .child(action("watching-browse-series", "TV series", |s| {
+                        s.choose_kind("series");
+                    })),
+            ));
+        }
+        body = body.child(label("No more titles on this page."));
+    }
+    for (index, (media, progress)) in s.library.watching.iter().enumerate() {
+        body = body.child(
+            col()
+                .w_full()
+                .gap(4.0)
+                .child(media_row(media, index, "watching-open"))
+                .child(label(if progress.position_seconds == 0.0 {
+                    "Next episode".into()
+                } else {
+                    format!(
+                        "{} / {}",
+                        clock(Some(progress.position_seconds)),
+                        clock(Some(progress.duration_seconds))
+                    )
+                })),
+        );
+    }
+    let mut pages = row().gap(8.0);
+    if s.library.offset > 0 {
+        pages = pages.child(action("watching-prev", "Previous", |s| {
+            s.library.offset = s.library.offset.saturating_sub(200);
+            s.refresh_library();
+        }));
+    }
+    if s.library.watching.len() == 200 {
+        pages = pages.child(action("watching-next", "Next", |s| {
+            s.library.offset = s.library.offset.saturating_add(200);
+            s.refresh_library();
+        }));
+    }
+    scroll("watching-scroll", body.child(pages))
 }
 
 #[cfg(test)]
@@ -586,6 +617,35 @@ mod tests {
     use std::time::Duration;
     fn meta(id: &str) -> Meta {
         serde_json::from_value(serde_json::json!({"id": id, "type":"movie", "name":id})).unwrap()
+    }
+
+    #[test]
+    fn explicit_and_reported_seeks_do_not_add_watched_time() {
+        let mut s = init();
+        s.player.playing = true;
+        s.player.sample = Sample {
+            elapsed_s: 10.0,
+            position_s: Some(10.0),
+            duration_s: Some(100.0),
+            ..Sample::default()
+        };
+        s.observe_library_progress();
+        s.player_action(crate::ui::player::actions::PlayerAction::SeekTo(95.0));
+        s.player.sample.elapsed_s = 11.0;
+        s.observe_library_progress();
+        assert_eq!(s.library.watched_pending, 0.0);
+        s.player.sample.elapsed_s = 12.0;
+        s.player.sample.position_s = Some(96.0);
+        s.observe_library_progress();
+        assert_eq!(s.library.watched_pending, 1.0);
+        s.player.sample.elapsed_s = 13.0;
+        s.player.sample.position_s = Some(5.0);
+        s.observe_library_progress();
+        assert_eq!(s.library.watched_pending, 1.0);
+        s.player.sample.elapsed_s = 14.0;
+        s.player.sample.position_s = Some(80.0);
+        s.observe_library_progress();
+        assert_eq!(s.library.watched_pending, 1.0);
     }
     #[test]
     fn captured_identity_and_last_valid_sample_survive_detail_changes_and_eof() {
@@ -614,10 +674,6 @@ mod tests {
         let mut s = init();
         s.library.generation = 2;
         let snapshot = Snapshot {
-            watchlist: vec![],
-            watched: vec![],
-            playlists: vec![],
-            items: vec![],
             selected_state: None,
             episode_states: vec![],
         };
@@ -695,10 +751,6 @@ mod tests {
         let episode = s.visible_episode_keys().remove(0);
         assert_eq!(episode.namespace, "imdb");
         s.library.snapshot = Some(Snapshot {
-            watchlist: vec![],
-            watched: vec![],
-            playlists: vec![],
-            items: vec![],
             selected_state: None,
             episode_states: vec![(
                 MediaKey::new("other", MediaKind::Episode, &episode.id),
@@ -708,13 +760,13 @@ mod tests {
                 },
             )],
         });
-        assert_eq!(s.episode_label(&episode.id), "");
+        assert!(!s.episode_watched(&episode.id));
         s.library.snapshot.as_mut().unwrap().episode_states[0].0 = episode.clone();
-        assert_eq!(s.episode_label(&episode.id), " · Watched");
+        assert!(s.episode_watched(&episode.id));
     }
 
     #[test]
-    fn only_natural_eof_completes_a_short_clip_without_changing_telemetry() {
+    fn natural_eof_clears_resume_without_counting_unwatched_time() {
         for outcome in ["eof", "stop", "failure"] {
             let directory = tempfile::tempdir().unwrap();
             let path = directory.path().join("library.sqlite3");
@@ -726,6 +778,7 @@ mod tests {
             s.player.sample.position_s = Some(3.0);
             s.player.sample.duration_s = Some(10.0);
             s.library.last_sample = Some((3.0, 10.0));
+            s.library.watched_pending = 3.0;
             if outcome == "stop" {
                 s.stop();
             }
@@ -746,14 +799,10 @@ mod tests {
             let progress = library.load_progress(&key).unwrap().unwrap();
             assert_eq!(
                 progress.position_seconds,
-                if outcome == "eof" { 10.0 } else { 3.0 },
+                if outcome == "eof" { 0.0 } else { 3.0 },
                 "{outcome}"
             );
-            assert_eq!(
-                library.watched_state(&key).unwrap().watched,
-                outcome == "eof",
-                "{outcome}"
-            );
+            assert!(!library.watched_state(&key).unwrap().watched, "{outcome}");
         }
     }
 
@@ -781,6 +830,7 @@ mod tests {
         s.detail = Some(meta("tt123"));
         s.library.playing = s.library_media();
         s.library.last_sample = Some((96.0, 100.0));
+        s.library.watched_pending = 96.0;
         // Fill the bounded input queue. The close path must drain events and
         // retry the final save/barrier, not silently lose them.
         for _ in 0..32 {
@@ -801,7 +851,7 @@ mod tests {
                 .unwrap()
                 .unwrap()
                 .position_seconds,
-            96.0
+            0.0
         );
         assert!(library.watched_state(&key).unwrap().watched);
     }

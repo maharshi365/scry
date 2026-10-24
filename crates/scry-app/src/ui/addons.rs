@@ -1,68 +1,116 @@
-//! Add-on management and direct playback controls.
+//! Supported providers and one shared installation dialog.
 use super::{
     State,
-    components::{action, heading, input, label, scroll},
+    components::{action, edge, heading, input, label, panel, scroll},
 };
 use crate::services::CINEMETA;
-use rune::{
-    El, col, row, text,
-    tok::{self, TextStyle},
-};
+use rune::{El, col, el, row};
 
 pub(super) fn addons(s: &State) -> El {
-    let t = tok::theme(true);
-    let mut list = col().key("addon-list").gap(12.0);
-    for (index, addon) in s.addons.iter().enumerate() {
-        let id = addon.manifest.id.clone();
-        list = list.child(
-            row()
-                .key(format!("addon-{index}"))
-                .padding(18.0)
-                .radius(12.0)
-                .fill(t.card)
-                .gap(16.0)
-                .center_y()
-                .child(
-                    col()
-                        .grow(1.0)
-                        .gap(5.0)
-                        .child(
-                            text(addon.manifest.name.clone())
-                                .truncate()
-                                .font(TextStyle::new(17.0, 550.0))
-                                .color(t.text),
-                        )
-                        .child(label(format!(
-                            "{} catalogs · manifest URL kept private",
-                            addon.manifest.catalogs.len()
-                        ))),
-                )
-                .child(action(format!("remove-{index}"), "Remove", move |s| {
-                    if s.config_busy {
-                        return;
-                    }
-                    s.config_busy = true;
-                    if let Some(services) = &s.services {
-                        services.remove(id.clone());
-                    }
-                })),
-        );
+    let mut list = col().w_full().gap(12.0);
+    if s.addon_installed_tab {
+        for (index, addon) in s.addons.iter().enumerate() {
+            let id = addon.manifest.id.clone();
+            list = list.child(
+                row()
+                    .w_full()
+                    .padding(18.0)
+                    .radius(12.0)
+                    .fill(panel())
+                    .gap(16.0)
+                    .center_y()
+                    .child(
+                        col()
+                            .grow(1.0)
+                            .gap(5.0)
+                            .child(heading(addon.manifest.name.clone()))
+                            .child(label(format!(
+                                "{} catalogs · Manifest URL hidden",
+                                addon.manifest.catalogs.len()
+                            ))),
+                    )
+                    .child(action(format!("remove-{index}"), "Remove", move |s| {
+                        if !s.config_busy
+                            && let Some(services) = &s.services
+                        {
+                            services.remove(id.clone());
+                            s.config_busy = true;
+                        }
+                    })),
+            );
+        }
+        if s.addons.is_empty() {
+            list = list.child(label("No add-ons installed."));
+        }
+    } else {
+        for (index, (name, url, description)) in [
+            (
+                "Cinemeta",
+                CINEMETA,
+                "Movie and TV series catalogs, metadata, and episode release dates.",
+            ),
+            (
+                "Torrentio",
+                "https://torrentio.strem.fun/manifest.json",
+                "Streams from direct torrents or a configured debrid provider.",
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            list = list.child(
+                row()
+                    .w_full()
+                    .padding(18.0)
+                    .radius(12.0)
+                    .fill(panel())
+                    .gap(16.0)
+                    .center_y()
+                    .child(
+                        col()
+                            .grow(1.0)
+                            .gap(5.0)
+                            .child(heading(name))
+                            .child(label(description)),
+                    )
+                    .child(action(
+                        format!("supported-addon-{index}"),
+                        "Install…",
+                        move |s| {
+                            s.install = rune::TextEdit::new(url);
+                            s.addon_install_open = true;
+                        },
+                    )),
+            );
+        }
     }
-    col().key("addons-page").gap(10.0).grow(1.0).min_h(0.0).min_w(0.0)
-        .child(heading("Add-ons & direct play"))
-        .child(label("Install a Stremio-compatible HTTPS manifest URL, including a configured Torrentio URL."))
+    col().key("addons-page").gap(12.0).grow(1.0).min_h(0.0).w_full()
+        .child(row().w_full().gap(12.0).child(heading("Add-ons").grow(1.0))
+            .child(action("add-addon","Add by URL…",|s| { s.install=rune::TextEdit::new("");s.addon_install_open=true; })))
         .child(row().gap(8.0)
-            .child(input("manifest", &s.install, "https://…/manifest.json", |s| &mut s.install))
-            .child(action("install-addon", if s.config_busy { "Working…" } else { "Install add-on" }, |s| s.install(s.install.text.clone()))))
-        .child(label("Privacy: configured manifest URLs can contain credentials. They are saved as plaintext in your private app-data addons.json. Do not share that file."))
-        .child(row().gap(8.0)
-            .child(action("install-cinemeta", "Add Cinemeta", |s| s.install(CINEMETA.into())))
-            .child(action("install-torrentio", "Add Torrentio", |s| s.install("https://torrentio.strem.fun/manifest.json".into()))))
-        .child(label("Torrentio's default sources use direct torrents. For debrid HTTP streams, paste your configured manifest instead."))
-        .child(scroll("addons-scroll", list))
-        .child(label("DIRECT PLAYBACK · HTTP / HTTPS"))
-        .child(row().gap(8.0)
-            .child(input("direct-url", &s.direct, "Paste a direct video URL…", |s| &mut s.direct))
-            .child(action("play-direct", "Play URL", State::play_direct)))
-        .child(label("Only play media you have permission to access. Torrent playback connects to peers and may upload data."))
+            .child(action("addons-supported-tab","Supported",|s|s.addon_installed_tab=false))
+            .child(action("addons-installed-tab",format!("Installed · {}",s.addons.len()),|s|s.addon_installed_tab=true)))
+        .child(scroll("addons-scroll",list))
+        .child(label("Configured URLs may contain credentials. They are stored locally as plaintext. Do not share addons.json."))
+        .child(heading("Direct play"))
+        .child(row().gap(8.0).child(input("direct-url",&s.direct,"HTTP / HTTPS video URL…",|s|&mut s.direct))
+            .child(action("play-direct","Play URL",State::play_direct)))
+        .child(label("Only play authorised media. Direct torrents expose your IP, may upload data, and use disk space."))
+}
+
+pub(super) fn install_dialog(s: &State) -> El {
+    let mut feedback = col().w_full();
+    if let Some(error) = &s.error {
+        feedback = feedback.child(label(error.clone()));
+    }
+    el().key("addon-dialog-layer").w_full().h_full().absolute(0.0,0.0).center()
+        .fill(rune::oklch(0.05,0.0,0.0).alpha(0.7))
+        .child(col().key("addon-install-dialog").w(560.0).padding(24.0).gap(16.0).radius(12.0).fill(panel()).border(1.0,edge())
+            .modal(true,|s:&mut State|s.addon_install_open=false)
+            .child(row().w_full().child(heading("Install add-on").grow(1.0)).child(action("addon-dialog-close","×",|s|s.addon_install_open=false)))
+            .child(label("HTTPS manifest URL"))
+            .child(input("manifest",&s.install,"https://…/manifest.json",|s|&mut s.install).grow(0.0).w_full())
+            .child(label("Use a configured Torrentio manifest for debrid sources. Its default manifest uses direct torrents."))
+            .child(feedback)
+            .child(action("install-addon",if s.config_busy { "Working…" } else { "Install" },|s|s.install(s.install.text.clone()))))
 }

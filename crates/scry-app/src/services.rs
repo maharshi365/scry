@@ -23,6 +23,7 @@ pub const CINEMETA: &str = "https://v3-cinemeta.strem.io/manifest.json";
 
 #[derive(Debug)]
 pub enum Event {
+    Calendar(u64, Vec<(scry_library::Media, Meta)>, usize),
     Addons(Result<Vec<Addon>, String>),
     Catalog(u64, Result<Vec<Meta>, String>),
     Search(u64, Vec<SearchResult>, Vec<String>, bool),
@@ -77,6 +78,7 @@ pub struct Services {
     search_task: Option<tokio::task::JoinHandle<()>>,
     detail_task: Option<tokio::task::JoinHandle<()>>,
     stream_task: Option<tokio::task::JoinHandle<()>>,
+    calendar_task: Option<tokio::task::JoinHandle<()>>,
     control: Option<watch::Sender<Option<Control>>>,
     commands: Option<mpsc::Sender<(u64, Vec<String>)>>,
     player: Option<JoinHandle<()>>,
@@ -120,6 +122,7 @@ impl Services {
             search_task: None,
             detail_task: None,
             stream_task: None,
+            calendar_task: None,
             control: Some(control),
             commands: Some(commands),
             player: Some(player),
@@ -411,6 +414,57 @@ impl Services {
         }));
     }
 
+    pub fn reload_addons(&self) {
+        self.load();
+    }
+
+    pub fn calendar(
+        &mut self,
+        generation: u64,
+        addons: Vec<Addon>,
+        series: Vec<scry_library::Media>,
+    ) {
+        if let Some(task) = self.calendar_task.take() {
+            task.abort();
+        }
+        let (client, inbox) = (self.client.clone(), self.inbox.clone());
+        self.calendar_task = Some(self.runtime.spawn(async move {
+            let mut remaining = series.into_iter();
+            let mut tasks = tokio::task::JoinSet::new();
+            let mut found = Vec::new();
+            let mut failed = 0;
+            loop {
+                while tasks.len() < 4 {
+                    let Some(media) = remaining.next() else {
+                        break;
+                    };
+                    let (client, mut addons) = (client.clone(), addons.clone());
+                    tasks.spawn(async move {
+                        addons.sort_by_key(|a| a.manifest.id != media.key.namespace);
+                        for addon in addons
+                            .iter()
+                            .filter(|a| a.supports("meta", "series", &media.key.id))
+                        {
+                            if let Ok(meta) = client.meta(addon, "series", &media.key.id).await {
+                                return Some((media, meta));
+                            }
+                        }
+                        None
+                    });
+                }
+                let Some(result) = tasks.join_next().await else {
+                    break;
+                };
+                if let Ok(Some(item)) = result {
+                    found.push(item);
+                } else {
+                    failed += 1;
+                }
+            }
+            inbox.send(Event::Calendar(generation, found, failed)).await;
+        }));
+    }
+
     pub fn control(&self, command: Control) -> Result<()> {
         match command {
             Control::Command(id, args) => self
@@ -438,6 +492,7 @@ impl Services {
             &mut self.search_task,
             &mut self.detail_task,
             &mut self.stream_task,
+            &mut self.calendar_task,
         ] {
             if let Some(task) = task.take() {
                 task.abort();

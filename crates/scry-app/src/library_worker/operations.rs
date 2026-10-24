@@ -9,11 +9,32 @@ use scry_library::{Library, MAX_PAGE_SIZE, MediaKind, Page, WatchedState};
 )]
 pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
     match command {
+        Command::Browse {
+            generation,
+            watched,
+            kind,
+            offset,
+        } => {
+            return Ok(Event::Browse {
+                generation,
+                items: library.list_library(watched, kind, Page::new(MAX_PAGE_SIZE, offset)?)?,
+            });
+        }
+        Command::Overview { generation, offset } => {
+            return Ok(Event::Overview {
+                generation,
+                watching: library.list_currently_watching(Page::new(MAX_PAGE_SIZE, offset)?)?,
+                series: library.list_calendar_series(Page::new(20, offset)?)?,
+            });
+        }
+        Command::SavePlayback(item, position, duration, delta) => {
+            library.upsert_media(&item)?;
+            library.record_playback(&item.key, position, duration, delta)?;
+        }
+        Command::FinishPlayback(key, next) => library.finish_playback(&key, next.as_ref())?,
         Command::Refresh {
             generation,
             selected,
-            playlist,
-            offset,
             episodes,
         } => {
             let page = Page::new(MAX_PAGE_SIZE, 0)?;
@@ -54,7 +75,8 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
             let selected_state = match selected_media {
                 Some(media) => Some(SelectedState {
                     watched: library.watched_state(&media.key)?,
-                    watchlist: library.is_in_watchlist(&media.key)?,
+                    watchlist: library
+                        .is_in_watchlist(media.parent.as_ref().unwrap_or(&media.key))?,
                     progress: library.load_progress(&media.key)?,
                     key: media.key,
                 }),
@@ -63,15 +85,6 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
             return Ok(Event::Snapshot {
                 generation,
                 data: Snapshot {
-                    watchlist: library.list_watchlist(Page::new(MAX_PAGE_SIZE, offset)?)?,
-                    watched: library.list_watched(Page::new(MAX_PAGE_SIZE, offset)?)?,
-                    playlists: library.list_playlists(page)?,
-                    items: match playlist {
-                        Some(id) => {
-                            library.list_playlist_items(id, Page::new(MAX_PAGE_SIZE, offset)?)?
-                        }
-                        None => Vec::new(),
-                    },
                     selected_state,
                     episode_states,
                 },
@@ -83,11 +96,31 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
             }
         }
         Command::ToggleWatchlist(item) => {
+            let item = match &item.parent {
+                Some(parent) => library
+                    .get_media(parent)?
+                    .ok_or_else(|| anyhow::anyhow!("missing series"))?,
+                None => item,
+            };
             library.upsert_media(&item)?;
             if library.is_in_watchlist(&item.key)? {
                 library.remove_from_watchlist(&item.key)?;
             } else {
                 library.add_to_watchlist(&item.key)?;
+            }
+        }
+        Command::SetWatchlist(item, added) => {
+            let item = match &item.parent {
+                Some(parent) => library
+                    .get_media(parent)?
+                    .ok_or_else(|| anyhow::anyhow!("missing series"))?,
+                None => item,
+            };
+            library.upsert_media(&item)?;
+            if added {
+                library.add_to_watchlist(&item.key)?;
+            } else {
+                library.remove_from_watchlist(&item.key)?;
             }
         }
         Command::SetWatched(item, watched) => {
@@ -97,21 +130,6 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
         Command::ClearOverride(item) => {
             library.upsert_media(&item)?;
             library.clear_watched_override(&item.key)?;
-        }
-        Command::CreatePlaylist(name) => {
-            library.create_playlist(&name)?;
-        }
-        Command::RenamePlaylist(id, name) => library.rename_playlist(id, &name)?,
-        Command::DeletePlaylist(id) => library.delete_playlist(id)?,
-        Command::AddToPlaylist(id, item) => {
-            library.upsert_media(&item)?;
-            library.add_playlist_item(id, &item.key)?;
-        }
-        Command::RemoveFromPlaylist(id, key) => library.remove_playlist_item(id, &key)?,
-        Command::ReorderPlaylist(id, keys) => library.reorder_playlist(id, &keys)?,
-        Command::SaveProgress(item, position, duration) => {
-            library.upsert_media(&item)?;
-            library.save_progress(&item.key, position, duration)?;
         }
         Command::Flush(token) => return Ok(Event::Flushed(token)),
     }

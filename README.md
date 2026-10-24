@@ -4,7 +4,7 @@
 
 A native, Windows-first streaming app. Rune draws the interface. libmpv plays video inside the app. Rust services handle Stremio add-ons and torrents. There is no browser, webview, Electron process, or external player.
 
-**Early prototype, not a full Stremio replacement.** Local SQLite stores watchlists, playlists, watched state, and episode progress. macOS embedding, calendar management, DRM, and universal add-on compatibility are not implemented.
+**Early prototype, not a full Stremio replacement.** Local SQLite stores saved titles, watched state, and episode progress. macOS embedding, DRM, and universal add-on compatibility are not implemented.
 
 ## Run on Windows
 
@@ -17,7 +17,7 @@ cargo run --release
 
 The setup script downloads a pinned x64 libmpv build and verifies its SHA-256 checksum. It changes only `runtime/`. You can instead set `SCRY_MPV_LIBRARY` to a trusted libmpv library. For a packaged build, put `libmpv-2.dll` beside `scry.exe`.
 
-Add a catalog provider such as Cinemeta, then add your Torrentio manifest URL in the add-ons screen. A configured manifest can include private credentials in its path. Do not share it or commit local settings.
+In **Add-ons → Supported**, choose Cinemeta or Torrentio to open the install dialog. Use **Add by URL** for another provider or your configured Torrentio manifest. Installed providers have a separate list. A configured manifest can include private credentials in its path. Do not share it or commit local settings.
 
 ### Add-on support
 
@@ -54,9 +54,11 @@ Player shortcuts apply only during playback and do not intercept text input.
 
 ## Your local library
 
-- Open a title and choose **Want to watch**, **Mark watched**, or a playlist.
-- In **Library**, create and rename playlists, reorder titles, and manage your lists.
-- Episode progress saves every 12 seconds and on Stop/close. Playback at 90% or a clean end marks the item watched.
+- The app starts on **Currently watching**. Open a title to select a source and resume its saved position.
+- Open a title and choose **Watch later** or **Mark watched**. Right-click titles for quick actions; right-click the page to refresh provider data.
+- **Library** has **To watch** and **Watched** lists, with Movies selected by default and a TV series filter. There are no playlist controls.
+- Progress saves every 12 seconds and on Stop/close. More than 70% of the duration accumulated as playback marks the item watched; seeking does not count.
+- Stopping beyond 90% removes a finished movie from Currently watching or advances to the next known released episode. An unknown/future release is not offered as the next episode.
 - **Mark unwatched** clears progress and sets a manual override. Choose **Auto track** to let playback update its status again.
 - **Series actions** manages the whole show separately from individual episodes.
 
@@ -65,10 +67,12 @@ The database is `library.sqlite3` in the OS-local Scry application-data folder
 video files or stream credentials. It is local and unencrypted. Close the app
 before copying it for backup. There is no cloud account or sync.
 
-Episode browsing uses 100-item pages. Library lists use 200-item pages. The
-playlist selector currently shows the first 200 playlists; whole-playlist
-reordering is available for playlists under 200 items. Resume playback and
-calendar views are not implemented yet.
+Episode browsing uses 100-item pages. Library lists use 200-item pages.
+**Calendar** has Week and Month views; each day has its own scrollable episode
+list. Release dates come from metadata, not stream availability. The calendar
+loads 20 library series at a time; use its series-page controls for more. Refresh
+retrieves current metadata. Undated episodes are omitted. There is no background
+new-release notification service yet.
 
 ## Performance diagnostics
 

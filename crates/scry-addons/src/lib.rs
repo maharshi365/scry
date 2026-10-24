@@ -100,12 +100,41 @@ impl<'de> Deserialize<'de> for Meta {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[serde(from = "VideoFields")]
 pub struct Video {
     pub id: String,
-    #[serde(default, deserialize_with = "optional_text")]
     pub title: String,
     pub season: Option<u32>,
     pub episode: Option<u32>,
+    pub released: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct VideoFields {
+    id: String,
+    #[serde(default, deserialize_with = "optional_text")]
+    title: String,
+    #[serde(default, deserialize_with = "optional_text")]
+    name: String,
+    season: Option<u32>,
+    episode: Option<u32>,
+    released: Option<String>,
+}
+
+impl From<VideoFields> for Video {
+    fn from(fields: VideoFields) -> Self {
+        Self {
+            id: fields.id,
+            title: if fields.title.trim().is_empty() {
+                fields.name
+            } else {
+                fields.title
+            },
+            season: fields.season,
+            episode: fields.episode,
+            released: fields.released,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]

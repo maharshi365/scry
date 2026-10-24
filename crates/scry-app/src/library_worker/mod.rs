@@ -111,13 +111,11 @@ mod tests {
         worker.events.recv_timeout(Duration::from_secs(10)).unwrap()
     }
 
-    fn refresh(worker: &Worker, generation: u64, playlist: Option<i64>, offset: u32) -> Snapshot {
+    fn refresh(worker: &Worker, generation: u64) -> Snapshot {
         worker
             .send(Command::Refresh {
                 generation,
                 selected: Some(movie().key),
-                playlist,
-                offset,
                 episodes: Vec::new(),
             })
             .unwrap();
@@ -145,23 +143,15 @@ mod tests {
         let path = dir.path().join("library.db");
         let mut worker = start(path.clone());
         assert!(matches!(receive(&worker), Event::Ready));
-        assert!(refresh(&worker, 1, None, 0).selected_state.is_none());
+        assert!(refresh(&worker, 1).selected_state.is_none());
         change(&worker, Command::ToggleWatchlist(movie()));
-        change(&worker, Command::SaveProgress(movie(), 95.0, 100.0));
-        change(&worker, Command::CreatePlaylist("Favorites".into()));
-        let snapshot = refresh(&worker, 9, None, 0);
-        let id = snapshot.playlists[0].id;
-        change(&worker, Command::AddToPlaylist(id, movie()));
-        let snapshot = refresh(&worker, 10, Some(id), 0);
-        assert_eq!(snapshot.watchlist, vec![movie()]);
-        assert_eq!(snapshot.watched, vec![movie()]);
-        assert_eq!(snapshot.items, vec![movie()]);
+        change(&worker, Command::SavePlayback(movie(), 95.0, 100.0, 95.0));
+        let snapshot = refresh(&worker, 10);
         let selected = snapshot.selected_state.unwrap();
         assert!(selected.watched.watched);
         assert!(selected.watchlist);
         assert_eq!(selected.key, movie().key);
         assert_eq!(selected.progress.unwrap().position_seconds, 95.0);
-        assert!(refresh(&worker, 11, Some(id), 1).items.is_empty());
 
         // Tests may join off the UI thread to prove the connection was closed.
         let handle = worker.thread.take().unwrap();
@@ -169,10 +159,9 @@ mod tests {
         handle.join().unwrap();
         worker = start(path);
         assert!(matches!(receive(&worker), Event::Ready));
-        let snapshot = refresh(&worker, 12, Some(id), 0);
-        assert_eq!(snapshot.watchlist, vec![movie()]);
-        assert_eq!(snapshot.items, vec![movie()]);
-        assert!(snapshot.selected_state.unwrap().watched.watched);
+        let selected = refresh(&worker, 12).selected_state.unwrap();
+        assert!(selected.watchlist);
+        assert!(selected.watched.watched);
     }
 
     #[test]
@@ -182,7 +171,7 @@ mod tests {
         let mut worker = start(path.clone());
         assert!(matches!(receive(&worker), Event::Ready));
         worker
-            .send(Command::SaveProgress(movie(), 73.0, 100.0))
+            .send(Command::SavePlayback(movie(), 73.0, 100.0, 73.0))
             .unwrap();
         worker.send(Command::Flush(42)).unwrap();
         assert!(matches!(receive(&worker), Event::Changed));
@@ -209,22 +198,21 @@ mod tests {
             item.key.id = format!("item-{i}");
             apply(&mut library, Command::ToggleWatchlist(item)).unwrap();
         }
-        let Event::Snapshot { data, .. } = apply(
+        let Event::Browse { items, .. } = apply(
             &mut library,
-            Command::Refresh {
+            Command::Browse {
                 generation: 1,
-                selected: None,
-                playlist: None,
+                watched: false,
+                kind: MediaKind::Movie,
                 offset: 200,
-                episodes: Vec::new(),
             },
         )
         .unwrap() else {
             panic!("Expected snapshot");
         };
-        assert_eq!(data.watchlist.len(), 5);
-        assert_eq!(data.watchlist[0].key.id, "item-4");
-        assert_eq!(data.watchlist[4].key.id, "item-0");
+        assert_eq!(items.len(), 5);
+        assert_eq!(items[0].key.id, "item-4");
+        assert_eq!(items[4].key.id, "item-0");
     }
 
     #[test]
@@ -238,13 +226,13 @@ mod tests {
         let worker = start(dir.path().join("library.db"));
         assert!(matches!(receive(&worker), Event::Ready));
         worker
-            .send(Command::RenamePlaylist(-1, "private-token".into()))
+            .send(Command::SavePlayback(movie(), 1.0, 0.0, 1.0))
             .unwrap();
         match receive(&worker) {
             Event::Error(message) => assert_eq!(message, "Cannot complete the library request"),
             event => panic!("Expected request error, got {event:?}"),
         }
-        assert!(refresh(&worker, 77, None, 0).playlists.is_empty());
+        assert!(!refresh(&worker, 77).selected_state.unwrap().watched.watched);
     }
 
     #[test]
@@ -269,8 +257,6 @@ mod tests {
             Command::Refresh {
                 generation: 1,
                 selected: Some(parent.key),
-                playlist: None,
-                offset: 0,
                 episodes: vec![episode.key.clone(), unknown.clone()],
             },
         )
@@ -309,8 +295,6 @@ mod tests {
                 .send(Command::Refresh {
                     generation: 23,
                     selected: Some(selected),
-                    playlist: None,
-                    offset: 0,
                     episodes: Vec::new(),
                 })
                 .unwrap();

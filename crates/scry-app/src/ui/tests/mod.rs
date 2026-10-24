@@ -12,6 +12,7 @@ use rune::{TextEdit, Tx};
 use scry_addons::{Meta, Stream};
 use std::sync::Arc;
 
+mod calendar;
 mod catalog;
 mod episodes;
 mod layout;
@@ -19,11 +20,12 @@ mod library;
 mod navigation;
 mod playback;
 mod player;
+mod presentation;
 
 fn rect(rt: &rune::Runtime<State>, key: &str) -> [f32; 4] {
     rt.elements()
         .into_iter()
-        .find(|element| element.key.as_deref() == Some(key))
+        .find(|element| !element.exiting && element.key.as_deref() == Some(key))
         .unwrap_or_else(|| panic!("Missing {key}"))
         .rect
 }

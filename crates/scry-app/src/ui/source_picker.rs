@@ -1,10 +1,10 @@
 use super::episodes::season_label;
 use super::{
     State,
-    components::{accent, action, edge, label, panel, scroll},
+    components::{accent, action, badge, edge, label, panel, scroll},
 };
 use rune::{
-    El, ScrollSpec, col, row, text,
+    El, ScrollSpec, col, el, row, text,
     tok::{self, TextStyle, type_},
 };
 use scry_addons::Stream;
@@ -75,7 +75,7 @@ pub(super) fn view(s: &State) -> El {
             .center_y()
             .gap(12.0)
             .child(
-                text("Choose a stream")
+                text("Sources")
                     .font(TextStyle::new(18.0, 600.0))
                     .color(t.text)
                     .grow(1.0),
@@ -96,10 +96,14 @@ pub(super) fn view(s: &State) -> El {
     }) {
         header = header.child(
             label(format!(
-                "{} · Episode {} · {}",
+                "{} · Episode {}{}",
                 season_label(video.season),
                 video.episode.unwrap_or(0),
-                video.title
+                if video.title.trim().is_empty() {
+                    String::new()
+                } else {
+                    format!(" · {}", video.title.trim())
+                }
             ))
             .key("source-episode"),
         );
@@ -232,7 +236,7 @@ pub(super) fn view(s: &State) -> El {
         } else {
             "External source"
         };
-        let mut details = col().w(0.0).grow(1.0).min_w(0.0).gap(6.0);
+        let mut details = col().w_full().min_w(0.0).gap(6.0);
         let lines = release_lines(stream);
         if let Some(release) = lines.first() {
             details = details.child(
@@ -240,7 +244,7 @@ pub(super) fn view(s: &State) -> El {
                     .key(format!("stream-release-{index}"))
                     .w_full()
                     .wrap()
-                    .font(TextStyle::new(13.0, 400.0))
+                    .font(TextStyle::new(13.0, 500.0))
                     .color(t.text),
             );
         }
@@ -248,44 +252,70 @@ pub(super) fn view(s: &State) -> El {
             details =
                 details.child(label(lines[1..].join("\n")).key(format!("stream-details-{index}")));
         }
-        details = details.child(label(transport));
+        if name != *addon {
+            details = details
+                .child(label(format!("Provided by {addon}")).font(TextStyle::new(11.0, 400.0)));
+        }
         if !supported {
             details = details.child(label(
                 "This source needs a playback method Scry does not support.",
             ));
         }
-        let mut card = row()
+        let transport_color = if stream.info_hash.is_some() {
+            rune::oklch(0.78, 0.09, 80.0)
+        } else {
+            accent()
+        };
+        let mut card = col()
             .key(format!("stream-{index}"))
             .w_full()
             .min_w(0.0)
-            .padding(14.0)
-            .gap(14.0)
-            .center_y()
-            .radius(6.0)
-            .border(1.0, edge())
+            .padding(16.0)
+            .gap(10.0)
+            .radius(10.0)
+            .border(1.0, edge().alpha(0.7))
             .fill(panel())
             .child(
-                col()
-                    .w(100.0)
-                    .gap(6.0)
+                row()
+                    .w_full()
+                    .center_y()
+                    .gap(10.0)
                     .child(
                         text(name.clone())
-                            .wrap()
+                            .w(0.0)
+                            .grow(1.0)
+                            .min_w(0.0)
+                            .truncate()
                             .font(TextStyle::new(14.0, 600.0))
                             .color(t.text),
                     )
-                    .child(label(addon.clone())),
+                    .child(badge(
+                        format!("stream-transport-{index}"),
+                        transport,
+                        transport_color,
+                    ))
+                    .child(
+                        el().w(28.0)
+                            .h(28.0)
+                            .radius(14.0)
+                            .fill(if supported {
+                                accent().alpha(0.12)
+                            } else {
+                                edge().alpha(0.3)
+                            })
+                            .center()
+                            .child(
+                                text(if supported { "▶" } else { "—" })
+                                    .font(TextStyle::new(11.0, 500.0))
+                                    .color(if supported {
+                                        accent()
+                                    } else {
+                                        t.text_secondary
+                                    }),
+                            ),
+                    ),
             )
-            .child(details)
-            .child(
-                text(if supported { "▶" } else { "Unavailable" })
-                    .font(type_::LABEL)
-                    .color(if supported {
-                        accent()
-                    } else {
-                        t.text_secondary
-                    }),
-            );
+            .child(details);
         if supported {
             let chosen = stream.clone();
             let title = s

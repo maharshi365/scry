@@ -61,14 +61,29 @@ which is idempotent. Watchlist removal and playlist add are idempotent.
 
 Position must be finite and is clamped to `[0, duration]`. Duration must be finite
 and strictly positive. Invalid input leaves stored progress and watched state
-unchanged. At **90% or more**, a progress save automatically marks that item
-watched. Automatic completion is sticky when replay starts from the beginning.
+unchanged. Native playback uses `record_playback(key, position, duration,
+watched_delta)`. It stores accumulated playback time separately from position.
+More than **70% actual playback time** marks the item watched. Seek events and
+position jumps do not add watched time. Automatic watched status is sticky.
+The older standalone `save_progress` API still has its original position-based
+behaviour; it is not used by the app's playback path.
+
+`finish_playback(key, next)` reconciles resume state when playback stops beyond
+90% of its position. It hides the finished item from `list_currently_watching`
+and optionally registers the next released episode. The UI supplies that episode
+from dated metadata captured when playback starts. There is one active resume
+entry per series, ordered by most recent save. Unknown/future episodes are not
+selected. Natural EOF clears resume state, but does not invent watched time.
+
+`list_library(watched, kind, page)` filters Movies or TV series before pagination.
+The native UI has no playlist controls; existing standalone playlist storage
+APIs are not part of the application workflow.
 
 An explicit `set_watched(true)` overrides later progress saves.
 `set_watched(false)` clears progress and the finished marker in one transaction,
 and installs a false override. Further playback does not mark it watched until
 the user clears the override or explicitly marks it watched. Clearing the
-override recalculates completion from current progress (or false if absent).
+override recalculates watched status from accumulated playback time (or false if absent).
 Watchlist membership is independent and is never removed automatically.
 
 Series and episode state are independent. Finishing one episode never marks its
@@ -80,10 +95,12 @@ not infer series completeness from a partial episode catalog.
 
 Connections use WAL, foreign keys, and a five-second busy timeout. Multi-statement
 writes use immediate transactions. All values are bound SQL parameters. New,
-empty databases receive schema version 1. Existing version 1 schemas are checked
-against required table/index definitions and foreign keys. Other versions and
-nonempty unversioned databases are rejected: **no migrations or compatibility
-paths**. SQLite in-memory databases use SQLite's memory journal instead of WAL.
+empty databases receive schema version 2. The approved v1-to-v2 migration adds
+a `viewing` table for actual playback time, activity, and resume ordering. It
+preserves existing records and starts accumulated time at zero: a seek position
+is not evidence of time watched. Schemas are checked against required table/index
+definitions and foreign keys. Unknown versions and nonempty unversioned
+databases are rejected. SQLite in-memory databases use SQLite's memory journal instead of WAL.
 Do not open arbitrary third-party databases as libraries.
 
 Run `cargo test -p scry-library`. The integration tests use the crate's public API

@@ -3695,6 +3695,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "blake3",
+ "chrono",
  "directories",
  "ico",
  "image",

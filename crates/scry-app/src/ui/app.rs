@@ -3,7 +3,10 @@ use super::{
     State,
     events::poll,
     library_view::LibraryUi,
-    scenes::{scene_detail, scene_discover, scene_library},
+    scenes::{
+        scene_calendar, scene_calendar_month, scene_detail, scene_detail_watched, scene_discover,
+        scene_library, scene_library_empty,
+    },
     shell::view,
     shortcuts::{Focus, Registration, Scope, dispatch},
 };
@@ -31,6 +34,11 @@ const SHORTCUTS: &[Registration] = &[
 ];
 
 pub(super) fn on_key(s: &mut State, event: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
+    if event.key == rune::Key::Escape && (s.context_menu.is_some() || s.addon_install_open) {
+        s.context_menu = None;
+        s.addon_install_open = false;
+        return true;
+    }
     let fullscreen = s.player.fullscreen;
     let handled = dispatch(s, event, Focus::Screen, SHORTCUTS);
     if s.player.fullscreen != fullscreen {
@@ -63,6 +71,10 @@ impl State {
             poster_viewport: None,
             poster_route: 0,
             library: LibraryUi::default(),
+            calendar: super::calendar::CalendarUi::default(),
+            context_menu: None,
+            addon_install_open: false,
+            addon_installed_tab: false,
             detail_namespace: String::new(),
             pending_episode: None,
             host,
@@ -177,7 +189,11 @@ pub(super) fn run() -> anyhow::Result<()> {
         scenes: &[
             ("discover", scene_discover),
             ("detail", scene_detail),
+            ("detail-watched", scene_detail_watched),
             ("library", scene_library),
+            ("library-empty", scene_library_empty),
+            ("calendar", scene_calendar),
+            ("calendar-month", scene_calendar_month),
         ],
         min_size: Some((880.0, 600.0)),
         ..AppSpec::new("Skry", (1280.0, 820.0), init, view)

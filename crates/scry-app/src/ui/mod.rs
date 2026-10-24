@@ -2,8 +2,10 @@
 mod addons;
 mod app;
 mod artwork;
+mod calendar;
 mod catalog;
 mod components;
+mod context_menu;
 mod detail;
 mod discover;
 mod episodes;
@@ -42,6 +44,10 @@ pub struct State {
     poster_viewport: Option<[f32; 4]>,
     poster_route: u64,
     library: LibraryUi,
+    calendar: calendar::CalendarUi,
+    context_menu: Option<(rune::PointerPress, Option<scry_library::Media>)>,
+    addon_install_open: bool,
+    addon_installed_tab: bool,
     detail_namespace: String,
     pending_episode: Option<String>,
     host: Host,

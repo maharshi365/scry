@@ -37,7 +37,7 @@ fn focused_search_forwards_alt_history_keys_but_keeps_escape_local() {
     rt.frame(0.0);
     tap(&mut rt, "search");
     for (key, expected) in [
-        (rune::Key::Left, Page::Discover),
+        (rune::Key::Left, Page::Watching),
         (rune::Key::Right, Page::Addons),
     ] {
         rt.key(rune::KeyEvent {

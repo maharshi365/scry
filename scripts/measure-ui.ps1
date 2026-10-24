@@ -79,7 +79,8 @@ try {
         if ($CaptureDirectory) { Save-ScryWindow $window (Join-Path $CaptureDirectory "$Name.png") }
     }
 
-    Measure-Step 'discover' {}
+    Measure-Step 'currently-watching' {}
+    Measure-Step 'movies' { [ScryNativeUi]::Click($window, 60, 132) } -Seconds 8
     foreach ($pass in 1..$ScrollPasses) {
         foreach ($index in 1..4) {
             Measure-Step "scroll-$pass-$index" { [ScryNativeUi]::Wheel($window, 900, 600, -1800) }
@@ -91,12 +92,12 @@ try {
         return
     }
     Measure-Step 'movie-detail' { [ScryNativeUi]::Click($window, 240, 260) } -Seconds 6
-    Measure-Step 'back-to-discover' { [ScryNativeUi]::Click($window, 162, 34) }
+    Measure-Step 'back-to-movies' { [ScryNativeUi]::Click($window, 216, 34) }
     Measure-Step 'library' { [ScryNativeUi]::Click($window, 60, 212) }
-    Measure-Step 'addons' { [ScryNativeUi]::Click($window, 60, 252) }
+    Measure-Step 'addons' { [ScryNativeUi]::Click($window, 60, 292) }
     Measure-Step 'series' { [ScryNativeUi]::Click($window, 60, 172) } -Seconds 8
     Measure-Step 'series-detail' { [ScryNativeUi]::Click($window, 240, 260) } -Seconds 6
-    Measure-Step 'back-to-series' { [ScryNativeUi]::Click($window, 162, 34) }
+    Measure-Step 'back-to-series' { [ScryNativeUi]::Click($window, 216, 34) }
     Measure-Step 'search' {
         [ScryNativeUi]::Click($window, 400, 34)
         [ScryNativeUi]::Shortcut(17, 65)
@@ -104,7 +105,7 @@ try {
         [ScryNativeUi]::Press(13)
     } -Seconds 8
     Measure-Step 'search-detail' { [ScryNativeUi]::Click($window, 240, 260) } -Seconds 6
-    Measure-Step 'back-to-search' { [ScryNativeUi]::Click($window, 162, 34) }
+    Measure-Step 'back-to-search' { [ScryNativeUi]::Click($window, 216, 34) }
     if ($Report) { $results.ToArray() | ConvertTo-Json -Depth 5 | Set-Content $Report }
 } finally {
     if (-not $process.HasExited) {

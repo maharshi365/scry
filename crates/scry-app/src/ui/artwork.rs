@@ -76,6 +76,33 @@ pub(super) fn visible_artwork(s: &State) -> Vec<String> {
         && let Some(url) = s.detail.as_ref().and_then(|meta| meta.poster.as_ref())
     {
         urls.push(url.clone());
+    } else if s.navigation.page == Page::Calendar {
+        let c = &s.calendar;
+        let days = super::calendar::dates(c.anchor, c.mode);
+        let mut indices = std::collections::BTreeMap::new();
+        for release in &c.releases {
+            if release.date < days[0] || release.date > days[days.len() - 1] {
+                continue;
+            }
+            let index = indices.entry(release.date).or_insert(0usize);
+            let key = format!("calendar-episode-{}-{index}", release.date);
+            *index += 1;
+            let visible = c.artwork_rects.get(&key).is_none_or(|r| {
+                c.day_viewports
+                    .get(&release.date)
+                    .is_none_or(|day| intersects(*r, *day))
+                    && c.viewport.is_none_or(|viewport| intersects(*r, viewport))
+            });
+            if visible
+                && let Some(url) = &release.poster
+                && !urls.contains(url)
+            {
+                urls.push(url.clone());
+            }
+            if urls.len() == 32 {
+                break;
+            }
+        }
     }
     urls
 }
@@ -96,6 +123,36 @@ pub(super) fn poster(s: &State, meta: &Meta, index: usize) -> El {
         surface.center().child(
             text(meta.name.chars().next().unwrap_or('S').to_string())
                 .font(TextStyle::new(52.0, 300.0))
+                .color(accent()),
+        )
+    }
+}
+
+fn intersects(a: [f32; 4], b: [f32; 4]) -> bool {
+    a[0] < b[0] + b[2] && a[0] + a[2] > b[0] && a[1] < b[1] + b[3] && a[1] + a[3] > b[1]
+}
+
+pub(super) fn poster_thumbnail(s: &State, key: &str, url: Option<&str>, title: &str) -> El {
+    let surface = el()
+        .key(key)
+        .role("img")
+        .label(title)
+        .w(32.0)
+        .h(48.0)
+        .radius(4.0)
+        .fill(rune::oklch(0.25, 0.035, 230.0));
+    if let Some(image) = url.and_then(|url| s.artwork.as_ref()?.get(url)) {
+        surface.child(
+            el().key(format!("{key}-image"))
+                .w_full()
+                .h_full()
+                .pixels_fit(&image, rune::SurfaceFit::Fill),
+        )
+    } else {
+        surface.center().child(
+            text(title.chars().next().unwrap_or('S').to_string())
+                .key(format!("{key}-fallback"))
+                .font(TextStyle::new(16.0, 500.0))
                 .color(accent()),
         )
     }

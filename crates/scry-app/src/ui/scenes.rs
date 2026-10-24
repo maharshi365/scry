@@ -52,6 +52,26 @@ pub(super) fn scene_detail(s: &mut State) {
     }
 }
 
+pub(super) fn scene_detail_watched(s: &mut State) {
+    scene_detail(s);
+    let Some(media) = s.library_media() else {
+        return;
+    };
+    let watched = scry_library::WatchedState {
+        watched: true,
+        manual_override: Some(true),
+    };
+    s.library.snapshot = Some(Snapshot {
+        selected_state: Some(crate::library_worker::SelectedState {
+            key: media.key.clone(),
+            watched,
+            watchlist: true,
+            progress: None,
+        }),
+        episode_states: vec![(media.key, watched)],
+    });
+}
+
 fn detail(s: &mut State) -> serde_json::Result<()> {
     s.navigation.page = Page::Detail;
     s.config_busy = false;
@@ -79,8 +99,8 @@ pub(super) fn scene_library(s: &mut State) {
     s.navigation.page = Page::Library;
     s.config_busy = false;
     s.status = "Saved on this device.".into();
-    s.library.snapshot = Some(Snapshot {
-        watchlist: [
+    s.library.entries = Some(
+        [
             "Arrival",
             "Perfect Days",
             "The Grand Budapest Hotel",
@@ -95,10 +115,47 @@ pub(super) fn scene_library(s: &mut State) {
             parent: None,
         })
         .collect(),
-        watched: vec![],
-        playlists: vec![],
-        items: vec![],
+    );
+    s.library.snapshot = Some(Snapshot {
         selected_state: None,
         episode_states: vec![],
     });
+}
+
+pub(super) fn scene_library_empty(s: &mut State) {
+    s.navigation.page = Page::Library;
+    s.config_busy = false;
+    s.library.entries = Some(Vec::new());
+}
+
+pub(super) fn scene_calendar(s: &mut State) {
+    s.navigation.page = Page::Calendar;
+    s.config_busy = false;
+    let date = chrono::Local::now().date_naive();
+    for i in 0..12 {
+        let media = Media {
+            key: MediaKey::new("scene", MediaKind::Series, format!("show-{i}")),
+            title: if i % 2 == 0 {
+                "The Observatory".into()
+            } else {
+                "Northern Lights".into()
+            },
+            parent: None,
+        };
+        s.calendar.series.push(media.clone());
+        s.calendar.releases.push(super::calendar::Release {
+            date,
+            media,
+            episode_id: format!("show-{i}:1:1"),
+            title: format!("Chapter {}", i + 1),
+            season: Some(1),
+            episode: Some(i + 1),
+            poster: None,
+        });
+    }
+}
+
+pub(super) fn scene_calendar_month(s: &mut State) {
+    scene_calendar(s);
+    s.calendar.mode = super::calendar::Mode::Month;
 }

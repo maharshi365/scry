@@ -3,7 +3,7 @@ use super::episodes::season_label;
 use super::{
     State,
     artwork::poster,
-    components::{accent, action, excerpt, heading, label, panel, scroll},
+    components::{accent, action, edge, excerpt, heading, label, panel, scroll, watched_badge},
     library_view, source_picker,
 };
 use rune::{
@@ -22,7 +22,11 @@ pub(super) fn detail(s: &State) -> El {
             .join(" · ");
         header = header
             .child(text(info).font(type_::SECTION).color(accent()))
-            .child(heading(meta.name.clone()))
+            .child(
+                heading(meta.name.clone()).on_secondary_press(|s: &mut State, p, _| {
+                    s.context_menu = Some((p, s.library_media()));
+                }),
+            )
             .child(label(excerpt(&meta.description, 240)))
             .child(library_view::detail_actions(s));
         if meta.kind == "series" {
@@ -59,13 +63,26 @@ pub(super) fn detail(s: &State) -> El {
         .child(panels)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Episode layout keeps primary and context actions beside their protocol identity"
+)]
 fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
     let t = tok::theme(true);
-    let mut episodes = col().key("episodes").gap(5.0).w_full();
+    let mut episodes = col().key("episodes").gap(8.0).w_full();
     let range = s.episode_range();
     for index in s.visible_episode_indices() {
         let video = &meta.videos[index];
         let selected = s.selected_video_id.as_deref() == Some(video.id.as_str());
+        let mut status = row().w_full().center_y().gap(6.0).child(
+            text(format!("EPISODE {}", video.episode.unwrap_or(0)))
+                .grow(1.0)
+                .font(TextStyle::new(10.0, 600.0))
+                .color(if selected { accent() } else { t.text_secondary }),
+        );
+        if s.episode_watched(&video.id) {
+            status = status.child(watched_badge(format!("episode-watched-{index}")));
+        }
         episodes = episodes.child(
             col()
                 .key(format!("episode-{index}"))
@@ -76,34 +93,61 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
                     video.title
                 ))
                 .padding(12.0)
-                .gap(4.0)
-                .radius(6.0)
+                .gap(8.0)
+                .radius(9.0)
+                .border(
+                    1.0,
+                    if selected {
+                        accent().alpha(0.5)
+                    } else {
+                        edge().alpha(0.6)
+                    },
+                )
                 .hover(t.hover)
                 .on_press(move |s: &mut State| s.select_episode(index))
+                .on_secondary_press(move |s: &mut State, p, _| {
+                    let item = s.detail.as_ref().and_then(|meta| {
+                        meta.videos.get(index).map(|video| scry_library::Media {
+                            key: super::library_view::key(
+                                &super::library_view::key(
+                                    &s.detail_namespace,
+                                    scry_library::MediaKind::Series,
+                                    &meta.id,
+                                )
+                                .namespace,
+                                scry_library::MediaKind::Episode,
+                                &video.id,
+                            ),
+                            title: format!("{} · {}", meta.name, video.title),
+                            parent: Some(super::library_view::key(
+                                &s.detail_namespace,
+                                scry_library::MediaKind::Series,
+                                &meta.id,
+                            )),
+                        })
+                    });
+                    s.context_menu = Some((p, item));
+                })
                 .w_full()
                 .fill(if selected {
-                    rune::oklch(0.31, 0.065, 220.0)
+                    rune::oklch(0.25, 0.045, 220.0)
                 } else {
-                    t.card
+                    panel()
                 })
+                .child(status)
                 .child(
-                    text(format!(
-                        "EPISODE {}{}",
-                        video.episode.unwrap_or(0),
-                        s.episode_label(&video.id)
-                    ))
-                    .font(type_::SECTION)
-                    .color(if selected { accent() } else { t.text_secondary }),
-                )
-                .child(
-                    text(if video.title.is_empty() {
-                        format!("Episode {}", video.episode.unwrap_or(0))
+                    text(if video.title.trim().is_empty() {
+                        "Title unavailable".to_owned()
                     } else {
-                        video.title.clone()
+                        video.title.trim().to_owned()
                     })
                     .wrap()
                     .font(TextStyle::new(14.0, 500.0))
-                    .color(t.text),
+                    .color(if video.title.trim().is_empty() {
+                        t.text_secondary
+                    } else {
+                        t.text
+                    }),
                 ),
         );
     }

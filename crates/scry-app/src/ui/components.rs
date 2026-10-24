@@ -27,6 +27,56 @@ pub(super) fn heading(value: impl Into<String>) -> El {
         .color(tok::theme(true).text)
 }
 
+pub(super) fn badge(key: impl Into<String>, value: impl Into<String>, color: rune::Color) -> El {
+    row()
+        .key(key)
+        .h(22.0)
+        .px(8.0)
+        .center()
+        .radius(11.0)
+        .fill(color.alpha(0.12))
+        .border(1.0, color.alpha(0.25))
+        .child(text(value).font(TextStyle::new(10.0, 600.0)).color(color))
+}
+
+pub(super) fn watched_badge(key: impl Into<String>) -> El {
+    badge(key, "✓ Watched", rune::oklch(0.80, 0.10, 155.0))
+}
+
+pub(super) fn empty_state(
+    key: &str,
+    title: &str,
+    description: &str,
+    icon: &str,
+    actions: El,
+) -> El {
+    col().key(key).w_full().grow(1.0).min_h(0.0).center().child(
+        col()
+            .w(440.0)
+            .padding(32.0)
+            .gap(18.0)
+            .center()
+            .radius(16.0)
+            .fill(panel())
+            .border(1.0, edge())
+            .child(
+                el().w(64.0)
+                    .h(64.0)
+                    .radius(18.0)
+                    .fill(accent().alpha(0.08))
+                    .center()
+                    .child(text(icon).font(TextStyle::new(26.0, 500.0)).color(accent())),
+            )
+            .child(
+                text(title)
+                    .font(TextStyle::new(22.0, 600.0))
+                    .color(tok::theme(true).text),
+            )
+            .child(label(description))
+            .child(actions),
+    )
+}
+
 pub(super) fn button(
     key: impl Into<String>,
     title: impl Into<String>,

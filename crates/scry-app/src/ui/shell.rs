@@ -35,6 +35,8 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
         .padding(20.0);
     content = content.child(match s.navigation.page {
         Page::Discover => discover(s, cx),
+        Page::Watching => library_view::watching(s),
+        Page::Calendar => super::calendar::view(s, cx),
         Page::Library => library_view::view(s),
         Page::Addons => addons(s),
         Page::Detail => detail(s),
@@ -67,11 +69,14 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
     if !matches!(s.navigation.page, Page::Detail | Page::Player) && !s.status.is_empty() {
         content = content.child(label(s.status.clone()).key("status"));
     }
-    row()
+    let mut root = row()
         .key("scry")
         .w_full()
         .h_full()
         .fill(rune::oklch(0.17, 0.018, 240.0))
+        .on_secondary_press(|s: &mut State, p, _| {
+            s.context_menu = Some((p, None));
+        })
         .child(sidebar(s))
         .child(
             col()
@@ -81,14 +86,21 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
                 .h_full()
                 .child(topbar(s))
                 .child(content),
-        )
+        );
+    if let Some(menu) = super::context_menu::view(s, cx) {
+        root = root.child(menu);
+    }
+    if s.addon_install_open {
+        root = root.child(super::addons::install_dialog(s));
+    }
+    root
 }
 
 fn sidebar(s: &State) -> El {
     let mut sidebar = col()
         .key("sidebar")
-        .w(128.0)
-        .min_w(128.0)
+        .w(180.0)
+        .min_w(180.0)
         .h_full()
         .padding(14.0)
         .gap(8.0)
@@ -105,8 +117,9 @@ fn sidebar(s: &State) -> El {
         )
         .child(el().h(16.0));
     for (key, title, page) in [
-        ("nav-discover", "Discover", Page::Discover),
+        ("nav-watching", "Currently watching", Page::Watching),
         ("nav-library", "Library", Page::Library),
+        ("nav-calendar", "Calendar", Page::Calendar),
         ("nav-addons", "Add-ons", Page::Addons),
     ] {
         sidebar = sidebar.child(action(key, title, move |s| s.navigate(page)).w_full().fill(
@@ -116,7 +129,7 @@ fn sidebar(s: &State) -> El {
                 rune::oklch(0.145, 0.018, 240.0)
             },
         ));
-        if page == Page::Discover {
+        if page == Page::Watching {
             sidebar = sidebar
                 .child(
                     action("movies", "Movies", |s| s.choose_kind("movie"))
@@ -172,6 +185,7 @@ fn topbar(s: &State) -> El {
             |s| &mut s.search,
         ))
         .child(action("search-go", "Search", State::submit_search))
+        .child(action("page-refresh", "↻", State::refresh_page))
 }
 
 fn history_button(key: &str, title: &str, enabled: bool, forward: bool) -> El {

@@ -11,6 +11,22 @@ use std::{
 
 impl State {
     pub(in crate::ui) fn observe_library_progress(&mut self) {
+        let sample = &self.player.sample;
+        if let Some(previous) = &self.library.observed
+            && !sample.paused
+            && !previous.paused
+            && !sample.buffering
+            && !previous.buffering
+            && let (Some(before), Some(after)) = (previous.position_s, sample.position_s)
+        {
+            let delta = after - before;
+            let elapsed = (sample.elapsed_s - previous.elapsed_s).max(0.0);
+            let speed = sample.speed.unwrap_or(1.0).clamp(0.1, 10.0);
+            if delta.is_finite() && delta > 0.0 && delta <= elapsed * speed + 0.5 {
+                self.library.watched_pending += delta;
+            }
+        }
+        self.library.observed = Some(sample.clone());
         if let (Some(position), Some(duration)) =
             (self.player.sample.position_s, self.player.sample.duration_s)
             && position.is_finite()
@@ -35,10 +51,16 @@ impl State {
         let Some((position, duration)) = self.library.last_sample else {
             return;
         };
-        if self.library.saved_sample == Some((position, duration)) {
+        if self.library.saved_sample == Some((position, duration))
+            && self.library.watched_pending == 0.0
+        {
             return;
         }
-        if self.db(Command::SaveProgress(media, position, duration), false) {
+        if self.db(
+            Command::SavePlayback(media, position, duration, self.library.watched_pending),
+            false,
+        ) {
+            self.library.watched_pending = 0.0;
             self.library.saved_sample = Some((position, duration));
             self.library.last_save = Instant::now();
         }
@@ -59,6 +81,12 @@ impl State {
             self.library.last_sample = Some((duration, duration));
         }
         self.save_library_progress();
+        if let Some(media) = self.library.playing.clone() {
+            self.db(
+                Command::FinishPlayback(media.key, self.library.next_episode.clone()),
+                false,
+            );
+        }
     }
 
     pub(in crate::ui) fn take_library_shutdown(&mut self) -> impl FnOnce() + Send + 'static {
@@ -69,7 +97,12 @@ impl State {
             .clone()
             .filter(|m| m.key.kind != MediaKind::Series)
             .zip(self.library.last_sample)
-            .map(|(m, (p, d))| Command::SaveProgress(m, p, d));
+            .map(|(m, (p, d))| Command::SavePlayback(m, p, d, self.library.watched_pending));
+        let final_finish = self
+            .library
+            .playing
+            .as_ref()
+            .map(|m| Command::FinishPlayback(m.key.clone(), self.library.next_episode.clone()));
         move || {
             let Some(worker) = worker else {
                 return;
@@ -80,12 +113,12 @@ impl State {
             if let Some(command) = final_save {
                 commands.push_back(command);
             }
+            if let Some(command) = final_finish {
+                commands.push_back(command);
+            }
             commands.push_back(Command::Flush(1));
             while let Some(command) = commands.front() {
-                let retry = match command {
-                    Command::SaveProgress(m, p, d) => Command::SaveProgress(m.clone(), *p, *d),
-                    _ => Command::Flush(1),
-                };
+                let retry = command.clone();
                 if worker.send(retry).is_ok() {
                     commands.pop_front();
                 } else if matches!(

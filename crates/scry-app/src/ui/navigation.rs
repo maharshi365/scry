@@ -6,6 +6,8 @@ use std::sync::Arc;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(super) enum Page {
+    Watching,
+    Calendar,
     Discover,
     Library,
     Addons,
@@ -26,7 +28,7 @@ pub(super) struct NavigationState {
 impl Default for NavigationState {
     fn default() -> Self {
         Self {
-            page: Page::Discover,
+            page: Page::Watching,
             back: Vec::new(),
             forward: Vec::new(),
             route_key: 0,
@@ -72,15 +74,18 @@ impl State {
             self.stop();
         }
         self.navigation.page = page;
+        self.context_menu = None;
+        self.addon_install_open = false;
         self.detail_id += 1;
         self.stream_id += 1;
         self.catalog_id += 1;
         self.loading = false;
         self.error = None;
+        self.status.clear();
         if page == Page::Discover && self.catalog.is_some() && self.metas.is_empty() {
             self.fetch_catalog();
         }
-        if page == Page::Library {
+        if matches!(page, Page::Library | Page::Watching | Page::Calendar) {
             self.refresh_library();
         }
     }
@@ -190,7 +195,7 @@ impl State {
                 }
                 self.register_library_detail();
             }
-            Page::Library => self.refresh_library(),
+            Page::Library | Page::Watching | Page::Calendar => self.refresh_library(),
             _ => {}
         }
     }

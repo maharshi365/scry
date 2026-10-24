@@ -122,7 +122,7 @@ fn idle_scroll_queues_newly_visible_posters_without_an_extra_wake() {
     let url = "https://example.invalid/poster-11.jpg".to_owned();
     assert!(!rt.state.artwork_urls.contains(&url));
     let viewport = rect(&rt, "titles-scroll-0");
-    rt.wheel(viewport[0] + 30.0, viewport[1] + 30.0, -250.0);
+    rt.wheel(viewport[0] + 30.0, viewport[1] + 30.0, -1_000_000.0);
     for _ in 0..20 {
         let moving = rt.frame(1.0 / 60.0);
         if !moving && !rt.has_pending_input() {
