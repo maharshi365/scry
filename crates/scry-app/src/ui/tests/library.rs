@@ -1,6 +1,181 @@
 use super::*;
 
 #[test]
+fn movie_detail_overlay_handles_missing_duration_and_watched_state() {
+    use crate::library_worker::{SelectedState, Snapshot};
+    use scry_library::{Progress, WatchedState};
+    for (position, duration, watched, expected) in [
+        (30.0, 120.0, false, Some(0.25)),
+        (150.0, 120.0, false, Some(1.0)),
+        (0.0, 120.0, false, None),
+        (30.0, 0.0, false, None),
+        (30.0, 120.0, true, None),
+    ] {
+        let mut s = init();
+        s.navigation.page = Page::Detail;
+        s.detail = Some(serde_json::from_value(serde_json::json!({
+            "id":"tt123", "type":"movie", "name":"Film", "poster":"https://example.com/poster.jpg"
+        })).unwrap());
+        s.library.snapshot = Some(Snapshot {
+            selected_state: Some(SelectedState {
+                key: s.library_media().unwrap().key,
+                watched: WatchedState {
+                    watched,
+                    manual_override: None,
+                },
+                watchlist: false,
+                progress: Some(Progress {
+                    position_seconds: position,
+                    duration_seconds: duration,
+                }),
+            }),
+            episode_states: vec![],
+        });
+        let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        assert_eq!(rt.find("detail-poster-watched").is_some(), watched);
+        assert_eq!(
+            rt.find("detail-poster-progress-track").is_some(),
+            expected.is_some()
+        );
+        if let Some(fraction) = expected {
+            let poster = rect(&rt, "detail-poster");
+            let track = rect(&rt, "detail-poster-progress-track");
+            let fill = rect(&rt, "detail-poster-progress-fill");
+            assert!((fill[2] / track[2] - fraction).abs() < 0.01);
+            assert!((track[1] + track[3] / 2.0 - (poster[1] + poster[3] * 5.0 / 6.0)).abs() < 1.0);
+        }
+    }
+}
+
+fn seed_movie_overlays(worker: &crate::library_worker::Worker, movies: &[scry_library::Media]) {
+    use crate::library_worker::{Command, Event};
+    worker
+        .send(Command::SavePlayback(movies[0].clone(), 30.0, 120.0, 0.0))
+        .expect("save partial movie");
+    worker
+        .send(Command::SavePlayback(movies[1].clone(), 60.0, 120.0, 0.0))
+        .unwrap();
+    worker
+        .send(Command::SetWatched(movies[1].clone(), true))
+        .unwrap();
+    worker.send(Command::Flush(1)).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if matches!(worker.try_recv(), Ok(Event::Flushed(1))) {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "Fixture writes did not finish"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+}
+
+#[test]
+fn movie_overlays_follow_saved_state_in_catalog_search_library_and_watching() {
+    use crate::library_worker::{Command, Worker};
+    use scry_library::{Media, MediaKey, MediaKind};
+    for page in [Page::Discover, Page::Library, Page::Watching] {
+        for search in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let worker =
+                Worker::start(dir.path().join("library.sqlite3"), Arc::new(|| {})).unwrap();
+            let movies: Vec<_> = (0..3)
+                .map(|i| Media {
+                    key: MediaKey::new("imdb", MediaKind::Movie, format!("tt100{i}")),
+                    title: format!("Movie {i}"),
+                    parent: None,
+                })
+                .collect();
+            seed_movie_overlays(&worker, &movies);
+            let mut s = init();
+            s.navigation.page = page;
+            s.library.worker = Some(worker);
+            s.library.entries = Some(movies.clone());
+            s.library.watching = movies
+                .iter()
+                .map(|m| {
+                    (
+                        m.clone(),
+                        scry_library::Progress {
+                            position_seconds: 30.0,
+                            duration_seconds: 120.0,
+                        },
+                    )
+                })
+                .collect();
+            s.metas = Arc::new(
+                movies
+                    .iter()
+                    .map(|m| {
+                        serde_json::from_value(serde_json::json!({
+                            "id":m.key.id, "type":"movie", "name":m.title
+                        }))
+                        .unwrap()
+                    })
+                    .collect(),
+            );
+            if search {
+                s.displayed_query = "Movie".into();
+            }
+            let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
+            rt.poll = Some(poll);
+            settle_library(&mut rt, |s| s.library.movies.states.len() == 3);
+            for _ in 0..30 {
+                rt.frame(1.0 / 60.0);
+            }
+            let prefix = match page {
+                Page::Library => "library",
+                Page::Watching => "watching",
+                _ => "title",
+            };
+            let track = rect(&rt, &format!("{prefix}-poster-0-progress-track"));
+            let fill = rect(&rt, &format!("{prefix}-poster-0-progress-fill"));
+            assert!((fill[2] / track[2] - 0.25).abs() < 0.01);
+            let poster = rect(&rt, &format!("{prefix}-poster-1"));
+            let badge = rect(&rt, &format!("{prefix}-poster-1-watched"));
+            assert!(badge[0] > poster[0] + poster[2] / 2.0);
+            assert!(badge[0] + badge[2] <= poster[0] + poster[2]);
+            assert!(
+                badge[1] >= poster[1] && badge[1] + badge[3] < poster[1] + poster[3] / 2.0,
+                "badge {badge:?}, poster {poster:?}"
+            );
+            assert!(
+                rt.find(&format!("{prefix}-poster-1-progress-track"))
+                    .is_none()
+            );
+            assert!(
+                rt.find(&format!("{prefix}-poster-2-progress-track"))
+                    .is_none()
+            );
+            assert!(rt.find(&format!("{prefix}-poster-2-watched")).is_none());
+            if page != Page::Discover {
+                continue;
+            }
+            rt.update(|s, _| {
+                s.db(Command::SetWatched(movies[0].clone(), true), true);
+            });
+            settle_library(&mut rt, |s| {
+                s.library
+                    .movies
+                    .states
+                    .iter()
+                    .any(|m| m.key == movies[0].key && m.watched)
+            });
+            assert!(rt.find(&format!("{prefix}-poster-0-watched")).is_some());
+            assert!(
+                rt.find(&format!("{prefix}-poster-0-progress-track"))
+                    .is_none()
+            );
+        }
+    }
+}
+
+#[test]
 fn watching_cards_show_posters_progress_and_resume_the_saved_episode() {
     use crate::services::LibraryPoster;
     use scry_library::{Media, MediaKey, MediaKind, Progress};
@@ -58,12 +233,18 @@ fn watching_cards_show_posters_progress_and_resume_the_saved_episode() {
             "https://example.com/series.jpg"
         ]
     );
+    let poster = rect(&rt, "watching-poster-0");
+    let track = rect(&rt, "watching-poster-0-progress-track");
+    let fill = rect(&rt, "watching-poster-0-progress-fill");
+    assert!(track[0] > poster[0] && track[0] + track[2] < poster[0] + poster[2]);
+    assert!((track[1] + track[3] / 2.0 - (poster[1] + poster[3] * 5.0 / 6.0)).abs() < 1.0);
+    assert!((fill[2] / track[2] - 0.5).abs() < 0.01);
     assert!(
         rt.elements()
             .iter()
-            .any(|e| e.key.as_deref() == Some("watching-info-0")
-                && e.text.as_deref() == Some("1:00 / 2:00"))
+            .all(|e| e.text.as_deref() != Some("1:00 / 2:00"))
     );
+    assert!(rt.find("watching-poster-1-progress-track").is_none());
     assert!(
         rt.elements()
             .iter()
@@ -74,10 +255,12 @@ fn watching_cards_show_posters_progress_and_resume_the_saved_episode() {
     rt.secondary_down(card[0] + 10.0, card[1] + 10.0);
     rt.secondary_up(card[0] + 10.0, card[1] + 10.0);
     rt.frame(1.0 / 60.0);
-    assert_eq!(
-        rt.state.context_menu.as_ref().unwrap().1.as_ref().unwrap(),
-        &episode
-    );
+    let super::super::context_menu::Target::Title(item) =
+        rt.state.context_menu.as_ref().unwrap().1.as_ref().unwrap()
+    else {
+        panic!("Expected a title menu")
+    };
+    assert_eq!(item, &episode);
     rt.update(|s, _| s.context_menu = None);
     rt.frame(1.0 / 60.0);
     tap(&mut rt, "watching-open-1");

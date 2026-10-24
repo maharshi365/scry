@@ -173,6 +173,7 @@ impl State {
     }
 
     pub(in crate::ui) fn retry_library_posters(&mut self) {
+        self.retry_series_details();
         self.library.posters.generation += 1;
         self.library.posters.busy = false;
         self.library

@@ -3,6 +3,24 @@ use scry_library::{Media, MediaKey, MediaKind, Progress, WatchedState};
 
 #[derive(Clone, Debug)]
 pub enum Command {
+    TrackedSeries {
+        generation: u64,
+        offset: u32,
+    },
+    ReconcileSeries(SeriesRequest),
+    SetEpisodesWatched {
+        parent: Media,
+        episodes: Vec<Media>,
+        watched: bool,
+    },
+    SeriesStates {
+        generation: u64,
+        requests: Vec<SeriesRequest>,
+    },
+    MovieStates {
+        generation: u64,
+        keys: Vec<MediaKey>,
+    },
     Browse {
         generation: u64,
         watched: bool,
@@ -40,6 +58,28 @@ pub struct SelectedState {
 }
 
 #[derive(Debug)]
+pub struct MovieState {
+    pub key: MediaKey,
+    pub watched: bool,
+    pub progress: Option<Progress>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SeriesRequest {
+    pub key: MediaKey,
+    pub released: Vec<MediaKey>,
+    pub metadata_known: bool,
+}
+
+#[derive(Debug)]
+pub struct SeriesState {
+    pub key: MediaKey,
+    pub tracked: bool,
+    pub watched: bool,
+    pub progress: Option<Progress>,
+}
+
+#[derive(Debug)]
 pub struct Snapshot {
     /// `None` also covers a selected key not yet stored locally.
     pub selected_state: Option<SelectedState>,
@@ -50,6 +90,22 @@ pub struct Snapshot {
 
 #[derive(Debug)]
 pub enum Event {
+    TrackedSeries {
+        generation: u64,
+        items: Vec<Media>,
+    },
+    SeriesReconciled {
+        changed: bool,
+    },
+    SeriesStates {
+        generation: u64,
+        states: Vec<SeriesState>,
+        changed: bool,
+    },
+    MovieStates {
+        generation: u64,
+        states: Vec<MovieState>,
+    },
     Browse {
         generation: u64,
         items: Vec<Media>,

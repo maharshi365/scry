@@ -2,7 +2,7 @@
 use super::episodes::season_label;
 use super::{
     State,
-    artwork::poster,
+    artwork::{poster, poster_overlay},
     controls::{action, icon_action, select_action},
     design::{
         icons,
@@ -31,7 +31,7 @@ pub(super) fn detail(s: &State) -> El {
             .child(text(info).font(type_::SECTION).color(accent()))
             .child(
                 heading(meta.name.clone()).on_secondary_press(|s: &mut State, p, _| {
-                    s.context_menu = Some((p, s.library_media()));
+                    s.open_title_menu(p, s.library_media());
                 }),
             )
             .child(label(excerpt(&meta.description, 240)))
@@ -55,11 +55,15 @@ pub(super) fn detail(s: &State) -> El {
     let header = if let Some(meta) = s.detail.as_ref().filter(|meta| meta.poster.is_some()) {
         row()
             .gap(16.0)
-            .child(
+            .child(poster_overlay(
+                s,
                 poster(s, &meta.name, meta.poster.as_deref(), 0)
                     .w(120.0)
                     .h(180.0),
-            )
+                s.library_media().as_ref().map(State::poster_key),
+                "detail-poster",
+                180.0,
+            ))
             .child(header.grow(1.0).min_w(0.0))
     } else {
         header
@@ -140,7 +144,7 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
                             )),
                         })
                     });
-                    s.context_menu = Some((p, item));
+                    s.open_title_menu(p, item);
                 })
                 .w_full()
                 .fill(if selected {
@@ -228,6 +232,7 @@ fn season_selector(s: &State) -> El {
         })
         .w(0.0)
         .grow(1.0)
+        .on_secondary_press(move |s: &mut State, point, _| s.open_season_menu(point, current))
         .gap(6.0)
         .child(icon(&icons::DOWN, 14.0).color(theme().text)),
     );
@@ -252,7 +257,10 @@ fn season_selector(s: &State) -> El {
                         s.select_season(season);
                     },
                 )
-                .w_full(),
+                .w_full()
+                .on_secondary_press(move |s: &mut State, point, _| {
+                    s.open_season_menu(point, season);
+                }),
             );
         }
         let visible = u16::try_from(seasons.len().min(4)).unwrap_or(4);

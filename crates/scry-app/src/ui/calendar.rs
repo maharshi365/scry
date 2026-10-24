@@ -359,7 +359,7 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
                         s.refresh_artwork();
                     })
                     .on_secondary_press(move |s: &mut State, p, _| {
-                        s.context_menu = Some((p, Some(menu.clone())));
+                        s.open_title_menu(p, Some(menu.clone()));
                     }),
                 );
             }

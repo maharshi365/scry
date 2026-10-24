@@ -75,7 +75,7 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
     if !matches!(s.navigation.page, Page::Detail | Page::Player) && !s.status.is_empty() {
         content = content.child(label(s.status.clone()).key("status"));
     }
-    let mut root = row()
+    let mut root = col()
         .key("scry")
         .w_full()
         .h_full()
@@ -83,14 +83,14 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
         .on_secondary_press(|s: &mut State, p, _| {
             s.context_menu = Some((p, None));
         })
-        .child(sidebar(s))
+        .child(topbar(s))
         .child(
-            col()
+            row()
                 .grow(1.0)
                 .min_w(0.0)
                 .min_h(0.0)
-                .h_full()
-                .child(topbar(s))
+                .w_full()
+                .child(sidebar(s))
                 .child(content),
         );
     if let Some(menu) = super::context_menu::view(s, cx) {
@@ -113,14 +113,7 @@ fn sidebar(s: &State) -> El {
         .h_full()
         .padding(14.0)
         .gap(8.0)
-        .fill(tokens::sidebar())
-        .child(
-            row()
-                .gap(8.0)
-                .child(el().key("brand-logo").w(28.0).h(28.0).pixels(&s.logo))
-                .child(text("Scry").font(type_::WORDMARK).color(tokens::brand())),
-        )
-        .child(el().h(16.0));
+        .fill(tokens::sidebar());
     for (key, title, page) in [
         ("nav-watching", "Currently watching", Page::Watching),
         ("nav-library", "Library", Page::Library),
@@ -161,11 +154,20 @@ fn sidebar(s: &State) -> El {
 fn topbar(s: &State) -> El {
     row()
         .key("topbar")
+        .w_full()
         .h(68.0)
         .fill(tokens::topbar())
-        .px(20.0)
+        .px(14.0)
         .gap(8.0)
         .center_y()
+        .child(
+            el().key("brand-logo")
+                .label("Scry")
+                .w(28.0)
+                .h(28.0)
+                .pixels(&s.logo),
+        )
+        .child(el().w(8.0))
         .child(history_button(
             "nav-back",
             !s.navigation.back.is_empty(),

@@ -55,12 +55,14 @@ Player shortcuts apply only during playback and do not intercept text input.
 ## Your local library
 
 - The app starts on **Currently watching**. Open a title to select a source and resume its saved position.
-- Open a title and choose **Watch later** or **Mark watched**. Right-click titles for quick actions; right-click the page to refresh provider data.
+- Open a title and choose **Add to library** to track it, or **Mark watched** to set its status. Right-click titles for quick actions; right-click the page to refresh provider data.
 - **Library** has **To watch** and **Watched** lists, with Movies selected by default and a TV series filter. There are no playlist controls.
 - Progress saves every 12 seconds and on Stop/close. More than 70% of the duration accumulated as playback marks the item watched; seeking does not count.
 - Stopping beyond 90% removes a finished movie from Currently watching or advances to the next known released episode. An unknown/future release is not offered as the next episode.
 - **Mark unwatched** clears progress and sets a manual override. Choose **Auto track** to let playback update its status again.
 - **Series actions** manages the whole show separately from individual episodes.
+- Right-click the season selector or a season in its list to mark all of that season's episodes watched or unwatched, including episodes beyond the visible page.
+- Tracked shows are checked in the background. Watching all known released episodes moves a show to **Watched**; a new unwatched release moves a saved show back to **To watch**. Explicit show-level watched/unwatched choices take priority.
 
 The database is `scry.sqlite3` in the OS-local Scry application-data folder
 (`%LOCALAPPDATA%\Scry\Scry\data` on Windows). It contains installed add-ons,

@@ -292,7 +292,11 @@ fn episode_context_menu_uses_its_parent_canonical_namespace() {
     rt.secondary_down(r[0] + 10.0, r[1] + 10.0);
     rt.secondary_up(r[0] + 10.0, r[1] + 10.0);
     rt.frame(1.0 / 60.0);
-    let item = rt.state.context_menu.as_ref().unwrap().1.as_ref().unwrap();
+    let super::super::context_menu::Target::Title(item) =
+        rt.state.context_menu.as_ref().unwrap().1.as_ref().unwrap()
+    else {
+        panic!("Expected a title menu")
+    };
     assert_eq!(item.key, expected);
     assert_eq!(item.key.namespace, "imdb");
 }

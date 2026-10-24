@@ -26,6 +26,47 @@ fn watched_state(connection: &mut SqliteConnection, id: i64) -> Result<WatchedSt
     ))
 }
 
+fn set_watched(connection: &mut SqliteConnection, id: i64, value: bool) -> Result<()> {
+    diesel::insert_into(watched::table)
+        .values((
+            watched::media_id.eq(id),
+            watched::is_watched.eq(value),
+            watched::manual_override.eq(Some(value)),
+        ))
+        .on_conflict(watched::media_id)
+        .do_update()
+        .set((
+            watched::is_watched.eq(value),
+            watched::manual_override.eq(Some(value)),
+        ))
+        .execute(connection)?;
+    diesel::delete(progress::table.find(id)).execute(connection)?;
+    diesel::delete(viewing::table.find(id)).execute(connection)?;
+    Ok(())
+}
+
+fn series_watched(
+    connection: &mut SqliteConnection,
+    parent_id: i64,
+    released: &[MediaKey],
+) -> Result<bool> {
+    if let Some(value) = watched_state(connection, parent_id)?.manual_override {
+        return Ok(value);
+    }
+    let watched_episodes: std::collections::HashSet<(String, String)> = media::table
+        .inner_join(watched::table)
+        .filter(media::parent_id.eq(parent_id))
+        .filter(watched::is_watched.eq(true))
+        .select((media::namespace, media::external_id))
+        .load::<(String, String)>(connection)?
+        .into_iter()
+        .collect();
+    Ok(!released.is_empty()
+        && released
+            .iter()
+            .all(|key| watched_episodes.contains(&(key.namespace.clone(), key.id.clone()))))
+}
+
 fn update_watched(connection: &mut SqliteConnection, id: i64, automatic: bool) -> Result<()> {
     let state = watched_state(connection, id)?;
     let value = state.manual_override.unwrap_or(state.watched || automatic);
@@ -95,6 +136,43 @@ fn activate(connection: &mut SqliteConnection, id: i64, delta: f64) -> Result<f6
 }
 
 impl Library {
+    /// Summarize a show without relying on the currently-watching page or episode pagination.
+    /// `released` must contain the known released episodes from all seasons.
+    /// # Errors
+    /// Returns an error for invalid kinds, missing series, or failed reads.
+    pub fn series_poster_state(
+        &self,
+        parent: &MediaKey,
+        released: &[MediaKey],
+    ) -> Result<(bool, Option<Progress>)> {
+        ensure!(
+            parent.kind == MediaKind::Series
+                && released.iter().all(|key| key.kind == MediaKind::Episode),
+            "invalid series poster keys"
+        );
+        let connection = &mut *self.connection.borrow_mut();
+        let parent_id = media_id(connection, parent)?;
+        let watched = series_watched(connection, parent_id, released)?;
+        let progress = media::table
+            .inner_join(progress::table)
+            .inner_join(viewing::table)
+            .filter(media::parent_id.eq(parent_id))
+            .filter(progress::position_seconds.gt(0.0))
+            .filter(progress::duration_seconds.gt(0.0))
+            .filter(
+                progress::position_seconds.le(progress::duration_seconds * COMPLETION_THRESHOLD),
+            )
+            .order(viewing::touched.desc())
+            .select((progress::position_seconds, progress::duration_seconds))
+            .first::<(f64, f64)>(connection)
+            .optional()?
+            .map(|(position_seconds, duration_seconds)| Progress {
+                position_seconds,
+                duration_seconds,
+            });
+        Ok((watched, progress))
+    }
+
     /// # Errors
     /// Returns an error for missing media or failed reads.
     pub fn watched_state(&self, key: &MediaKey) -> Result<WatchedState> {
@@ -110,21 +188,64 @@ impl Library {
             .borrow_mut()
             .immediate_transaction(|connection| {
                 let id = media_id(connection, key)?;
+                set_watched(connection, id, value)
+            })
+    }
+
+    /// Update the derived show status, preserving an explicit show-level override.
+    /// # Errors
+    /// Returns an error for invalid keys, missing media, or failed writes.
+    pub fn reconcile_series(&mut self, parent: &MediaKey, released: &[MediaKey]) -> Result<bool> {
+        ensure!(
+            parent.kind == MediaKind::Series
+                && released.iter().all(|key| key.kind == MediaKind::Episode),
+            "invalid series keys"
+        );
+        self.connection
+            .borrow_mut()
+            .immediate_transaction(|connection| {
+                let id = media_id(connection, parent)?;
+                let value = series_watched(connection, id, released)?;
+                if watched_state(connection, id)?.watched == value {
+                    return Ok(false);
+                }
                 diesel::insert_into(watched::table)
-                    .values((
-                        watched::media_id.eq(id),
-                        watched::is_watched.eq(value),
-                        watched::manual_override.eq(Some(value)),
-                    ))
+                    .values((watched::media_id.eq(id), watched::is_watched.eq(value)))
                     .on_conflict(watched::media_id)
                     .do_update()
-                    .set((
-                        watched::is_watched.eq(value),
-                        watched::manual_override.eq(Some(value)),
-                    ))
+                    .set(watched::is_watched.eq(value))
                     .execute(connection)?;
-                diesel::delete(progress::table.find(id)).execute(connection)?;
-                diesel::delete(viewing::table.find(id)).execute(connection)?;
+                Ok(true)
+            })
+    }
+
+    /// Mark a captured set of episodes in one transaction, including episodes not yet registered.
+    /// # Errors
+    /// Returns an error for invalid media, a wrong parent, or failed writes. Nothing is partially saved.
+    pub fn set_episodes_watched(
+        &mut self,
+        parent: &Media,
+        episodes: &[Media],
+        value: bool,
+    ) -> Result<()> {
+        ensure!(
+            parent.key.kind == MediaKind::Series
+                && episodes.len() <= 50_000
+                && episodes
+                    .iter()
+                    .all(|item| item.key.kind == MediaKind::Episode
+                        && item.parent.as_ref() == Some(&parent.key)),
+            "invalid episode batch"
+        );
+        self.connection
+            .borrow_mut()
+            .immediate_transaction(|connection| {
+                upsert_media(connection, parent)?;
+                for item in episodes {
+                    upsert_media(connection, item)?;
+                    let id = media_id(connection, &item.key)?;
+                    set_watched(connection, id, value)?;
+                }
                 Ok(())
             })
     }

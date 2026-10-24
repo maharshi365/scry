@@ -50,7 +50,7 @@ pub struct State {
     poster_route: u64,
     library: LibraryUi,
     calendar: calendar::CalendarUi,
-    context_menu: Option<(rune::PointerPress, Option<scry_library::Media>)>,
+    context_menu: Option<(rune::PointerPress, Option<context_menu::Target>)>,
     addon_install_open: bool,
     addon_installed_tab: bool,
     detail_namespace: String,

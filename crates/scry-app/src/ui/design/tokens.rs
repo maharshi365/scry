@@ -50,9 +50,6 @@ pub(in crate::ui) fn video() -> Color {
 pub(in crate::ui) fn scrim() -> Color {
     rune::oklch(0.05, 0.0, 0.0).alpha(0.7)
 }
-pub(in crate::ui) fn brand() -> Color {
-    rune::color::hex("#D8ED96").unwrap_or_else(accent)
-}
 pub(in crate::ui) fn poster(index: usize) -> Color {
     rune::oklch(0.25 + [0.0, 0.025, 0.05][index % 3], 0.035, 230.0)
 }
@@ -84,5 +81,4 @@ pub(in crate::ui) mod type_ {
     pub const LOADING_TITLE: TextStyle = TextStyle::new(30.0, 550.0);
     pub const POSTER_FALLBACK: TextStyle = TextStyle::new(52.0, 300.0);
     pub const THUMBNAIL_FALLBACK: TextStyle = TextStyle::new(16.0, 500.0);
-    pub const WORDMARK: TextStyle = TextStyle::new(19.0, 700.0).tracking(2.0);
 }

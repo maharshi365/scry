@@ -49,6 +49,8 @@ impl LibraryPoster {
 
 #[derive(Debug)]
 pub enum Event {
+    SeriesTrackingDetails(u64, Vec<(scry_library::MediaKey, Option<Meta>)>, bool),
+    SeriesDetails(u64, Vec<(scry_library::MediaKey, Option<Meta>)>, bool),
     LibraryPosters(
         u64,
         Vec<(scry_library::MediaKey, Option<LibraryPoster>)>,
@@ -111,6 +113,8 @@ pub struct Services {
     stream_task: Option<tokio::task::JoinHandle<()>>,
     calendar_task: Option<tokio::task::JoinHandle<()>>,
     library_poster_task: Option<tokio::task::JoinHandle<()>>,
+    series_detail_task: Option<tokio::task::JoinHandle<()>>,
+    series_tracking_task: Option<tokio::task::JoinHandle<()>>,
     control: Option<watch::Sender<Option<Control>>>,
     commands: Option<mpsc::Sender<(u64, Vec<String>)>>,
     player: Option<JoinHandle<()>>,
@@ -156,6 +160,8 @@ impl Services {
             stream_task: None,
             calendar_task: None,
             library_poster_task: None,
+            series_detail_task: None,
+            series_tracking_task: None,
             control: Some(control),
             commands: Some(commands),
             player: Some(player),
@@ -544,6 +550,66 @@ impl Services {
         }));
     }
 
+    pub fn series_details(
+        &mut self,
+        generation: u64,
+        addons: Vec<Addon>,
+        keys: Vec<scry_library::MediaKey>,
+        background: bool,
+    ) {
+        let slot = if background {
+            &mut self.series_tracking_task
+        } else {
+            &mut self.series_detail_task
+        };
+        if let Some(task) = slot.take() {
+            task.abort();
+        }
+        let (client, inbox) = (self.client.clone(), self.inbox.clone());
+        *slot = Some(self.runtime.spawn(async move {
+            let mut remaining = keys.into_iter().take(12);
+            let mut tasks = tokio::task::JoinSet::new();
+            loop {
+                while tasks.len() < 4 {
+                    let Some(key) = remaining.next() else { break };
+                    let (client, mut addons) = (client.clone(), addons.clone());
+                    tasks.spawn(async move {
+                        addons.sort_by_key(|addon| addon.manifest.id != key.namespace);
+                        for addon in addons
+                            .iter()
+                            .filter(|a| a.supports("meta", "series", &key.id))
+                        {
+                            if let Ok(meta) = client.meta(addon, "series", &key.id).await
+                                && meta.id == key.id
+                                && meta.kind == "series"
+                            {
+                                return (key, Some(meta));
+                            }
+                        }
+                        (key, None)
+                    });
+                }
+                let Some(result) = tasks.join_next().await else {
+                    break;
+                };
+                if let Ok(item) = result {
+                    let event = if background {
+                        Event::SeriesTrackingDetails(generation, vec![item], false)
+                    } else {
+                        Event::SeriesDetails(generation, vec![item], false)
+                    };
+                    inbox.send(event).await;
+                }
+            }
+            let event = if background {
+                Event::SeriesTrackingDetails(generation, vec![], true)
+            } else {
+                Event::SeriesDetails(generation, vec![], true)
+            };
+            inbox.send(event).await;
+        }));
+    }
+
     pub fn control(&self, command: Control) -> Result<()> {
         match command {
             Control::Command(id, args) => self
@@ -573,6 +639,8 @@ impl Services {
             &mut self.stream_task,
             &mut self.calendar_task,
             &mut self.library_poster_task,
+            &mut self.series_detail_task,
+            &mut self.series_tracking_task,
         ] {
             if let Some(task) = task.take() {
                 task.abort();

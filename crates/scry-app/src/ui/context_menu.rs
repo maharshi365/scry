@@ -1,15 +1,70 @@
 use super::{
     Page, State,
-    controls::action,
-    primitives::{surface::card, text::label},
+    design::tokens,
+    primitives::{
+        button::{Button, Variant},
+        surface::card,
+        text::label,
+    },
 };
 use crate::library_worker::Command;
 use rune::{Cx, El};
 use scry_library::{Media, MediaKind};
 
+pub(super) enum Target {
+    Title(Media),
+    Season {
+        parent: Media,
+        season: Option<u32>,
+        episodes: Vec<Media>,
+    },
+}
+
 impl State {
+    pub(super) fn open_title_menu(&mut self, point: rune::PointerPress, media: Option<Media>) {
+        self.context_menu = Some((point, media.map(Target::Title)));
+    }
+
+    pub(super) fn open_season_menu(&mut self, point: rune::PointerPress, season: Option<u32>) {
+        let Some(parent) = self
+            .parent_media()
+            .filter(|m| m.key.kind == MediaKind::Series)
+        else {
+            return;
+        };
+        let episodes = self
+            .detail
+            .iter()
+            .flat_map(|meta| &meta.videos)
+            .filter(|video| video.season == season && !video.id.trim().is_empty())
+            .map(|video| Media {
+                key: super::library_view::key(&parent.key.namespace, MediaKind::Episode, &video.id),
+                title: format!(
+                    "{} · {}",
+                    parent.title,
+                    if video.title.trim().is_empty() {
+                        &video.id
+                    } else {
+                        &video.title
+                    }
+                ),
+                parent: Some(parent.key.clone()),
+            })
+            .collect();
+        self.context_menu = Some((
+            point,
+            Some(Target::Season {
+                parent,
+                season,
+                episodes,
+            }),
+        ));
+    }
+
     pub(super) fn refresh_page(&mut self) {
         self.context_menu = None;
+        self.retry_series_details();
+        self.request_series_tracking(true);
         match self.navigation.page {
             Page::Discover => self.fetch_catalog(),
             Page::Calendar => self.refresh_calendar(),
@@ -76,42 +131,74 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> Option<El> {
             point.x.min(bounds[2] - 258.0).max(8.0),
             point.y.min(bounds[3] - 230.0).max(8.0),
         );
-    if let Some(media) = item {
+    if let Some(Target::Title(media)) = item {
         menu = menu.child(label(media.title.clone()));
         for (key, title, choice) in [
-            ("later", "Watch later", 0),
-            ("remove", "Remove from watch later", 1),
+            ("later", "Add to library", 0),
+            ("remove", "Remove from library", 1),
             ("watched", "Mark as watched", 2),
             ("unwatched", "Mark as unwatched", 3),
         ] {
             let media = media.clone();
-            menu = menu.child(
-                action(format!("context-{key}"), title, move |s| {
-                    s.context_menu = None;
-                    s.db(
-                        match choice {
-                            0 => Command::SetWatchlist(media.clone(), true),
-                            1 => Command::SetWatchlist(media.clone(), false),
-                            2 => Command::SetWatched(media.clone(), true),
-                            _ => Command::SetWatched(media.clone(), false),
-                        },
-                        true,
-                    );
-                })
-                .w_full()
-                .justify_start()
-                .focusable(true)
-                .focus_follows(),
-            );
+            menu = menu.child(menu_action(format!("context-{key}"), title, move |s| {
+                s.context_menu = None;
+                s.db(
+                    match choice {
+                        0 => Command::SetWatchlist(media.clone(), true),
+                        1 => Command::SetWatchlist(media.clone(), false),
+                        2 => Command::SetWatched(media.clone(), true),
+                        _ => Command::SetWatched(media.clone(), false),
+                    },
+                    true,
+                );
+            }));
+        }
+    } else if let Some(Target::Season {
+        parent,
+        season,
+        episodes,
+    }) = item
+    {
+        menu = menu.child(label(format!(
+            "{} · {}",
+            parent.title,
+            super::episodes::season_label(*season)
+        )));
+        for (key, title, watched) in [
+            ("season-watched", "Mark all episodes watched", true),
+            ("season-unwatched", "Mark all episodes unwatched", false),
+        ] {
+            let (parent, episodes) = (parent.clone(), episodes.clone());
+            menu = menu.child(menu_action(format!("context-{key}"), title, move |s| {
+                s.context_menu = None;
+                s.db(
+                    Command::SetEpisodesWatched {
+                        parent: parent.clone(),
+                        episodes: episodes.clone(),
+                        watched,
+                    },
+                    true,
+                );
+            }));
         }
     }
-    Some(
-        menu.child(
-            action("context-refresh", "Refresh", State::refresh_page)
-                .w_full()
-                .justify_start()
-                .focusable(true)
-                .focus_follows(),
-        ),
-    )
+    Some(menu.child(menu_action(
+        "context-refresh",
+        "Refresh",
+        State::refresh_page,
+    )))
+}
+
+fn menu_action(
+    key: impl Into<String>,
+    title: impl Into<String>,
+    f: impl Fn(&mut State) + 'static,
+) -> El {
+    Button::new(key, title)
+        .variant(Variant::Ghost)
+        .on_press(f)
+        .w_full()
+        .justify_start()
+        .border(0.0, tokens::edge())
+        .focus_follows()
 }

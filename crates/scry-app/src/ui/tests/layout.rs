@@ -1,27 +1,25 @@
 use super::*;
 
 #[test]
-fn sidebar_keeps_the_logo_and_wordmark_visible_at_minimum_window_size() {
+fn sidebar_keeps_only_a_compact_logo_at_minimum_window_size() {
     let mut rt = rune::Runtime::new(init(), view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);
     let elements = rt.elements();
-    let sidebar = rect(&rt, "sidebar");
+    let header = rect(&rt, "topbar");
     let logo = rect(&rt, "brand-logo");
-    let wordmark = elements
-        .iter()
-        .find(|element| element.text.as_deref() == Some("Scry"))
-        .expect("Scry wordmark")
-        .rect;
-    assert_eq!([logo[2], logo[3]], [28.0, 28.0]);
-    for bounds in [logo, wordmark] {
-        assert!(bounds[0] >= sidebar[0] && bounds[1] >= sidebar[1]);
-        assert!(bounds[0] + bounds[2] <= sidebar[0] + sidebar[2]);
-        assert!(bounds[1] + bounds[3] <= sidebar[1] + sidebar[3]);
-    }
     assert!(
-        wordmark[0] >= logo[0] + logo[2],
-        "wordmark must not overlap the logo"
+        elements
+            .iter()
+            .all(|element| element.text.as_deref() != Some("Scry"))
     );
+    assert_eq!([logo[2], logo[3]], [28.0, 28.0]);
+    assert!(logo[0] >= header[0] && logo[1] >= header[1]);
+    assert!(logo[1] + logo[3] <= header[1] + header[3]);
+    let back = rect(&rt, "nav-back");
+    assert!(back[0] - (logo[0] + logo[2]) <= 24.0);
+    assert!((logo[1] + logo[3] / 2.0 - (back[1] + back[3] / 2.0)).abs() < 1.0);
+    assert!(rect(&rt, "nav-watching")[1] >= header[1] + header[3] + 14.0);
+    assert_eq!(rect(&rt, "sidebar")[1], header[1] + header[3]);
 }
 
 #[test]

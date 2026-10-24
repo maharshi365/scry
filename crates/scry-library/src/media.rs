@@ -257,4 +257,15 @@ impl Library {
             .bind::<diesel::sql_types::BigInt, _>(i64::from(page.offset)).load(connection)?;
         hydrate(connection, records)
     }
+
+    /// Shows saved in the library or with episode watch/progress state, independent of list filters.
+    /// # Errors
+    /// Returns an error on database reads.
+    pub fn list_tracked_series(&self, page: Page) -> Result<Vec<Media>> {
+        let connection = &mut *self.connection.borrow_mut();
+        let records = diesel::sql_query("SELECT m.* FROM media m WHERE m.kind='series' AND (EXISTS(SELECT 1 FROM watchlist w WHERE w.media_id=m.media_id) OR EXISTS(SELECT 1 FROM watched w WHERE w.media_id=m.media_id) OR EXISTS(SELECT 1 FROM media e WHERE e.parent_id=m.media_id AND (EXISTS(SELECT 1 FROM watched w WHERE w.media_id=e.media_id) OR EXISTS(SELECT 1 FROM viewing v WHERE v.media_id=e.media_id)))) ORDER BY m.media_id DESC LIMIT ? OFFSET ?")
+            .bind::<diesel::sql_types::BigInt, _>(i64::from(page.limit))
+            .bind::<diesel::sql_types::BigInt, _>(i64::from(page.offset)).load(connection)?;
+        hydrate(connection, records)
+    }
 }

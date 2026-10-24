@@ -1,19 +1,19 @@
 //! One virtualized poster grid for catalogs, search, Library, and Currently watching.
 use super::{
     Page, State,
-    artwork::{POSTER_CARD_HEIGHT, POSTER_GAP, poster, poster_columns},
+    artwork::{POSTER_CARD_HEIGHT, POSTER_GAP, poster, poster_columns, poster_overlay},
     design::tokens::{accent, panel, theme, type_},
-    formatting::clock,
     primitives::{surface::scroll, text::label},
 };
 use rune::{Cx, El, col, text};
-use scry_library::Media;
+use scry_library::{Media, MediaKey, MediaKind};
 
 struct Entry {
     title: String,
     subtitle: String,
     poster: Option<String>,
     media: Option<Media>,
+    identity: Option<MediaKey>,
 }
 
 fn entries(s: &State) -> Vec<Entry> {
@@ -24,17 +24,11 @@ fn entries(s: &State) -> Vec<Entry> {
             .enumerate()
             .map(|(index, media)| {
                 let info = s.library_poster(media);
-                let subtitle = if s.navigation.page == Page::Watching {
-                    let progress = &s.library.watching[index].1;
-                    if progress.position_seconds == 0.0 {
-                        "Next episode".into()
-                    } else {
-                        format!(
-                            "{} / {}",
-                            clock(Some(progress.position_seconds)),
-                            clock(Some(progress.duration_seconds))
-                        )
-                    }
+                let subtitle = if s.navigation.page == Page::Watching
+                    && media.key.kind == MediaKind::Episode
+                    && s.library.watching[index].1.position_seconds == 0.0
+                {
+                    "Next episode".into()
                 } else {
                     info.map_or_else(String::new, |p| p.year.clone())
                 };
@@ -43,16 +37,19 @@ fn entries(s: &State) -> Vec<Entry> {
                     subtitle,
                     poster: info.and_then(|p| p.poster.clone()),
                     media: Some(media.clone()),
+                    identity: Some(State::poster_key(media).clone()),
                 }
             })
             .collect();
     }
     s.metas
         .iter()
-        .map(|meta| Entry {
+        .enumerate()
+        .map(|(index, meta)| Entry {
             title: meta.name.clone(),
             poster: meta.poster.clone(),
             media: None,
+            identity: s.result_media(index).map(|m| m.key),
             subtitle: if s.displayed_query.is_empty() {
                 meta.year.clone()
             } else {
@@ -69,6 +66,58 @@ fn entries(s: &State) -> Vec<Entry> {
             },
         })
         .collect()
+}
+
+pub(super) fn movie_keys(s: &State) -> Vec<MediaKey> {
+    let media = if matches!(s.navigation.page, Page::Library | Page::Watching) {
+        s.saved_grid_media()
+            .into_iter()
+            .map(|m| m.key.clone())
+            .collect::<Vec<_>>()
+    } else {
+        (0..s.metas.len())
+            .filter_map(|index| s.result_media(index).map(|m| m.key))
+            .collect()
+    };
+    media
+        .into_iter()
+        .enumerate()
+        .filter(|(index, key)| key.kind == MediaKind::Movie && visible(s, *index))
+        .map(|(_, key)| key)
+        .take(200)
+        .collect()
+}
+
+pub(super) fn series_keys(s: &State) -> Vec<MediaKey> {
+    if s.navigation.page == Page::Detail {
+        return s
+            .library_media()
+            .map(|m| State::poster_key(&m).clone())
+            .filter(|key| key.kind == MediaKind::Series)
+            .into_iter()
+            .collect();
+    }
+    let media = match s.navigation.page {
+        Page::Watching | Page::Library => s
+            .saved_grid_media()
+            .into_iter()
+            .map(|m| State::poster_key(m).clone())
+            .collect::<Vec<_>>(),
+        Page::Discover => (0..s.metas.len())
+            .filter_map(|index| s.result_media(index).map(|m| m.key))
+            .collect(),
+        _ => return Vec::new(),
+    };
+    let mut keys = Vec::new();
+    for (index, key) in media.into_iter().enumerate() {
+        if key.kind == MediaKind::Series && visible(s, index) && !keys.contains(&key) {
+            keys.push(key);
+        }
+        if keys.len() == 200 {
+            break;
+        }
+    }
+    keys
 }
 
 pub(super) fn artwork_urls(s: &State) -> Vec<String> {
@@ -143,6 +192,8 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> El {
                 s.poster_rects.insert(row_index, rect);
                 s.refresh_artwork();
                 s.request_library_posters();
+                s.request_movie_states();
+                s.request_series_states();
             });
         let nearby = if s.poster_route == route_key && s.poster_columns == columns {
             s.poster_viewport
@@ -165,6 +216,8 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> El {
         s.poster_viewport = Some(rect);
         s.refresh_artwork();
         s.request_library_posters();
+        s.request_movie_states();
+        s.request_series_states();
     })
 }
 
@@ -207,12 +260,15 @@ fn card(s: &State, entry: &Entry, index: usize) -> El {
             }
         })
         .on_secondary_press(move |s: &mut State, p, _| {
-            s.context_menu = Some((p, menu.clone().or_else(|| s.result_media(index))));
+            s.open_title_menu(p, menu.clone().or_else(|| s.result_media(index)));
         })
-        .child(
-            poster(s, &entry.title, entry.poster.as_deref(), index)
-                .key(format!("{prefix}-poster-{index}")),
-        )
+        .child(poster_overlay(
+            s,
+            poster(s, &entry.title, entry.poster.as_deref(), index),
+            entry.identity.as_ref(),
+            &format!("{prefix}-poster-{index}"),
+            246.0,
+        ))
         .child(
             col()
                 .gap(5.0)

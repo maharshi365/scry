@@ -42,7 +42,7 @@ fn discover(s: &mut State) -> serde_json::Result<()> {
             "description":"Stories that stay with you."
         }))
     }).collect::<serde_json::Result<Vec<_>>>()?);
-    s.status = format!("{} titles", s.metas.len());
+    s.status.clear();
     Ok(())
 }
 

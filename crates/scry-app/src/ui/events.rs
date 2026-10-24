@@ -77,6 +77,8 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
         apply(s, event);
     }
     s.request_library_posters();
+    s.request_series_states();
+    s.request_series_tracking(false);
     changed
 }
 
@@ -86,6 +88,12 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
 )]
 fn apply(s: &mut State, event: Event) {
     match event {
+        Event::SeriesTrackingDetails(generation, found, done) => {
+            s.apply_series_tracking_details(generation, found, done);
+        }
+        Event::SeriesDetails(generation, found, done) => {
+            s.apply_series_details(generation, found, done);
+        }
         Event::LibraryPosters(generation, found, done) => {
             s.apply_library_posters(generation, found, done);
         }
@@ -97,6 +105,7 @@ fn apply(s: &mut State, event: Event) {
                     s.retry_library_posters();
                     s.library.posters.cache.clear();
                     s.addons = addons;
+                    s.request_series_tracking(true);
                     s.addon_install_open = false;
                     if s.navigation.page == Page::Calendar {
                         s.fetch_calendar();
@@ -119,7 +128,7 @@ fn apply(s: &mut State, event: Event) {
             s.loading = false;
             match result {
                 Ok(metas) => {
-                    s.status = format!("{} titles", metas.len());
+                    s.status.clear();
                     s.metas = Arc::new(metas);
                 }
                 Err(error) => s.error = Some(error),
@@ -132,11 +141,7 @@ fn apply(s: &mut State, event: Event) {
             s.providers = Arc::new(results.iter().map(|result| result.addon.clone()).collect());
             s.metas = Arc::new(results.into_iter().map(|result| result.meta).collect());
             s.warnings = warnings;
-            s.status = format!(
-                "{} titles{}",
-                s.metas.len(),
-                if done { "" } else { " · searching…" }
-            );
+            s.status = if done { "" } else { "Searching…" }.into();
         }
         Event::Detail(id, result) if id == s.detail_id && s.navigation.page == Page::Detail => {
             s.loading = false;
@@ -238,6 +243,7 @@ fn apply_detail(s: &mut State, meta: Meta) {
     }
     s.selected_video_id.clone_from(&episode);
     s.detail = Some(meta);
+    s.remember_series_detail();
     s.register_library_detail();
     s.status = "Choose an episode to find streams.".into();
     if movie {

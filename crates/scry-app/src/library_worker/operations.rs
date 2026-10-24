@@ -1,5 +1,5 @@
 //! Synchronous database requests. This module does not depend on the UI.
-use super::{Command, Event, SelectedState, Snapshot};
+use super::{Command, Event, MovieState, SelectedState, SeriesState, Snapshot};
 use anyhow::Result;
 use scry_library::{Library, MAX_PAGE_SIZE, MediaKind, Page, WatchedState};
 
@@ -9,6 +9,107 @@ use scry_library::{Library, MAX_PAGE_SIZE, MediaKind, Page, WatchedState};
 )]
 pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
     match command {
+        Command::TrackedSeries { generation, offset } => {
+            return Ok(Event::TrackedSeries {
+                generation,
+                items: library.list_tracked_series(Page::new(12, offset)?)?,
+            });
+        }
+        Command::ReconcileSeries(request) => {
+            anyhow::ensure!(
+                request.released.len() <= 50_000
+                    && request.metadata_known
+                    && request.key.kind == MediaKind::Series
+                    && request
+                        .released
+                        .iter()
+                        .all(|key| key.kind == MediaKind::Episode),
+                "Invalid reconciliation request"
+            );
+            let changed = if library.get_media(&request.key)?.is_some() {
+                library.reconcile_series(&request.key, &request.released)?
+            } else {
+                false
+            };
+            return Ok(Event::SeriesReconciled { changed });
+        }
+        Command::SetEpisodesWatched {
+            parent,
+            episodes,
+            watched,
+        } => {
+            library.set_episodes_watched(&parent, &episodes, watched)?;
+        }
+        Command::SeriesStates {
+            generation,
+            requests,
+        } => {
+            anyhow::ensure!(
+                requests.len() <= MAX_PAGE_SIZE as usize
+                    && requests.iter().map(|r| r.released.len()).sum::<usize>() <= 50_000,
+                "Too many series poster keys"
+            );
+            let mut states = Vec::new();
+            let mut changed = false;
+            for request in requests {
+                anyhow::ensure!(
+                    request.key.kind == MediaKind::Series
+                        && request
+                            .released
+                            .iter()
+                            .all(|key| key.kind == MediaKind::Episode),
+                    "Invalid series poster keys"
+                );
+                let tracked = library.get_media(&request.key)?.is_some();
+                if tracked && request.metadata_known {
+                    changed |= library.reconcile_series(&request.key, &request.released)?;
+                }
+                let (watched, progress) = if tracked {
+                    let (derived, progress) =
+                        library.series_poster_state(&request.key, &request.released)?;
+                    let watched = if request.metadata_known {
+                        derived
+                    } else {
+                        library.watched_state(&request.key)?.watched
+                    };
+                    (watched, progress)
+                } else {
+                    (false, None)
+                };
+                states.push(SeriesState {
+                    key: request.key,
+                    tracked,
+                    watched,
+                    progress,
+                });
+            }
+            return Ok(Event::SeriesStates {
+                generation,
+                states,
+                changed,
+            });
+        }
+        Command::MovieStates { generation, keys } => {
+            anyhow::ensure!(
+                keys.len() <= MAX_PAGE_SIZE as usize,
+                "Too many visible movies"
+            );
+            let mut states = Vec::new();
+            for key in keys {
+                anyhow::ensure!(key.kind == MediaKind::Movie, "Expected a movie");
+                let stored = library.get_media(&key)?.is_some();
+                states.push(MovieState {
+                    watched: stored && library.watched_state(&key)?.watched,
+                    progress: if stored {
+                        library.load_progress(&key)?
+                    } else {
+                        None
+                    },
+                    key,
+                });
+            }
+            return Ok(Event::MovieStates { generation, states });
+        }
         Command::Browse {
             generation,
             watched,

@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 mod calendar;
 mod catalog;
+mod context_menu;
 mod controls;
 mod design_contract;
 mod episodes;
@@ -23,6 +24,7 @@ mod navigation;
 mod playback;
 mod player;
 mod presentation;
+mod series;
 
 fn rect(rt: &rune::Runtime<State>, key: &str) -> [f32; 4] {
     rt.elements()

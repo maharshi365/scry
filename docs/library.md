@@ -91,10 +91,24 @@ Watchlist membership is independent and is never removed automatically.
 `list_watchlist` returns that raw membership, including saved watched titles;
 the UI uses `list_library` for its mutually exclusive tabs.
 
-Series and episode state are independent. Finishing one episode never marks its
-series watched. Marking a series watched never cascades to episodes. The UI can
-page through episode records to display individual progress; the repository does
-not infer series completeness from a partial episode catalog.
+Marking a series watched never cascades to episodes. Its explicit watched/unwatched
+override takes priority over automatic tracking. Otherwise, `reconcile_series`
+uses the full set of known released episode keys supplied by the metadata provider
+to update the stored show status. This is the same rule as the poster badge, so
+Library filtering and pagination use the reconciled status. An empty released set
+does not count as complete. No status is rewritten when metadata cannot load.
+
+The app checks tracked shows independently of the current Library filter, in
+12-show pages with at most four metadata requests in flight. Checks run at startup,
+after library changes, on Refresh, and when a ten-minute recheck is due during UI
+polling. The bounded metadata cache avoids repeat requests. A newly released,
+unwatched episode can clear an automatic show-level watched flag without changing
+membership in the library or overriding an explicit user choice.
+
+`set_episodes_watched` applies a captured season's episode list in one transaction.
+It registers missing episodes, sets each manual override, and clears that episode's
+resume state. It is not limited by the visible episode page and leaves other
+seasons unchanged. Invalid batches are rolled back in full.
 
 ## Storage and concurrency
 

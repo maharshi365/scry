@@ -1,6 +1,27 @@
 use super::*;
 
 #[test]
+fn completed_catalogs_have_no_title_count_footer() {
+    for kind in ["movie", "series"] {
+        let (mut s, tx) = state_with_events();
+        scene_discover(&mut s);
+        s.kind = kind.into();
+        s.status = "Loading catalog…".into();
+        let metas = s.metas.to_vec();
+        let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
+        rt.poll = Some(poll);
+        tx.try_send(Event::Catalog(rt.state.catalog_id, Ok(metas)))
+            .unwrap();
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        assert!(rt.state.status.is_empty());
+        assert!(rt.find("status").is_none());
+        assert!(rt.find("title-0").is_some());
+    }
+}
+
+#[test]
 fn explorer_shows_titles_and_years_without_provider_controls_or_repeated_type_labels() {
     let mut state = init();
     scene_discover(&mut state);
@@ -209,6 +230,7 @@ fn search_button_shows_pending_requests_until_the_last_provider_finishes() {
     tx.try_send(Event::Search(rt.state.catalog_id, vec![], vec![], false))
         .unwrap();
     rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state.status, "Searching…");
     assert!(
         rt.elements()
             .iter()
@@ -217,6 +239,7 @@ fn search_button_shows_pending_requests_until_the_last_provider_finishes() {
     tx.try_send(Event::Search(rt.state.catalog_id, vec![], vec![], true))
         .unwrap();
     rt.frame(1.0 / 60.0);
+    assert!(rt.state.status.is_empty());
     assert!(
         rt.elements()
             .iter()

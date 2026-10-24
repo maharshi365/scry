@@ -7,7 +7,9 @@ mod operations;
 mod protocol;
 mod runtime;
 
-pub use protocol::{Command, Event, SelectedState, Snapshot};
+pub use protocol::{
+    Command, Event, MovieState, SelectedState, SeriesRequest, SeriesState, Snapshot,
+};
 use runtime::run;
 use std::{
     path::PathBuf,
@@ -100,6 +102,133 @@ mod tests {
             key: MediaKey::new("test", MediaKind::Movie, "one"),
             title: "One".into(),
             parent: None,
+        }
+    }
+
+    #[test]
+    fn movie_states_reject_oversized_batches_and_non_movie_keys() {
+        let mut library = Library::memory().unwrap();
+        for keys in [
+            vec![movie().key; 201],
+            vec![MediaKey::new("test", MediaKind::Series, "show")],
+            vec![MediaKey::new("test", MediaKind::Episode, "show:1:1")],
+        ] {
+            assert!(
+                apply(
+                    &mut library,
+                    Command::MovieStates {
+                        generation: 1,
+                        keys
+                    }
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn series_states_reject_invalid_kinds_and_oversized_batches() {
+        let mut library = Library::memory().unwrap();
+        let valid = SeriesRequest {
+            key: MediaKey::new("test", MediaKind::Series, "show"),
+            released: vec![],
+            metadata_known: true,
+        };
+        for requests in [
+            vec![valid.clone(); 201],
+            vec![SeriesRequest {
+                key: movie().key,
+                released: vec![],
+                metadata_known: true,
+            }],
+            vec![SeriesRequest {
+                released: vec![movie().key],
+                ..valid.clone()
+            }],
+            vec![SeriesRequest {
+                released: vec![MediaKey::new("test", MediaKind::Episode, "episode"); 50_001],
+                ..valid
+            }],
+        ] {
+            assert!(
+                apply(
+                    &mut library,
+                    Command::SeriesStates {
+                        generation: 1,
+                        requests
+                    }
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn series_summary_persists_for_library_filters_and_survives_missing_metadata() {
+        let mut library = Library::memory().unwrap();
+        let parent = Media {
+            key: MediaKey::new("test", MediaKind::Series, "show"),
+            title: "Show".into(),
+            parent: None,
+        };
+        let episode = Media {
+            key: MediaKey::new("test", MediaKind::Episode, "episode"),
+            title: "Episode".into(),
+            parent: Some(parent.key.clone()),
+        };
+        library.upsert_media(&parent).unwrap();
+        library.upsert_media(&episode).unwrap();
+        library.set_watched(&episode.key, true).unwrap();
+        for (metadata_known, expected_change) in [(true, true), (false, false), (true, false)] {
+            let released = if metadata_known {
+                vec![episode.key.clone()]
+            } else {
+                vec![]
+            };
+            let Event::SeriesStates {
+                states, changed, ..
+            } = apply(
+                &mut library,
+                Command::SeriesStates {
+                    generation: 1,
+                    requests: vec![SeriesRequest {
+                        key: parent.key.clone(),
+                        released,
+                        metadata_known,
+                    }],
+                },
+            )
+            .unwrap()
+            else {
+                panic!("Expected series states")
+            };
+            assert_eq!(changed, expected_change);
+            assert!(states[0].watched);
+            assert_eq!(
+                library
+                    .list_library(true, MediaKind::Series, scry_library::Page::default())
+                    .unwrap(),
+                vec![parent.clone()]
+            );
+        }
+    }
+
+    #[test]
+    fn reconciliation_rejects_unknown_metadata_and_non_series_keys() {
+        let mut library = Library::memory().unwrap();
+        for request in [
+            SeriesRequest {
+                key: movie().key,
+                released: vec![],
+                metadata_known: true,
+            },
+            SeriesRequest {
+                key: MediaKey::new("test", MediaKind::Series, "show"),
+                released: vec![],
+                metadata_known: false,
+            },
+        ] {
+            assert!(apply(&mut library, Command::ReconcileSeries(request)).is_err());
         }
     }
 

@@ -1,6 +1,9 @@
 //! Library presentation and nonblocking worker integration.
+mod movie_status;
 mod posters;
 mod progress;
+mod series_status;
+mod tracking;
 use super::{
     State,
     controls::action,
@@ -31,6 +34,9 @@ pub(super) struct LibraryUi {
     pub(in crate::ui) entries: Option<Vec<Media>>,
     pub(in crate::ui) posters: posters::PosterUi,
     pub watching: Vec<(Media, scry_library::Progress)>,
+    pub(in crate::ui) movies: movie_status::MovieUi,
+    pub(in crate::ui) series: series_status::SeriesUi,
+    pub(in crate::ui) tracking: tracking::TrackingUi,
     pub next_episode: Option<Media>,
     pub watched_pending: f64,
     pub observed: Option<scry_playback::telemetry::Sample>,
@@ -55,6 +61,9 @@ impl Default for LibraryUi {
             entries: None,
             posters: posters::PosterUi::default(),
             watching: Vec::new(),
+            movies: movie_status::MovieUi::default(),
+            series: series_status::SeriesUi::default(),
+            tracking: tracking::TrackingUi::default(),
             next_episode: None,
             watched_pending: 0.0,
             observed: None,
@@ -86,7 +95,7 @@ pub(in crate::ui) fn key(namespace: &str, kind: MediaKind, id: &str) -> MediaKey
 }
 
 impl State {
-    fn parent_media(&self) -> Option<Media> {
+    pub(in crate::ui) fn parent_media(&self) -> Option<Media> {
         let meta = self.detail.as_ref()?;
         if meta.id.trim().is_empty() {
             return None;
@@ -156,6 +165,12 @@ impl State {
             return;
         }
         self.library.generation += 1;
+        self.library.movies.generation += 1;
+        self.library.movies.requested.clear();
+        self.library.movies.states.clear();
+        self.library.series.generation += 1;
+        self.library.series.requested.clear();
+        self.library.series.states.clear();
         let command = Command::Refresh {
             generation: self.library.generation,
             selected: self.library_media().map(|m| m.key),
@@ -261,7 +276,29 @@ impl State {
         let mut refresh = false;
         for event in events {
             match event {
-                DbEvent::Ready => refresh = true,
+                DbEvent::TrackedSeries { generation, items } => {
+                    self.apply_tracked_series(generation, items);
+                }
+                DbEvent::SeriesReconciled { changed } => refresh |= changed,
+                DbEvent::SeriesStates {
+                    generation,
+                    states,
+                    changed,
+                } => {
+                    refresh |= changed;
+                    if generation == self.library.series.generation {
+                        self.library.series.states = states;
+                    }
+                }
+                DbEvent::MovieStates { generation, states } => {
+                    if generation == self.library.movies.generation {
+                        self.library.movies.states = states;
+                    }
+                }
+                DbEvent::Ready => {
+                    refresh = true;
+                    self.request_series_tracking(true);
+                }
                 DbEvent::Snapshot { generation, data } => self.apply_snapshot(generation, data),
                 DbEvent::Browse { generation, items } if generation == self.library.generation => {
                     self.apply_library_entries(items);
@@ -278,16 +315,25 @@ impl State {
                     }
                 }
                 DbEvent::Browse { .. } | DbEvent::Overview { .. } | DbEvent::Flushed(_) => {}
-                DbEvent::Changed => refresh |= self.library.pending.pop_front().unwrap_or(false),
+                DbEvent::Changed => {
+                    let requested = self.library.pending.pop_front().unwrap_or(false);
+                    refresh |= requested;
+                    if requested {
+                        self.request_series_tracking(true);
+                    }
+                }
                 DbEvent::Error(error) => {
                     self.library.pending.pop_front();
                     self.library.error = Some(error);
+                    self.library.tracking.busy = false;
                 }
             }
         }
         if refresh {
             self.refresh_library();
         }
+        self.request_movie_states();
+        self.request_series_states();
         changed
     }
 
@@ -351,9 +397,9 @@ pub(super) fn detail_actions(s: &State) -> El {
             .child(action(
                 "library-watchlist",
                 if in_watchlist {
-                    "Remove from to watch"
+                    "Remove from library"
                 } else {
-                    "Watch later"
+                    "Add to library"
                 },
                 move |s| {
                     s.db(Command::ToggleWatchlist(a.clone()), true);
@@ -496,7 +542,7 @@ fn library_empty(s: &State) -> El {
     let description = if watched {
         "Titles marked as watched will appear here."
     } else {
-        "Choose Watch later on a title to add it here."
+        "Choose Add to library on a title to track it here."
     };
     empty_state(
         "library-empty",

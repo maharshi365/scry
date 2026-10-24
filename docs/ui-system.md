@@ -18,8 +18,21 @@ formatting.rs     clocks, metrics, excerpts; no styling
 Screens own navigation, data loading, playback rules, and layout geometry.
 `poster_grid.rs` owns the common card and virtualized grid for Movies, TV shows,
 search, Library, and Currently watching. Screens put their own headings and filters
-above that grid. In-progress cards retain saved playback times or the next-episode
-label; episode posters come from their parent series without changing resume identity.
+above that grid. Movie posters show saved progress as an overlay one-sixth of the
+poster height above the bottom, or a top-right check mark when watched. Visible
+movie states are read in bounded batches on the database worker for all grid routes.
+TV posters use the latest unfinished episode's progress. A check mark requires
+every known released episode across all seasons to be watched. Future and undated
+episodes do not count; an empty released set never earns a check mark. The database
+summary is independent of episode and Currently watching pagination. Visible tracked
+shows fetch metadata in batches of 12 with four requests in flight; the bounded
+32-show in-memory metadata cache expires after ten minutes and Refresh retries failures.
+The show summary is also persisted for Library filters. A separate background
+scan checks tracked shows even when the current filter hides them; explicit
+show-level watched/unwatched overrides take priority. Season context actions
+capture all of a season's episodes and apply one atomic database command. Context
+menu options use borderless ghost buttons; the outer menu retains its panel edge.
+Episode posters come from their parent series without changing resume identity.
 Poster metadata is loaded only for visible cards, in batches of at most
 12 with four provider requests in flight. It uses the same bounded image cache
 as catalogs. Missing or offline artwork keeps a title placeholder; Refresh retries
