@@ -35,8 +35,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         winresource::WindowsResource::new()
             .set_icon(icon_path.to_str().ok_or("Icon path is not UTF-8")?)
-            .set("ProductName", "Skry")
-            .set("FileDescription", "Skry streaming app")
+            .set("ProductName", "Scry")
+            .set("FileDescription", "Scry streaming app")
             .compile()?;
     }
     Ok(())

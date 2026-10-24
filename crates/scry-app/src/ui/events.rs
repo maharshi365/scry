@@ -7,6 +7,15 @@ use scry_app::platform::VideoHost;
 use std::sync::Arc;
 
 pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
+    let history = s.native_navigation.drain();
+    let navigated = !history.is_empty();
+    let fullscreen = s.player.fullscreen;
+    for direction in history {
+        s.travel(direction == scry_app::platform::HistoryDirection::Forward);
+    }
+    if s.player.fullscreen != fullscreen {
+        tx.instant();
+    }
     if let Some(anchor) = s.navigation.reveal.take() {
         if s.navigation.page == Page::Discover
             && let Some(index) = anchor
@@ -15,12 +24,27 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
         {
             let columns = s.poster_viewport.map_or(3, |rect| poster_columns(rect[2]));
             tx.scroll_into_view(format!("title-row-{}", index / columns));
+        } else if s.navigation.page == Page::Library
+            && let Some(index) = anchor
+                .strip_prefix("library-open-")
+                .and_then(|index| index.parse::<usize>().ok())
+        {
+            let columns = s.poster_viewport.map_or(3, |rect| poster_columns(rect[2]));
+            tx.scroll_into_view(format!("library-row-{}", index / columns));
+        } else if s.navigation.page == Page::Watching
+            && let Some(index) = anchor
+                .strip_prefix("watching-open-")
+                .and_then(|index| index.parse::<usize>().ok())
+        {
+            let columns = s.poster_viewport.map_or(3, |rect| poster_columns(rect[2]));
+            tx.scroll_into_view(format!("watching-row-{}", index / columns));
         } else {
             tx.scroll_into_view(anchor);
         }
     }
     s.refresh_artwork();
-    let mut changed = s.poll_library()
+    let mut changed = navigated
+        | s.poll_library()
         | s.player_artwork
             .as_mut()
             .is_some_and(crate::artwork::Artwork::poll)
@@ -52,6 +76,7 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
         changed = true;
         apply(s, event);
     }
+    s.request_library_posters();
     changed
 }
 
@@ -61,11 +86,16 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
 )]
 fn apply(s: &mut State, event: Event) {
     match event {
+        Event::LibraryPosters(generation, found, done) => {
+            s.apply_library_posters(generation, found, done);
+        }
         Event::Calendar(generation, found, failed) => s.apply_calendar(generation, found, failed),
         Event::Addons(result) => {
             s.config_busy = false;
             match result {
                 Ok(addons) => {
+                    s.retry_library_posters();
+                    s.library.posters.cache.clear();
                     s.addons = addons;
                     s.addon_install_open = false;
                     if s.navigation.page == Page::Calendar {

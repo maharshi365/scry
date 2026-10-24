@@ -154,7 +154,7 @@ fn invalid_manifest_errors_do_not_disclose_input() {
     for input in [
         "https://user:secret@addon.example/token/manifest.json",
         "https://addon.example/token/manifest.json?key=secret",
-        "http://addon.example/token/manifest.json",
+        "ftp://addon.example/token/manifest.json",
         "not a url secret",
     ] {
         let error = format!("{:#}", manifest_url(input).unwrap_err());

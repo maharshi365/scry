@@ -4,8 +4,9 @@ use super::{
     events::poll,
     library_view::LibraryUi,
     scenes::{
-        scene_calendar, scene_calendar_month, scene_detail, scene_detail_watched, scene_discover,
-        scene_library, scene_library_empty,
+        scene_calendar, scene_calendar_day, scene_calendar_month, scene_calendar_refresh,
+        scene_detail, scene_detail_watched, scene_discover, scene_library, scene_library_empty,
+        scene_watching,
     },
     shell::view,
     shortcuts::{Focus, Registration, Scope, dispatch},
@@ -61,6 +62,7 @@ impl State {
             include_bytes!(concat!(env!("OUT_DIR"), "/skry.rgba")).to_vec(),
         );
         Self {
+            native_navigation: scry_app::platform::NavigationInput::default(),
             logo,
             artwork: None,
             artwork_urls: Vec::new(),
@@ -137,6 +139,7 @@ pub(super) fn headless() -> bool {
 }
 
 fn setup(s: &mut State, wake: rune::Waker) {
+    s.native_navigation.connect(wake.clone());
     if headless() {
         s.config_busy = false;
         return;
@@ -182,6 +185,8 @@ pub(super) fn run() -> anyhow::Result<()> {
     let window_host = host.clone();
     let error = Arc::new(Mutex::new(None));
     let window_error = error.clone();
+    let native_navigation = scry_app::platform::NavigationInput::default();
+    let window_navigation = native_navigation.clone();
     let app = App::new(AppSpec {
         setup: Some(setup),
         poll: Some(poll),
@@ -192,22 +197,31 @@ pub(super) fn run() -> anyhow::Result<()> {
             ("detail-watched", scene_detail_watched),
             ("library", scene_library),
             ("library-empty", scene_library_empty),
+            ("watching", scene_watching),
             ("calendar", scene_calendar),
             ("calendar-month", scene_calendar_month),
+            ("calendar-day", scene_calendar_day),
+            ("calendar-refresh", scene_calendar_refresh),
         ],
         min_size: Some((880.0, 600.0)),
-        ..AppSpec::new("Skry", (1280.0, 820.0), init, view)
+        ..AppSpec::new("Scry", (1280.0, 820.0), init, view)
     })
     .keep_running();
     let quit = app.handle();
     app.args(rune_args)
         .init(move || {
             let mut state = State::new(host, error);
+            state.native_navigation = native_navigation;
             state.startup_play = startup_play;
             state.quit = Some(quit);
             state
         })
         .on_window(move |window| {
+            if let Err(error) = window_navigation.attach(window)
+                && let Ok(mut current) = window_error.lock()
+            {
+                *current = Some(error.to_string());
+            }
             if let Err(error) = window_host.attach(window)
                 && let Ok(mut current) = window_error.lock()
             {

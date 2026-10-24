@@ -1,4 +1,5 @@
 use super::VideoHost;
+pub(super) mod navigation;
 use anyhow::{Result, bail};
 use rune::raw_window_handle::RawWindowHandle;
 use scry_playback::PlaybackTarget;
@@ -71,7 +72,7 @@ impl VideoHost for Host {
                             LR_SHARED,
                         );
                         if icon.is_null() {
-                            bail!("Cannot load Skry window icon");
+                            bail!("Cannot load Scry window icon");
                         }
                         SendMessageW(
                             raw.hwnd.get() as HWND,

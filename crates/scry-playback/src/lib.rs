@@ -68,17 +68,17 @@ impl VideoRenderer {
         match value {
             "gpu" => Ok(Self::Gpu),
             "gpu-next" => Ok(Self::GpuNext),
-            _ => bail!("SCRY_VIDEO_RENDERER must be gpu or gpu-next"),
+            _ => bail!("Scry_VIDEO_RENDERER must be gpu or gpu-next"),
         }
     }
 
     fn from_env() -> Result<Self> {
-        match std::env::var("SCRY_VIDEO_RENDERER") {
+        match std::env::var("Scry_VIDEO_RENDERER") {
             Ok(value) => Self::parse(&value),
             // gpu saved working set but increased private commit in matched probes.
             // See docs/rendering-performance.md before changing the default.
             Err(std::env::VarError::NotPresent) => Ok(Self::GpuNext),
-            Err(_) => bail!("SCRY_VIDEO_RENDERER must be gpu or gpu-next"),
+            Err(_) => bail!("Scry_VIDEO_RENDERER must be gpu or gpu-next"),
         }
     }
 
@@ -311,7 +311,7 @@ impl Drop for Player {
 }
 
 fn library_path() -> Result<PathBuf> {
-    if let Some(path) = std::env::var_os("SCRY_MPV_LIBRARY") {
+    if let Some(path) = std::env::var_os("Scry_MPV_LIBRARY") {
         return Ok(path.into());
     }
     let name = if cfg!(windows) {
@@ -331,7 +331,7 @@ fn library_path() -> Result<PathBuf> {
     if local.exists() {
         return Ok(local);
     }
-    bail!("libmpv is missing. Put {name} in runtime/ or set SCRY_MPV_LIBRARY. See README.md")
+    bail!("libmpv is missing. Put {name} in runtime/ or set Scry_MPV_LIBRARY. See README.md")
 }
 
 #[cfg(test)]
@@ -352,7 +352,7 @@ mod tests {
             let error = VideoRenderer::parse(value).unwrap_err();
             assert_eq!(
                 error.to_string(),
-                "SCRY_VIDEO_RENDERER must be gpu or gpu-next"
+                "Scry_VIDEO_RENDERER must be gpu or gpu-next"
             );
         }
     }

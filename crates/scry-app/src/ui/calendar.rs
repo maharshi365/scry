@@ -7,13 +7,14 @@ use super::{
         tokens::{accent, edge, panel, theme, type_},
     },
     primitives::{
-        surface::scroll,
+        button::Button,
+        surface::{card, scroll},
         text::{heading, label},
     },
 };
 use chrono::{Datelike, Duration, Local, NaiveDate};
-use rune::{El, col, row, text};
-use scry_library::Media;
+use rune::{El, col, el, row, text};
+use scry_library::{Media, MediaKind};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(super) enum Mode {
@@ -44,6 +45,9 @@ pub(super) struct CalendarUi {
     pub artwork_rects: std::collections::BTreeMap<String, [f32; 4]>,
     pub day_viewports: std::collections::BTreeMap<NaiveDate, [f32; 4]>,
     pub viewport: Option<[f32; 4]>,
+    pub expanded_day: Option<NaiveDate>,
+    pub dialog_artwork_rects: std::collections::BTreeMap<(NaiveDate, usize), [f32; 4]>,
+    pub dialog_viewport: Option<[f32; 4]>,
 }
 
 impl Default for CalendarUi {
@@ -60,6 +64,9 @@ impl Default for CalendarUi {
             artwork_rects: std::collections::BTreeMap::new(),
             day_viewports: std::collections::BTreeMap::new(),
             viewport: None,
+            expanded_day: None,
+            dialog_artwork_rects: std::collections::BTreeMap::new(),
+            dialog_viewport: None,
         }
     }
 }
@@ -83,6 +90,14 @@ pub(super) fn release_date(value: &str) -> Option<NaiveDate> {
 }
 
 impl State {
+    pub(super) fn refresh_calendar(&mut self) {
+        if self.calendar.loading {
+            return;
+        }
+        self.calendar.loading = true;
+        self.refresh_library();
+    }
+
     pub(super) fn fetch_calendar(&mut self) {
         self.calendar.generation += 1;
         self.calendar.loading = !self.calendar.series.is_empty();
@@ -110,8 +125,27 @@ impl State {
         }
         let mut releases = Vec::new();
         for (media, meta) in found {
-            if meta.id != media.key.id || meta.kind != "series" {
+            let kind = if media.key.kind == MediaKind::Movie {
+                "movie"
+            } else {
+                "series"
+            };
+            if meta.id != media.key.id || meta.kind != kind {
                 failed += 1;
+                continue;
+            }
+            if kind == "movie" {
+                if let Some(date) = meta.released.as_deref().and_then(release_date) {
+                    releases.push(Release {
+                        date,
+                        episode_id: media.key.id.clone(),
+                        title: String::new(),
+                        season: None,
+                        episode: None,
+                        poster: meta.poster,
+                        media,
+                    });
+                }
                 continue;
             }
             for video in meta.videos {
@@ -141,6 +175,7 @@ impl State {
         releases.dedup_by(|a, b| a.media.key == b.media.key && a.episode_id == b.episode_id);
         self.calendar.releases = releases;
         self.calendar.artwork_rects.clear();
+        self.calendar.dialog_artwork_rects.clear();
         self.calendar.day_viewports.clear();
         self.calendar.failed = failed;
         self.calendar.loading = false;
@@ -198,11 +233,7 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
                     c.mode == Mode::Month,
                     |s| s.calendar.mode = Mode::Month,
                 ))
-                .child(action(
-                    "calendar-refresh",
-                    "Refresh",
-                    State::refresh_library,
-                )),
+                .child(refresh_button(s)),
         )
         .child(
             row()
@@ -234,25 +265,27 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
                 )
                 .child(series_pages(s)),
         );
-    if c.loading {
-        body = body.child(label("Loading episode release dates…"));
-    }
     if c.failed > 0 {
         body = body.child(label(format!(
-            "{} series could not load. Refresh to retry.",
+            "{} titles could not load. Refresh to retry.",
             c.failed
         )));
     }
     if c.series.is_empty() {
         body = body.child(label(
-            "No library series. Add a series to To watch to see its releases.",
+            "Add movies or series to To watch to see their releases.",
         ));
     }
     let dates = dates(c.anchor, c.mode);
     let mut weeks = col().w_full().min_w(0.0).gap(8.0);
-    for week in dates.chunks(7) {
+    for (week_index, week) in dates.chunks(7).enumerate() {
         let mut cells = col().w_full().min_w(0.0).equal_columns(7).gap(8.0);
-        for date in week {
+        for (column, date) in week.iter().enumerate() {
+            let slot = format!("calendar-slot-{}", week_index * 7 + column);
+            if month && date.month() != c.anchor.month() {
+                cells = cells.child(el().key(slot).w_full().h(day_height));
+                continue;
+            }
             let entries: Vec<_> = c.releases.iter().filter(|r| r.date == *date).collect();
             let mut list = col().w_full().gap(5.0);
             if entries.is_empty() {
@@ -260,15 +293,7 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
             }
             for (i, release) in entries.iter().enumerate() {
                 let item = (**release).clone();
-                let menu = Media {
-                    key: super::library_view::key(
-                        &release.media.key.namespace,
-                        scry_library::MediaKind::Episode,
-                        &release.episode_id,
-                    ),
-                    title: format!("{} · {}", release.media.title, release.title),
-                    parent: Some(release.media.key.clone()),
-                };
+                let menu = release_media(release);
                 let mut copy = col()
                     .w(0.0)
                     .grow(1.0)
@@ -282,15 +307,11 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
                             .color(theme().text),
                     )
                     .child(
-                        text(format!(
-                            "S{} E{}",
-                            release.season.unwrap_or(0),
-                            release.episode.unwrap_or(0)
-                        ))
-                        .w_full()
-                        .truncate()
-                        .font(type_::SMALL_EMPHASIS)
-                        .color(accent()),
+                        text(release_caption(release))
+                            .w_full()
+                            .truncate()
+                            .font(type_::SMALL_EMPHASIS)
+                            .color(accent()),
                     );
                 if !release.title.trim().is_empty() {
                     copy = copy.child(
@@ -315,22 +336,13 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
                     button(
                         entry_key,
                         format!(
-                            "{} S{} E{} · {}",
+                            "{} · {} · {}",
                             release.media.title,
-                            release.season.unwrap_or(0),
-                            release.episode.unwrap_or(0),
+                            release_caption(release),
                             release.title
                         ),
                         move |s| {
-                            let media = Media {
-                                key: super::library_view::key(
-                                    &item.media.key.namespace,
-                                    scry_library::MediaKind::Episode,
-                                    &item.episode_id,
-                                ),
-                                title: item.media.title.clone(),
-                                parent: Some(item.media.key.clone()),
-                            };
+                            let media = release_media(&item);
                             s.open_library_media(&media);
                         },
                     )
@@ -354,37 +366,54 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
             let today = *date == Local::now().date_naive();
             let day = *date;
             cells = cells.child(
-                col()
-                    .key(format!("calendar-day-{date}"))
-                    .w_full()
-                    .min_w(0.0)
-                    .h(day_height)
-                    .padding(if month { 4.0 } else { 6.0 })
-                    .gap(if month { 4.0 } else { 5.0 })
-                    .radius(7.0)
-                    .fill(panel())
-                    .border(1.0, if today { accent() } else { edge() })
-                    .child(
-                        label(format!(
-                            "{} · {}{}",
-                            date.format("%a %d"),
-                            entries.len(),
-                            if entries.len() > 1 { " ↕" } else { "" }
-                        ))
-                        .font(if month {
-                            type_::SMALL
-                        } else {
-                            type_::CAPTION
-                        }),
-                    )
-                    .child(
-                        scroll(format!("calendar-day-scroll-{date}"), list).on_layout(
-                            move |s: &mut State, rect| {
-                                s.calendar.day_viewports.insert(day, rect);
-                                s.refresh_artwork();
-                            },
+                el().key(slot).w_full().min_w(0.0).child(
+                    col()
+                        .key(format!("calendar-day-{date}"))
+                        .w_full()
+                        .min_w(0.0)
+                        .h(day_height)
+                        .padding(if month { 4.0 } else { 6.0 })
+                        .gap(if month { 4.0 } else { 5.0 })
+                        .radius(7.0)
+                        .fill(panel())
+                        .border(1.0, if today { accent() } else { edge() })
+                        .child(
+                            row()
+                                .w_full()
+                                .center_y()
+                                .child(
+                                    label(format!(
+                                        "{} · {}{}",
+                                        date.format("%a %d"),
+                                        entries.len(),
+                                        if entries.len() > 1 { " ↕" } else { "" }
+                                    ))
+                                    .font(if month { type_::SMALL } else { type_::CAPTION })
+                                    .w(0.0)
+                                    .grow(1.0)
+                                    .min_w(0.0)
+                                    .truncate(),
+                                )
+                                .child(
+                                    icon_action(
+                                        format!("calendar-expand-{date}"),
+                                        "Expand day",
+                                        &icons::FULLSCREEN,
+                                        move |s| s.calendar.expanded_day = Some(day),
+                                    )
+                                    .w(24.0)
+                                    .h(24.0),
+                                ),
+                        )
+                        .child(
+                            scroll(format!("calendar-day-scroll-{date}"), list).on_layout(
+                                move |s: &mut State, rect| {
+                                    s.calendar.day_viewports.insert(day, rect);
+                                    s.refresh_artwork();
+                                },
+                            ),
                         ),
-                    ),
+                ),
             );
         }
         weeks = weeks.child(cells);
@@ -397,6 +426,193 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
     )
 }
 
+fn release_caption(release: &Release) -> String {
+    if release.media.key.kind == MediaKind::Movie {
+        "Movie".into()
+    } else {
+        format!(
+            "{} · {}",
+            super::episodes::season_label(release.season),
+            release
+                .episode
+                .map_or_else(|| "Episode".into(), |n| format!("Episode {n}"))
+        )
+    }
+}
+
+fn release_media(release: &Release) -> Media {
+    if release.media.key.kind == MediaKind::Movie {
+        return release.media.clone();
+    }
+    Media {
+        key: super::library_view::key(
+            &release.media.key.namespace,
+            MediaKind::Episode,
+            &release.episode_id,
+        ),
+        title: format!("{} · {}", release.media.title, release.title),
+        parent: Some(release.media.key.clone()),
+    }
+}
+
+pub(super) fn day_dialog(s: &State, cx: &rune::Cx<State>) -> El {
+    let Some(date) = s.calendar.expanded_day else {
+        return el();
+    };
+    let mut list = col().w_full().gap(8.0);
+    let entries: Vec<_> = s
+        .calendar
+        .releases
+        .iter()
+        .filter(|r| r.date == date)
+        .collect();
+    if entries.is_empty() {
+        list = list.child(label("No releases on this day."));
+    }
+    for (index, release) in entries.into_iter().enumerate() {
+        let media = release_media(release);
+        list = list.child(
+            button(
+                format!("calendar-dialog-release-{index}"),
+                format!(
+                    "{} · {} · {}",
+                    release.media.title,
+                    release_caption(release),
+                    release.title
+                ),
+                move |s| {
+                    s.calendar.expanded_day = None;
+                    s.open_library_media(&media);
+                },
+            )
+            .w_full()
+            .h(100.0)
+            .px(12.0)
+            .gap(16.0)
+            .justify_start()
+            .on_layout(move |s: &mut State, rect| {
+                s.calendar.dialog_artwork_rects.insert((date, index), rect);
+                s.refresh_artwork();
+            })
+            .child(
+                super::artwork::poster_thumbnail(
+                    s,
+                    &format!("calendar-dialog-poster-{index}"),
+                    release.poster.as_deref(),
+                    &release.media.title,
+                )
+                .w(48.0)
+                .h(72.0),
+            )
+            .child(
+                col()
+                    .w(0.0)
+                    .grow(1.0)
+                    .min_w(0.0)
+                    .gap(6.0)
+                    .child(
+                        text(release.media.title.clone())
+                            .font(type_::CALENDAR_TITLE)
+                            .color(theme().text)
+                            .truncate(),
+                    )
+                    .child(
+                        label(format!(
+                            "{}{}{}",
+                            release_caption(release),
+                            if release.title.is_empty() { "" } else { " · " },
+                            release.title
+                        ))
+                        .truncate(),
+                    ),
+            ),
+        );
+    }
+    let size = cx.layout("scry").unwrap_or([0.0, 0.0, 1280.0, 820.0]);
+    el().key("calendar-dialog-layer")
+        .w_full()
+        .h_full()
+        .absolute(0.0, 0.0)
+        .center()
+        .fill(super::design::tokens::scrim())
+        .child(
+            card()
+                .key("calendar-day-dialog")
+                .w((size[2] - 64.0).clamp(320.0, 840.0))
+                .h((size[3] - 80.0).max(240.0))
+                .padding(24.0)
+                .gap(16.0)
+                .modal(true, |s: &mut State| s.calendar.expanded_day = None)
+                .child(day_dialog_header(date))
+                .child(
+                    scroll("calendar-dialog-scroll", list).on_layout(|s: &mut State, rect| {
+                        s.calendar.dialog_viewport = Some(rect);
+                        s.refresh_artwork();
+                    }),
+                ),
+        )
+}
+
+fn refresh_button(s: &State) -> El {
+    let busy = s.calendar.loading;
+    let mut glyph = rune::icon(&icons::REFRESH, 16.0)
+        .key("calendar-refresh-icon")
+        .color(accent());
+    if busy {
+        glyph = glyph
+            .key("calendar-refresh-spinner")
+            .looping(rune::LoopSpec::rotation(0.9));
+    }
+    let frame = Button::new("calendar-refresh", "Refresh")
+        .busy(busy)
+        .frame()
+        .w(104.0)
+        .min_w(104.0)
+        .gap(8.0)
+        .child(glyph)
+        .child(text("Refresh").font(type_::LABEL).color(theme().text));
+    if busy {
+        frame
+    } else {
+        frame.on_press(State::refresh_calendar)
+    }
+}
+
+fn day_dialog_header(date: NaiveDate) -> El {
+    row()
+        .w_full()
+        .center_y()
+        .gap(12.0)
+        .child(
+            heading(date.format("%A, %B %-d").to_string())
+                .w(0.0)
+                .grow(1.0)
+                .min_w(0.0),
+        )
+        .child(icon_action(
+            "calendar-dialog-prev",
+            "Previous day",
+            &icons::LEFT,
+            |s| {
+                s.calendar.expanded_day = s.calendar.expanded_day.and_then(|d| d.pred_opt());
+            },
+        ))
+        .child(icon_action(
+            "calendar-dialog-next",
+            "Next day",
+            &icons::RIGHT,
+            |s| {
+                s.calendar.expanded_day = s.calendar.expanded_day.and_then(|d| d.succ_opt());
+            },
+        ))
+        .child(icon_action(
+            "calendar-dialog-close",
+            "Close day",
+            &icons::CLOSE,
+            |s| s.calendar.expanded_day = None,
+        ))
+}
+
 fn series_pages(s: &State) -> El {
     let c = &s.calendar;
     let mut controls = row().gap(5.0).center_y();
@@ -404,10 +620,10 @@ fn series_pages(s: &State) -> El {
         return controls;
     }
     let caption = if c.series.is_empty() {
-        "No more series".into()
+        "No more titles".into()
     } else {
         format!(
-            "Series {}–{}",
+            "Titles {}–{}",
             c.offset.saturating_add(1),
             c.offset
                 .saturating_add(u32::try_from(c.series.len()).unwrap_or(20))
@@ -418,7 +634,7 @@ fn series_pages(s: &State) -> El {
         controls = controls.child(
             icon_action(
                 "calendar-series-prev",
-                "Previous 20 library series",
+                "Previous 20 library titles",
                 &icons::LEFT,
                 |s| {
                     s.calendar.offset = s.calendar.offset.saturating_sub(20);
@@ -427,14 +643,14 @@ fn series_pages(s: &State) -> El {
             )
             .w(28.0)
             .h(28.0)
-            .label("Previous 20 library series"),
+            .label("Previous 20 library titles"),
         );
     }
     if c.series.len() == 20 {
         controls = controls.child(
             icon_action(
                 "calendar-series-next",
-                "Next 20 library series",
+                "Next 20 library titles",
                 &icons::RIGHT,
                 |s| {
                     s.calendar.offset = s.calendar.offset.saturating_add(20);
@@ -443,7 +659,7 @@ fn series_pages(s: &State) -> El {
             )
             .w(28.0)
             .h(28.0)
-            .label("Next 20 library series"),
+            .label("Next 20 library titles"),
         );
     }
     controls
@@ -456,6 +672,36 @@ fn series_pages(s: &State) -> El {
 )]
 mod tests {
     use super::*;
+    #[test]
+    fn movies_use_exact_release_dates_and_preserve_movie_identity() {
+        let mut s = super::super::app::init();
+        let media = Media {
+            key: scry_library::MediaKey::new("test", MediaKind::Movie, "movie"),
+            title: "Movie".into(),
+            parent: None,
+        };
+        let meta: scry_addons::Meta = serde_json::from_value(serde_json::json!({
+            "id":"movie", "type":"movie", "name":"Movie", "released":"2026-10-24", "releaseInfo":"2026"
+        })).unwrap();
+        s.apply_calendar(0, vec![(media.clone(), meta.clone())], 0);
+        assert_eq!(s.calendar.releases.len(), 1);
+        assert_eq!(s.calendar.releases[0].date.to_string(), "2026-10-24");
+        assert_eq!(release_media(&s.calendar.releases[0]), media);
+        assert_eq!(release_caption(&s.calendar.releases[0]), "Movie");
+        let mut undated = meta.clone();
+        undated.released = None;
+        s.apply_calendar(0, vec![(media.clone(), undated)], 0);
+        assert!(
+            s.calendar.releases.is_empty(),
+            "a release year is not an exact date"
+        );
+        let mut wrong = meta;
+        wrong.kind = "series".into();
+        s.apply_calendar(0, vec![(media, wrong)], 0);
+        assert!(s.calendar.releases.is_empty());
+        assert_eq!(s.calendar.failed, 1);
+    }
+
     #[test]
     fn month_grid_covers_leap_day_and_has_monday_columns() {
         let anchor = NaiveDate::from_ymd_opt(2024, 2, 15).unwrap();

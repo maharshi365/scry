@@ -12,7 +12,12 @@ impl State {
         self.context_menu = None;
         match self.navigation.page {
             Page::Discover => self.fetch_catalog(),
-            Page::Watching | Page::Library | Page::Calendar | Page::Player => {
+            Page::Calendar => self.refresh_calendar(),
+            Page::Library | Page::Watching => {
+                self.retry_library_posters();
+                self.refresh_library();
+            }
+            Page::Player => {
                 self.refresh_library();
             }
             Page::Detail => {

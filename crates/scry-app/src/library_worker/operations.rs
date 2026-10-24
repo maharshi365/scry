@@ -24,7 +24,7 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
             return Ok(Event::Overview {
                 generation,
                 watching: library.list_currently_watching(Page::new(MAX_PAGE_SIZE, offset)?)?,
-                series: library.list_calendar_series(Page::new(20, offset)?)?,
+                series: library.list_calendar_titles(Page::new(20, offset)?)?,
             });
         }
         Command::SavePlayback(item, position, duration, delta) => {

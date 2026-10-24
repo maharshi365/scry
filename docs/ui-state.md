@@ -51,6 +51,13 @@ to keep it local to the editor. Ordinary editing keys remain with Rune.
 Plain bindings allow Shift, but reject Alt, Ctrl, Cmd, and Logo. History retains
 its existing Alt-based matching, including additional modifiers.
 
+History is owned by the app, not Rune. On Windows, `platform/windows/navigation.rs`
+captures mouse back/forward buttons and browser commands on the app window. It
+queues directions and wakes Rune. The UI poll drains that queue and calls the
+same `State::travel` action used by keyboard shortcuts and toolbar buttons.
+Native callbacks never mutate UI state directly. The window subclass is removed
+and its input handle released when the window is destroyed.
+
 ## Remaining state work
 
 This is the first extraction, not a complete root-state migration. Catalog,

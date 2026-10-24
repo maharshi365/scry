@@ -16,6 +16,14 @@ formatting.rs     clocks, metrics, excerpts; no styling
 ```
 
 Screens own navigation, data loading, playback rules, and layout geometry.
+`poster_grid.rs` owns the common card and virtualized grid for Movies, TV shows,
+search, Library, and Currently watching. Screens put their own headings and filters
+above that grid. In-progress cards retain saved playback times or the next-episode
+label; episode posters come from their parent series without changing resume identity.
+Poster metadata is loaded only for visible cards, in batches of at most
+12 with four provider requests in flight. It uses the same bounded image cache
+as catalogs. Missing or offline artwork keeps a title placeholder; Refresh retries
+failed lookups. No database migration or saved-state rewrite is needed.
 Primitives receive callbacks and must not depend on those features. The player
 keeps its playback gate and fullscreen transaction in its own module.
 

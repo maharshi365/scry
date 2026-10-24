@@ -15,6 +15,7 @@ mod formatting;
 mod library_view;
 mod navigation;
 mod player;
+mod poster_grid;
 mod primitives;
 mod scenes;
 mod shell;
@@ -37,6 +38,7 @@ const EPISODES_PER_PAGE: usize = 100;
     reason = "Independent UI, configuration, and playback flags are not mutually exclusive states"
 )]
 pub struct State {
+    native_navigation: scry_app::platform::NavigationInput,
     logo: rune::Pixels,
     artwork: Option<crate::artwork::Artwork>,
     artwork_urls: Vec<String>,

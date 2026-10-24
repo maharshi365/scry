@@ -4,7 +4,6 @@ use super::{
     design::tokens::{self, accent, type_},
 };
 use rune::{El, el, text};
-use scry_addons::Meta;
 
 pub(super) const POSTER_CARD_HEIGHT: f32 = 302.0;
 pub(super) const POSTER_GAP: f32 = 18.0;
@@ -53,34 +52,35 @@ pub(super) fn player_artwork(s: &State) -> Vec<String> {
 
 pub(super) fn visible_artwork(s: &State) -> Vec<String> {
     let mut urls = Vec::new();
-    if s.navigation.page == Page::Discover {
-        for (index, meta) in s.metas.iter().enumerate() {
-            let visible = if s.poster_route == s.navigation.route_key && !s.poster_rects.is_empty()
-            {
-                s.poster_viewport
-                    .zip(s.poster_rects.get(&(index / s.poster_columns)))
-                    .is_some_and(|(viewport, rect)| {
-                        rect[1] < viewport[1] + viewport[3] && rect[1] + rect[3] > viewport[1]
-                    })
-            } else {
-                index < 12
-            };
-            if visible
-                && let Some(url) = &meta.poster
-                && !urls.contains(url)
-            {
-                urls.push(url.clone());
-            }
-            if urls.len() == 32 {
-                break;
-            }
-        }
+    if matches!(
+        s.navigation.page,
+        Page::Discover | Page::Library | Page::Watching
+    ) {
+        return super::poster_grid::artwork_urls(s);
     } else if s.navigation.page == Page::Detail
         && let Some(url) = s.detail.as_ref().and_then(|meta| meta.poster.as_ref())
     {
         urls.push(url.clone());
     } else if s.navigation.page == Page::Calendar {
         let c = &s.calendar;
+        if let Some(day) = c.expanded_day {
+            for (index, release) in c.releases.iter().filter(|r| r.date == day).enumerate() {
+                let visible = c.dialog_artwork_rects.get(&(day, index)).is_none_or(|r| {
+                    c.dialog_viewport
+                        .is_none_or(|viewport| intersects(*r, viewport))
+                });
+                if visible
+                    && let Some(url) = &release.poster
+                    && !urls.contains(url)
+                {
+                    urls.push(url.clone());
+                }
+                if urls.len() == 32 {
+                    break;
+                }
+            }
+            return urls;
+        }
         let days = super::calendar::dates(c.anchor, c.mode);
         let mut indices = std::collections::BTreeMap::new();
         for release in &c.releases {
@@ -110,21 +110,20 @@ pub(super) fn visible_artwork(s: &State) -> Vec<String> {
     urls
 }
 
-pub(super) fn poster(s: &State, meta: &Meta, index: usize) -> El {
+pub(super) fn poster(s: &State, title: &str, url: Option<&str>, index: usize) -> El {
     let surface = el()
+        .role("img")
+        .label(title)
         .w_full()
         .h(246.0)
         .radius(4.0)
         .fill(tokens::poster(index));
-    if let Some(image) = meta
-        .poster
-        .as_ref()
-        .and_then(|url| s.artwork.as_ref()?.get(url))
-    {
+    if let Some(image) = url.and_then(|url| s.artwork.as_ref()?.get(url)) {
         surface.pixels_fit(&image, rune::SurfaceFit::Fill)
     } else {
         surface.center().child(
-            text(meta.name.chars().next().unwrap_or('S').to_string())
+            text(title.chars().next().unwrap_or('S').to_string())
+                .key(format!("poster-fallback-{index}"))
                 .font(type_::POSTER_FALLBACK)
                 .color(accent()),
         )

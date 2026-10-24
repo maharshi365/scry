@@ -2,7 +2,7 @@
 use super::{
     Page, State,
     addons::addons,
-    controls::{action, icon_action, input, select_action},
+    controls::{icon_action, input, select_action},
     design::{
         icons,
         tokens::{self, type_},
@@ -41,9 +41,9 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
         .padding(20.0);
     content = content.child(match s.navigation.page {
         Page::Discover => discover(s, cx),
-        Page::Watching => library_view::watching(s),
+        Page::Watching => library_view::watching(s, cx),
         Page::Calendar => super::calendar::view(s, cx),
-        Page::Library => library_view::view(s),
+        Page::Library => library_view::view(s, cx),
         Page::Addons => addons(s),
         Page::Detail => detail(s),
         Page::Player => player(s, cx.env().scale),
@@ -99,6 +99,9 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
     if s.addon_install_open {
         root = root.child(super::addons::install_dialog(s));
     }
+    if s.navigation.page == Page::Calendar && s.calendar.expanded_day.is_some() {
+        root = root.child(super::calendar::day_dialog(s, cx));
+    }
     root
 }
 
@@ -115,7 +118,7 @@ fn sidebar(s: &State) -> El {
             row()
                 .gap(8.0)
                 .child(el().key("brand-logo").w(28.0).h(28.0).pixels(&s.logo))
-                .child(text("SKRY").font(type_::WORDMARK).color(tokens::brand())),
+                .child(text("Scry").font(type_::WORDMARK).color(tokens::brand())),
         )
         .child(el().h(16.0));
     for (key, title, page) in [
@@ -180,7 +183,19 @@ fn topbar(s: &State) -> El {
             |s| &mut s.search,
             State::submit_search,
         ))
-        .child(action("search-go", "Search", State::submit_search))
+        .child(
+            Button::new(
+                "search-go",
+                if s.navigation.page == Page::Discover && s.loading && !s.displayed_query.is_empty()
+                {
+                    "Searching…"
+                } else {
+                    "Search"
+                },
+            )
+            .busy(s.navigation.page == Page::Discover && s.loading && !s.displayed_query.is_empty())
+            .on_press(State::submit_search),
+        )
         .child(icon_action(
             "page-refresh",
             "Refresh current page",

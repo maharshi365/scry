@@ -51,6 +51,7 @@ pub struct Meta {
     pub background: Option<String>,
     pub logo: Option<String>,
     pub year: String,
+    pub released: Option<String>,
     pub genres: Vec<String>,
     pub videos: Vec<Video>,
 }
@@ -74,6 +75,7 @@ impl<'de> Deserialize<'de> for Meta {
             release: String,
             #[serde(default, deserialize_with = "release_info")]
             year: String,
+            released: Option<String>,
             #[serde(default, deserialize_with = "optional_genres")]
             genres: Vec<String>,
             #[serde(default)]
@@ -94,6 +96,7 @@ impl<'de> Deserialize<'de> for Meta {
                 fields.release
             },
             genres: fields.genres,
+            released: fields.released,
             videos: fields.videos,
         })
     }
@@ -238,19 +241,19 @@ impl Catalog {
 }
 
 /// # Errors
-/// Returns an error if the input is not a valid HTTPS add-on manifest URL.
+/// Returns an error if the input is not a valid HTTP or HTTPS add-on manifest URL.
 pub fn manifest_url(input: &str) -> Result<Url> {
     let input = input.trim();
     let input = input
         .strip_prefix("stremio://")
         .map_or_else(|| input.to_owned(), |rest| format!("https://{rest}"));
-    let mut url = Url::parse(&input).context("Enter an HTTPS add-on manifest URL")?;
-    if url.scheme() != "https"
+    let mut url = Url::parse(&input).context("Enter an HTTP or HTTPS add-on manifest URL")?;
+    if !matches!(url.scheme(), "http" | "https")
         || url.host_str().is_none()
         || !url.username().is_empty()
         || url.password().is_some()
     {
-        bail!("Add-ons must use HTTPS and cannot contain login credentials");
+        bail!("Add-ons must use HTTP or HTTPS and cannot contain login credentials");
     }
     if url.query().is_some() || url.fragment().is_some() {
         bail!("Use the add-on's manifest URL without a query or fragment");
@@ -342,11 +345,10 @@ impl Addon {
 
 impl Client {
     /// # Errors
-    /// Returns an error if the HTTPS client cannot be initialized.
+    /// Returns an error if the HTTP client cannot be initialized.
     pub fn new() -> Result<Self> {
         Ok(Self(
             reqwest::Client::builder()
-                .https_only(true)
                 .timeout(Duration::from_secs(25))
                 .connect_timeout(Duration::from_secs(8))
                 .user_agent("Scry/0.1")
@@ -475,8 +477,7 @@ mod tests {
             }
             socket.write_all(response.as_bytes()).await.unwrap();
         });
-        // HTTP is allowed only on this private test client, not Client::new().
-        let client = Client(reqwest::Client::builder().no_proxy().build().unwrap());
+        let client = Client::new().unwrap();
         let error = client
             .json::<Vec<Meta>>(
                 Url::parse(&format!("http://{address}/private-token/manifest.json")).unwrap(),
@@ -526,9 +527,20 @@ mod tests {
     }
 
     #[test]
-    fn insecure_manifests_are_rejected() {
+    fn http_manifests_and_resources_are_supported() {
+        let input = "http://gdrive2.billythebishop4.workers.dev/manifest.json";
+        assert_eq!(manifest_url(input).unwrap().as_str(), input);
+        assert_eq!(
+            resource_url(input, "meta", "movie", "tt123", None)
+                .unwrap()
+                .as_str(),
+            "http://gdrive2.billythebishop4.workers.dev/meta/movie/tt123.json"
+        );
+    }
+
+    #[test]
+    fn unsupported_manifest_schemes_and_logins_are_rejected() {
         for input in [
-            "http://example.com/manifest.json",
             "file:///manifest.json",
             "https://user:pass@example.com/manifest.json",
         ] {

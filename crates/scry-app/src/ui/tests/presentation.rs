@@ -1,5 +1,6 @@
 use super::*;
 use crate::library_worker::{SelectedState, Snapshot};
+use chrono::Datelike;
 use scry_library::WatchedState;
 
 #[test]
@@ -26,7 +27,27 @@ fn library_empty_states_keep_filters_and_browse_the_selected_type() {
             tap(&mut rt, "library-watched-tab");
         }
         tap(&mut rt, "library-series-filter");
+        rt.update(|s, _| s.apply_library_entries(vec![]));
+        rt.frame(1.0 / 60.0);
+        let list_tab = rect(&rt, "library-watchlist-tab");
+        let kind_tab = rect(&rt, "library-series-filter");
+        assert!(
+            (list_tab[1] - kind_tab[1]).abs() < 1.0,
+            "Library filters share one toolbar"
+        );
+        assert!(list_tab[3] >= 36.0);
         assert!(rt.find("library-empty").is_some());
+        let empty = rect(&rt, "library-empty");
+        let filters = rect(&rt, "library-series-filter");
+        assert!(
+            empty[1] >= filters[1] + filters[3],
+            "empty content must stay below the filters"
+        );
+        assert!(empty[1] < filters[1] + filters[3] + 40.0);
+        assert!(
+            empty[3] < 350.0,
+            "empty state should not stretch across the screen"
+        );
         assert!(rt.find("library-prev").is_none());
         assert!(rt.find("library-next").is_none());
         assert!(rt.elements().iter().any(|e| e.text.as_deref()
@@ -67,10 +88,14 @@ fn month_columns_align_across_rows_at_small_window_sizes() {
         for _ in 0..30 {
             rt.frame(1.0 / 60.0);
         }
-        let first = rect(&rt, &format!("calendar-day-{}", days[0]));
+        let first = rect(&rt, "calendar-slot-0");
         for (i, date) in days.iter().enumerate() {
+            if date.month() != rt.state.calendar.anchor.month() {
+                assert!(rt.find(&format!("calendar-day-{date}")).is_none());
+                continue;
+            }
             let r = rect(&rt, &format!("calendar-day-{date}"));
-            let col = rect(&rt, &format!("calendar-day-{}", days[i % 7]));
+            let col = rect(&rt, &format!("calendar-slot-{}", i % 7));
             assert!(
                 (r[0] - col[0]).abs() < 0.5,
                 "column alignment at width {width}"
@@ -96,7 +121,7 @@ fn calendar_series_paging_stays_in_the_header() {
     let mut s = init();
     s.navigation.page = Page::Calendar;
     s.calendar.mode = crate::ui::calendar::Mode::Month;
-    let date = crate::ui::calendar::dates(s.calendar.anchor, s.calendar.mode)[0];
+    let date = s.calendar.anchor;
     s.calendar.series = (0..20)
         .map(|i| scry_library::Media {
             key: scry_library::MediaKey::new(

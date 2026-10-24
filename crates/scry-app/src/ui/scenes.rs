@@ -128,6 +128,29 @@ pub(super) fn scene_library_empty(s: &mut State) {
     s.library.entries = Some(Vec::new());
 }
 
+pub(super) fn scene_watching(s: &mut State) {
+    scene_library(s);
+    s.navigation.page = Page::Watching;
+    s.status.clear();
+    let items = s
+        .library
+        .entries
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|media| {
+            (
+                media,
+                scry_library::Progress {
+                    position_seconds: 1800.0,
+                    duration_seconds: 5400.0,
+                },
+            )
+        })
+        .collect();
+    s.apply_watching_entries(items);
+}
+
 pub(super) fn scene_calendar(s: &mut State) {
     s.navigation.page = Page::Calendar;
     s.config_busy = false;
@@ -158,4 +181,14 @@ pub(super) fn scene_calendar(s: &mut State) {
 pub(super) fn scene_calendar_month(s: &mut State) {
     scene_calendar(s);
     s.calendar.mode = super::calendar::Mode::Month;
+}
+
+pub(super) fn scene_calendar_day(s: &mut State) {
+    scene_calendar(s);
+    s.calendar.expanded_day = Some(s.calendar.anchor);
+}
+
+pub(super) fn scene_calendar_refresh(s: &mut State) {
+    scene_calendar_month(s);
+    s.calendar.loading = true;
 }

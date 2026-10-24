@@ -9,6 +9,77 @@ fn movie(id: &str) -> Media {
 }
 
 #[test]
+fn watched_titles_leave_to_watch_and_unwatched_saved_titles_return() -> anyhow::Result<()> {
+    let mut db = Library::memory()?;
+    for kind in [MediaKind::Movie, MediaKind::Series] {
+        let item = Media {
+            key: MediaKey::new("test", kind, "saved"),
+            title: "Saved".into(),
+            parent: None,
+        };
+        db.upsert_media(&item)?;
+        db.add_to_watchlist(&item.key)?;
+        db.set_watched(&item.key, true)?;
+        assert!(db.list_library(false, kind, Page::default())?.is_empty());
+        assert_eq!(
+            db.list_library(true, kind, Page::default())?,
+            vec![item.clone()]
+        );
+        db.set_watched(&item.key, false)?;
+        assert_eq!(db.list_library(false, kind, Page::default())?, vec![item]);
+        assert!(db.list_library(true, kind, Page::default())?.is_empty());
+    }
+    Ok(())
+}
+
+#[test]
+fn automatically_watched_titles_are_excluded_before_to_watch_pagination() -> anyhow::Result<()> {
+    let mut db = Library::memory()?;
+    let remaining = movie("remaining");
+    let finished = movie("finished");
+    for item in [&remaining, &finished] {
+        db.upsert_media(item)?;
+        db.add_to_watchlist(&item.key)?;
+    }
+    db.record_playback(&finished.key, 80.0, 100.0, 80.0)?;
+    assert_eq!(
+        db.list_library(false, MediaKind::Movie, Page::new(1, 0)?)?,
+        vec![remaining]
+    );
+    assert_eq!(
+        db.list_library(true, MediaKind::Movie, Page::default())?,
+        vec![finished]
+    );
+    Ok(())
+}
+
+#[test]
+fn calendar_includes_saved_movies_and_series_but_not_browsed_metadata() -> anyhow::Result<()> {
+    let mut db = Library::memory()?;
+    let saved = movie("saved");
+    let playing = movie("playing");
+    let unrelated = movie("browsed");
+    let show = Media {
+        key: MediaKey::new("test", MediaKind::Series, "show"),
+        title: "Show".into(),
+        parent: None,
+    };
+    for item in [&saved, &playing, &unrelated, &show] {
+        db.upsert_media(item)?;
+    }
+    db.add_to_watchlist(&saved.key)?;
+    db.add_to_watchlist(&show.key)?;
+    db.record_playback(&playing.key, 10.0, 100.0, 10.0)?;
+    let titles = db.list_calendar_titles(Page::default())?;
+    assert_eq!(titles.len(), 3);
+    for item in [saved, playing, show] {
+        assert!(titles.contains(&item));
+    }
+    assert!(!titles.contains(&unrelated));
+    Ok(())
+}
+
+#[test]
 fn watched_time_is_independent_of_position_and_survives_reopen() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("library.db");

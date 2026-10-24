@@ -7,7 +7,7 @@ resident RAM in two matched 8-second runs, but used 8–10 MiB more private
 memory. There is no clear overall memory win from changing the renderer.
 This experiment does **not** establish a low-RAM target or a major RAM reduction.
 
-`SCRY_VIDEO_RENDERER=gpu|gpu-next` selects the native renderer. The value is
+`Scry_VIDEO_RENDERER=gpu|gpu-next` selects the native renderer. The value is
 validated once when `Player::open` creates a native player. An unset value uses
 `gpu-next`; all other values return an error. Decode-only playback ignores it.
 There is no automatic retry or silent renderer substitution. To test an
@@ -68,11 +68,11 @@ environment or Rust process environment mutation is needed.
 
 ```powershell
 cargo build --example embedded_probe
-$env:SCRY_VIDEO_RENDERER = 'gpu-next'
+$env:Scry_VIDEO_RENDERER = 'gpu-next'
 & .\target\debug\examples\embedded_probe.exe target/playback-fixture.mp4 8 target/native-gpunext.jsonl
-$env:SCRY_VIDEO_RENDERER = 'gpu'
+$env:Scry_VIDEO_RENDERER = 'gpu'
 & .\target\debug\examples\embedded_probe.exe target/playback-fixture.mp4 8 target/native-gpu.jsonl
-Remove-Item Env:SCRY_VIDEO_RENDERER
+Remove-Item Env:Scry_VIDEO_RENDERER
 cargo run -- --analyze target/native-gpu.jsonl --baseline target/native-gpunext.jsonl
 ```
 

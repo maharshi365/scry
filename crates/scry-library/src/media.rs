@@ -227,8 +227,15 @@ impl Library {
                 ),
             );
         } else {
-            query =
-                query.filter(media::media_id.eq_any(watchlist::table.select(watchlist::media_id)));
+            query = query
+                .filter(media::media_id.eq_any(watchlist::table.select(watchlist::media_id)))
+                .filter(
+                    media::media_id.ne_all(
+                        watched::table
+                            .filter(watched::is_watched.eq(true))
+                            .select(watched::media_id),
+                    ),
+                );
         }
         let records = query
             .order(media::media_id.desc())
@@ -239,13 +246,13 @@ impl Library {
         hydrate(connection, records)
     }
 
-    /// Series saved, watched, or with episode playback. No unrelated metadata.
+    /// Movies and series saved, watched, or with playback. No unrelated metadata.
     /// # Errors
     /// Returns an error on database reads.
-    pub fn list_calendar_series(&self, page: Page) -> Result<Vec<Media>> {
+    pub fn list_calendar_titles(&self, page: Page) -> Result<Vec<Media>> {
         let connection = &mut *self.connection.borrow_mut();
         // Correlated self-reference is clearer in SQL than in Diesel's alias DSL.
-        let records = diesel::sql_query("SELECT m.* FROM media m WHERE m.kind='series' AND (EXISTS(SELECT 1 FROM watchlist w WHERE w.media_id=m.media_id) OR EXISTS(SELECT 1 FROM watched w WHERE w.media_id=m.media_id) OR EXISTS(SELECT 1 FROM media e JOIN viewing v ON v.media_id=e.media_id WHERE e.parent_id=m.media_id)) ORDER BY m.media_id DESC LIMIT ? OFFSET ?")
+        let records = diesel::sql_query("SELECT m.* FROM media m WHERE m.kind IN ('movie','series') AND (EXISTS(SELECT 1 FROM watchlist w WHERE w.media_id=m.media_id) OR EXISTS(SELECT 1 FROM watched w WHERE w.media_id=m.media_id) OR EXISTS(SELECT 1 FROM viewing v WHERE v.media_id=m.media_id) OR EXISTS(SELECT 1 FROM media e JOIN viewing v ON v.media_id=e.media_id WHERE e.parent_id=m.media_id)) ORDER BY m.media_id DESC LIMIT ? OFFSET ?")
             .bind::<diesel::sql_types::BigInt, _>(i64::from(page.limit))
             .bind::<diesel::sql_types::BigInt, _>(i64::from(page.offset)).load(connection)?;
         hydrate(connection, records)

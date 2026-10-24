@@ -55,7 +55,11 @@ pub(super) fn detail(s: &State) -> El {
     let header = if let Some(meta) = s.detail.as_ref().filter(|meta| meta.poster.is_some()) {
         row()
             .gap(16.0)
-            .child(poster(s, meta, 0).w(120.0).h(180.0))
+            .child(
+                poster(s, &meta.name, meta.poster.as_deref(), 0)
+                    .w(120.0)
+                    .h(180.0),
+            )
             .child(header.grow(1.0).min_w(0.0))
     } else {
         header

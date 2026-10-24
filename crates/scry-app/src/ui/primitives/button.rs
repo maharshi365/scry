@@ -1,6 +1,32 @@
 use super::super::design::tokens::{self, control, type_};
 use rune::{El, Icon, Tx, icon, row, text};
 
+pub(in crate::ui) fn segmented_group() -> El {
+    row()
+        .gap(4.0)
+        .padding(4.0)
+        .radius(10.0)
+        .fill(tokens::panel())
+        .border(1.0, tokens::edge())
+}
+
+pub(in crate::ui) fn segment<S: 'static>(
+    key: impl Into<String>,
+    title: impl Into<String>,
+    selected: bool,
+    f: impl Fn(&mut S) + 'static,
+) -> El {
+    Button::new(key, title)
+        .variant(Variant::Ghost)
+        .selected(selected)
+        .on_press(f)
+        .min_w(96.0)
+        .h(36.0)
+        .px(16.0)
+        .radius(6.0)
+        .border(0.0, tokens::edge())
+}
+
 #[derive(Clone, Copy, Default)]
 pub(in crate::ui) enum Variant {
     Primary,

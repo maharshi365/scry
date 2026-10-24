@@ -76,6 +76,7 @@ impl State {
         self.navigation.page = page;
         self.context_menu = None;
         self.addon_install_open = false;
+        self.calendar.expanded_day = None;
         self.detail_id += 1;
         self.stream_id += 1;
         self.catalog_id += 1;
@@ -141,6 +142,9 @@ impl State {
         let Some(route) = route else {
             return;
         };
+        self.context_menu = None;
+        self.addon_install_open = false;
+        self.calendar.expanded_day = None;
         let current = self.route();
         if forward {
             self.navigation.back.push(current);

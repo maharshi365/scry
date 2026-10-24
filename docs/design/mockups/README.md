@@ -1,4 +1,4 @@
-# Skry HTML screen preview
+# Scry HTML screen preview
 
 ```powershell
 node docs/design/mockups/server.mjs

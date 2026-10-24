@@ -1,6 +1,8 @@
 //! OS boundary. Shared UI and services must not import Win32 or Cocoa APIs.
 use anyhow::Result;
 use scry_playback::PlaybackTarget;
+mod navigation;
+pub use navigation::{HistoryDirection, NavigationInput};
 
 #[cfg(not(windows))]
 mod unsupported;

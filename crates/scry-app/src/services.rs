@@ -21,8 +21,39 @@ pub use crate::search::SearchResult;
 
 pub const CINEMETA: &str = "https://v3-cinemeta.strem.io/manifest.json";
 
+#[derive(Clone, Debug)]
+pub struct LibraryPoster {
+    pub poster: Option<String>,
+    pub year: String,
+}
+
+impl LibraryPoster {
+    fn for_media(media: &scry_library::Media, meta: Meta) -> Option<Self> {
+        let kind = match media.key.kind {
+            scry_library::MediaKind::Movie => "movie",
+            scry_library::MediaKind::Series => "series",
+            scry_library::MediaKind::Episode => return None,
+        };
+        if meta.id != media.key.id
+            || meta.kind != kind
+            || meta.poster.as_deref().is_none_or(|p| p.trim().is_empty())
+        {
+            return None;
+        }
+        Some(Self {
+            poster: meta.poster,
+            year: meta.year,
+        })
+    }
+}
+
 #[derive(Debug)]
 pub enum Event {
+    LibraryPosters(
+        u64,
+        Vec<(scry_library::MediaKey, Option<LibraryPoster>)>,
+        bool,
+    ),
     Calendar(u64, Vec<(scry_library::Media, Meta)>, usize),
     Addons(Result<Vec<Addon>, String>),
     Catalog(u64, Result<Vec<Meta>, String>),
@@ -79,6 +110,7 @@ pub struct Services {
     detail_task: Option<tokio::task::JoinHandle<()>>,
     stream_task: Option<tokio::task::JoinHandle<()>>,
     calendar_task: Option<tokio::task::JoinHandle<()>>,
+    library_poster_task: Option<tokio::task::JoinHandle<()>>,
     control: Option<watch::Sender<Option<Control>>>,
     commands: Option<mpsc::Sender<(u64, Vec<String>)>>,
     player: Option<JoinHandle<()>>,
@@ -123,6 +155,7 @@ impl Services {
             detail_task: None,
             stream_task: None,
             calendar_task: None,
+            library_poster_task: None,
             control: Some(control),
             commands: Some(commands),
             player: Some(player),
@@ -428,11 +461,16 @@ impl Services {
                     let (client, mut addons) = (client.clone(), addons.clone());
                     tasks.spawn(async move {
                         addons.sort_by_key(|a| a.manifest.id != media.key.namespace);
+                        let kind = if media.key.kind == scry_library::MediaKind::Movie {
+                            "movie"
+                        } else {
+                            "series"
+                        };
                         for addon in addons
                             .iter()
-                            .filter(|a| a.supports("meta", "series", &media.key.id))
+                            .filter(|a| a.supports("meta", kind, &media.key.id))
                         {
-                            if let Ok(meta) = client.meta(addon, "series", &media.key.id).await {
+                            if let Ok(meta) = client.meta(addon, kind, &media.key.id).await {
                                 return Some((media, meta));
                             }
                         }
@@ -449,6 +487,60 @@ impl Services {
                 }
             }
             inbox.send(Event::Calendar(generation, found, failed)).await;
+        }));
+    }
+
+    pub fn library_posters(
+        &mut self,
+        generation: u64,
+        addons: Vec<Addon>,
+        media: Vec<scry_library::Media>,
+    ) {
+        if let Some(task) = self.library_poster_task.take() {
+            task.abort();
+        }
+        let (client, inbox) = (self.client.clone(), self.inbox.clone());
+        self.library_poster_task = Some(self.runtime.spawn(async move {
+            let mut remaining = media.into_iter().take(12);
+            let mut tasks = tokio::task::JoinSet::new();
+            loop {
+                while tasks.len() < 4 {
+                    let Some(media) = remaining.next() else {
+                        break;
+                    };
+                    let (client, mut addons) = (client.clone(), addons.clone());
+                    tasks.spawn(async move {
+                        addons.sort_by_key(|a| a.manifest.id != media.key.namespace);
+                        let kind = if media.key.kind == scry_library::MediaKind::Movie {
+                            "movie"
+                        } else {
+                            "series"
+                        };
+                        for addon in addons
+                            .iter()
+                            .filter(|a| a.supports("meta", kind, &media.key.id))
+                        {
+                            if let Ok(meta) = client.meta(addon, kind, &media.key.id).await
+                                && let Some(poster) = LibraryPoster::for_media(&media, meta)
+                            {
+                                return (media.key, Some(poster));
+                            }
+                        }
+                        (media.key, None)
+                    });
+                }
+                let Some(result) = tasks.join_next().await else {
+                    break;
+                };
+                if let Ok(item) = result {
+                    inbox
+                        .send(Event::LibraryPosters(generation, vec![item], false))
+                        .await;
+                }
+            }
+            inbox
+                .send(Event::LibraryPosters(generation, Vec::new(), true))
+                .await;
         }));
     }
 
@@ -480,6 +572,7 @@ impl Services {
             &mut self.detail_task,
             &mut self.stream_task,
             &mut self.calendar_task,
+            &mut self.library_poster_task,
         ] {
             if let Some(task) = task.take() {
                 task.abort();
@@ -760,6 +853,35 @@ fn destroy_player(player: &mut Option<Box<dyn PlaybackEngine>>) {
 )]
 mod tests {
     use super::*;
+
+    #[test]
+    fn library_artwork_requires_matching_identity_and_a_nonempty_poster() {
+        let media = scry_library::Media {
+            key: scry_library::MediaKey::new("test", scry_library::MediaKind::Movie, "film"),
+            title: "Film".into(),
+            parent: None,
+        };
+        let meta: Meta = serde_json::from_value(serde_json::json!({
+            "id":"film", "type":"movie", "name":"Film", "releaseInfo":"2026", "poster":"https://example.com/poster.jpg"
+        })).unwrap();
+        let poster = LibraryPoster::for_media(&media, meta.clone()).unwrap();
+        assert_eq!(
+            poster.poster.as_deref(),
+            Some("https://example.com/poster.jpg")
+        );
+        assert_eq!(poster.year, "2026");
+        let mut wrong_id = meta.clone();
+        wrong_id.id = "another-film".into();
+        assert!(LibraryPoster::for_media(&media, wrong_id).is_none());
+        let mut wrong_type = meta.clone();
+        wrong_type.kind = "series".into();
+        assert!(LibraryPoster::for_media(&media, wrong_type).is_none());
+        for url in [None, Some(" ".into())] {
+            let mut missing = meta.clone();
+            missing.poster = url;
+            assert!(LibraryPoster::for_media(&media, missing).is_none());
+        }
+    }
 
     #[test]
     fn config_replacement_persists_removal_in_sqlite() {

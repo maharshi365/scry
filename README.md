@@ -1,6 +1,6 @@
-<img src="crates/scry-app/assets/skry.svg" width="64" height="64" alt="Skry Shear logo">
+<img src="crates/scry-app/assets/skry.svg" width="64" height="64" alt="Scry logo">
 
-# Skry
+# Scry
 
 A native, Windows-first streaming app. Rune draws the interface. libmpv plays video inside the app. Rust services handle Stremio add-ons and torrents. There is no browser, webview, Electron process, or external player.
 
@@ -15,13 +15,13 @@ pwsh -File scripts/setup-runtime.ps1
 cargo run --release
 ```
 
-The setup script downloads a pinned x64 libmpv build and verifies its SHA-256 checksum. It changes only `runtime/`. You can instead set `SCRY_MPV_LIBRARY` to a trusted libmpv library. For a packaged build, put `libmpv-2.dll` beside `scry.exe`.
+The setup script downloads a pinned x64 libmpv build and verifies its SHA-256 checksum. It changes only `runtime/`. You can instead set `Scry_MPV_LIBRARY` to a trusted libmpv library. For a packaged build, put `libmpv-2.dll` beside `scry.exe`.
 
 In **Add-ons → Supported**, choose Cinemeta or Torrentio to open the install dialog. Use **Add by URL** for another provider or your configured Torrentio manifest. Installed providers have a separate list. A configured manifest can include private credentials in its path. Do not share it or commit local settings.
 
 ### Add-on support
 
-Supported: HTTPS manifests, catalog browsing/search, movie and series metadata,
+Supported: HTTP and HTTPS manifests, catalog browsing/search, movie and series metadata,
 episode IDs, direct HTTP/debrid streams, and BitTorrent v1 `infoHash` sources
 with optional file indices and tracker hints. Required catalog filters other
 than search are not implemented.
@@ -73,10 +73,12 @@ Storage uses Diesel with embedded, versioned migrations. This pre-release storag
 starts fresh; old `library.sqlite3` and `addons.json` stores are not imported or deleted.
 
 Episode browsing uses 100-item pages. Library lists use 200-item pages.
-**Calendar** has Week and Month views; each day has its own scrollable episode
-list. Release dates come from metadata, not stream availability. The calendar
-loads 20 library series at a time; use its series-page controls for more. Refresh
-retrieves current metadata. Undated episodes are omitted. There is no background
+**Calendar** has Week and Month views; each day has its own scrollable release
+list and an expand button for a larger day dialog. Month view shows only that
+month's dates. Saved movies and series appear when metadata supplies an exact
+release date, not stream availability. The calendar loads 20 library titles at a
+time; use its title-page controls for more. Refresh retrieves current metadata.
+Undated releases are omitted. There is no background
 new-release notification service yet.
 
 ## Performance diagnostics

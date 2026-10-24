@@ -76,6 +76,9 @@ entry per series, ordered by most recent save. Unknown/future episodes are not
 selected. Natural EOF clears resume state, but does not invent watched time.
 
 `list_library(watched, kind, page)` filters Movies or TV series before pagination.
+To watch includes saved titles that are not watched; Watched includes watched
+titles regardless of saved membership. Marking a saved title unwatched makes it
+visible in To watch again. These two views do not show the same title at once.
 The native UI has no playlist controls; existing standalone playlist storage
 APIs are not part of the application workflow.
 
@@ -85,6 +88,8 @@ and installs a false override. Further playback does not mark it watched until
 the user clears the override or explicitly marks it watched. Clearing the
 override recalculates watched status from accumulated playback time (or false if absent).
 Watchlist membership is independent and is never removed automatically.
+`list_watchlist` returns that raw membership, including saved watched titles;
+the UI uses `list_library` for its mutually exclusive tabs.
 
 Series and episode state are independent. Finishing one episode never marks its
 series watched. Marking a series watched never cascades to episodes. The UI can

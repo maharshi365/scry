@@ -1,13 +1,14 @@
 //! Library presentation and nonblocking worker integration.
+mod posters;
 mod progress;
 use super::{
     State,
-    controls::{action, select_action},
-    design::{icons, tokens::theme},
+    controls::action,
+    design::icons,
     formatting::clock,
     primitives::{
-        button::{Button, Variant},
-        surface::{empty_state, scroll, watched_badge},
+        button::{Button, Variant, segment, segmented_group},
+        surface::{empty_state, watched_badge},
         text::{heading, label},
     },
 };
@@ -28,6 +29,7 @@ pub(super) struct LibraryUi {
     offset: u32,
     kind: MediaKind,
     pub(in crate::ui) entries: Option<Vec<Media>>,
+    pub(in crate::ui) posters: posters::PosterUi,
     pub watching: Vec<(Media, scry_library::Progress)>,
     pub next_episode: Option<Media>,
     pub watched_pending: f64,
@@ -51,6 +53,7 @@ impl Default for LibraryUi {
             offset: 0,
             kind: MediaKind::Movie,
             entries: None,
+            posters: posters::PosterUi::default(),
             watching: Vec::new(),
             next_episode: None,
             watched_pending: 0.0,
@@ -261,14 +264,14 @@ impl State {
                 DbEvent::Ready => refresh = true,
                 DbEvent::Snapshot { generation, data } => self.apply_snapshot(generation, data),
                 DbEvent::Browse { generation, items } if generation == self.library.generation => {
-                    self.library.entries = Some(items);
+                    self.apply_library_entries(items);
                 }
                 DbEvent::Overview {
                     generation,
                     watching,
                     series,
                 } if generation == self.library.generation => {
-                    self.library.watching = watching;
+                    self.apply_watching_entries(watching);
                     self.calendar.series = series;
                     if self.navigation.page == super::Page::Calendar {
                         self.fetch_calendar();
@@ -383,59 +386,64 @@ pub(super) fn detail_actions(s: &State) -> El {
     body
 }
 
-pub(super) fn view(s: &State) -> El {
-    let mut body = col()
-        .w_full()
-        .gap(12.0)
-        .child(heading("Library"))
-        .child(
-            row()
-                .gap(8.0)
-                .child(select_action(
-                    "library-watchlist-tab",
-                    "To watch",
-                    s.library.list == 0,
-                    |s| {
-                        s.library.list = 0;
-                        s.library.offset = 0;
-                        s.refresh_library();
-                    },
-                ))
-                .child(select_action(
-                    "library-watched-tab",
-                    "Watched",
-                    s.library.list == 1,
-                    |s| {
-                        s.library.list = 1;
-                        s.library.offset = 0;
-                        s.refresh_library();
-                    },
-                )),
-        )
-        .child(
-            row()
-                .gap(8.0)
-                .child(select_action(
-                    "library-movies",
-                    "Movies",
-                    s.library.kind == MediaKind::Movie,
-                    |s| {
-                        s.library.kind = MediaKind::Movie;
-                        s.library.offset = 0;
-                        s.refresh_library();
-                    },
-                ))
-                .child(select_action(
-                    "library-series-filter",
-                    "TV series",
-                    s.library.kind == MediaKind::Series,
-                    |s| {
-                        s.library.kind = MediaKind::Series;
-                        s.library.offset = 0;
-                        s.refresh_library();
-                    },
-                )),
-        );
+pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
+    let mut body = col().w_full().gap(12.0).child(heading("Library")).child(
+        row()
+            .w_full()
+            .center_y()
+            .gap(16.0)
+            .child(
+                segmented_group()
+                    .child(segment(
+                        "library-watchlist-tab",
+                        "To watch",
+                        s.library.list == 0,
+                        |s: &mut State| {
+                            s.library.list = 0;
+                            s.library.offset = 0;
+                            s.library.entries = None;
+                            s.refresh_library();
+                        },
+                    ))
+                    .child(segment(
+                        "library-watched-tab",
+                        "Watched",
+                        s.library.list == 1,
+                        |s: &mut State| {
+                            s.library.list = 1;
+                            s.library.offset = 0;
+                            s.library.entries = None;
+                            s.refresh_library();
+                        },
+                    )),
+            )
+            .child(rune::el().grow(1.0))
+            .child(
+                segmented_group()
+                    .child(segment(
+                        "library-movies",
+                        "Movies",
+                        s.library.kind == MediaKind::Movie,
+                        |s: &mut State| {
+                            s.library.kind = MediaKind::Movie;
+                            s.library.offset = 0;
+                            s.library.entries = None;
+                            s.refresh_library();
+                        },
+                    ))
+                    .child(segment(
+                        "library-series-filter",
+                        "TV series",
+                        s.library.kind == MediaKind::Series,
+                        |s: &mut State| {
+                            s.library.kind = MediaKind::Series;
+                            s.library.offset = 0;
+                            s.library.entries = None;
+                            s.refresh_library();
+                        },
+                    )),
+            ),
+    );
     if let Some(items) = &s.library.entries {
         if items.is_empty() {
             if s.library.offset == 0 {
@@ -443,9 +451,7 @@ pub(super) fn view(s: &State) -> El {
             }
             body = body.child(label("No more titles on this page."));
         }
-        for (index, media) in items.iter().enumerate() {
-            body = body.child(media_row(media, index, "library-open"));
-        }
+        body = body.child(super::poster_grid::view(s, cx));
     } else {
         body = body.child(label("Loading local library…"));
     }
@@ -453,6 +459,7 @@ pub(super) fn view(s: &State) -> El {
     if s.library.offset > 0 {
         pages = pages.child(action("library-prev", "Previous", |s| {
             s.library.offset = s.library.offset.saturating_sub(200);
+            s.library.entries = None;
             s.refresh_library();
         }));
     }
@@ -463,16 +470,17 @@ pub(super) fn view(s: &State) -> El {
     {
         pages = pages.child(action("library-next", "Next", |s| {
             s.library.offset = s.library.offset.saturating_add(200);
+            s.library.entries = None;
             s.refresh_library();
         }));
     }
-    body = body.child(pages);
-    scroll(
-        format!(
-            "library-scroll-{}-{}-{:?}",
-            s.library.list, s.library.offset, s.library.kind
-        ),
-        body,
+    body.grow(1.0).min_h(0.0).child(pages)
+}
+
+pub(super) fn grid_key(s: &State) -> String {
+    format!(
+        "library-scroll-{}-{}-{:?}",
+        s.library.list, s.library.offset, s.library.kind
     )
 }
 
@@ -510,31 +518,13 @@ fn library_empty(s: &State) -> El {
             }),
         ),
     )
+    .grow(0.0)
+    .h(306.0)
+    .min_h(306.0)
+    .py(24.0)
 }
 
-fn media_row(media: &Media, index: usize, prefix: &str) -> El {
-    let item = media.clone();
-    let menu = media.clone();
-    row()
-        .w_full()
-        .padding(8.0)
-        .radius(8.0)
-        .fill(theme().card)
-        .gap(8.0)
-        .on_secondary_press(move |s: &mut State, p, _| {
-            s.context_menu = Some((p, Some(menu.clone())));
-        })
-        .child(
-            action(format!("{prefix}-{index}"), media.title.clone(), move |s| {
-                s.open_library_media(&item);
-            })
-            .grow(1.0)
-            .justify_start()
-            .fill(theme().card),
-        )
-}
-
-pub(super) fn watching(s: &State) -> El {
+pub(super) fn watching(s: &State, cx: &rune::Cx<State>) -> El {
     let mut body = col()
         .w_full()
         .gap(12.0)
@@ -562,23 +552,6 @@ pub(super) fn watching(s: &State) -> El {
         }
         body = body.child(label("No more titles on this page."));
     }
-    for (index, (media, progress)) in s.library.watching.iter().enumerate() {
-        body = body.child(
-            col()
-                .w_full()
-                .gap(4.0)
-                .child(media_row(media, index, "watching-open"))
-                .child(label(if progress.position_seconds == 0.0 {
-                    "Next episode".into()
-                } else {
-                    format!(
-                        "{} / {}",
-                        clock(Some(progress.position_seconds)),
-                        clock(Some(progress.duration_seconds))
-                    )
-                })),
-        );
-    }
     let mut pages = row().gap(8.0);
     if s.library.offset > 0 {
         pages = pages.child(action("watching-prev", "Previous", |s| {
@@ -592,7 +565,10 @@ pub(super) fn watching(s: &State) -> El {
             s.refresh_library();
         }));
     }
-    scroll("watching-scroll", body.child(pages))
+    body.grow(1.0)
+        .min_h(0.0)
+        .child(super::poster_grid::view(s, cx))
+        .child(pages)
 }
 
 #[cfg(test)]

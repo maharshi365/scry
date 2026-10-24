@@ -9,8 +9,8 @@ fn sidebar_keeps_the_logo_and_wordmark_visible_at_minimum_window_size() {
     let logo = rect(&rt, "brand-logo");
     let wordmark = elements
         .iter()
-        .find(|element| element.text.as_deref() == Some("SKRY"))
-        .expect("Skry wordmark")
+        .find(|element| element.text.as_deref() == Some("Scry"))
+        .expect("Scry wordmark")
         .rect;
     assert_eq!([logo[2], logo[3]], [28.0, 28.0]);
     for bounds in [logo, wordmark] {
