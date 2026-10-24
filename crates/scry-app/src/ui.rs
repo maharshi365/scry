@@ -1,6 +1,8 @@
 use crate::services::{CINEMETA, Control, Event, Services, Source};
 #[path = "library_view.rs"]
 mod library_view;
+#[path = "source_picker.rs"]
+mod source_picker;
 use library_view::LibraryUi;
 use rune::tok::{self, TextStyle, type_};
 use rune::{App, AppSpec, Cx, El, ScrollSpec, TextEdit, Tx, col, el, row, text, text_input};
@@ -54,6 +56,7 @@ struct Route {
     episode: Option<String>,
     pending_episode: Option<String>,
     episode_offset: usize,
+    episode_season: Option<Option<u32>>,
     loading: bool,
     key: u64,
     anchor: Option<String>,
@@ -96,8 +99,11 @@ pub struct State {
     // Stable protocol ID (including season/episode suffix) for library integration.
     selected_video_id: Option<String>,
     episode_offset: usize,
+    episode_season: Option<Option<u32>>,
+    season_menu_open: bool,
     streams: Vec<(String, Stream)>,
     stream_provider: Option<String>,
+    source_menu_open: bool,
     warnings: Vec<String>,
     error: Option<String>,
     status: String,
@@ -154,8 +160,11 @@ impl State {
             detail: None,
             selected_video_id: None,
             episode_offset: 0,
+            episode_season: None,
+            season_menu_open: false,
             streams: Vec::new(),
             stream_provider: None,
+            source_menu_open: false,
             warnings: Vec::new(),
             error: None,
             status: String::new(),
@@ -239,6 +248,7 @@ impl State {
             episode: self.selected_video_id.clone(),
             pending_episode: self.pending_episode.clone(),
             episode_offset: self.episode_offset,
+            episode_season: self.episode_season,
             loading: self.loading,
             key: self.route_key,
             anchor: self.anchor.clone(),
@@ -291,6 +301,8 @@ impl State {
         self.selected_video_id = route.episode;
         self.pending_episode = route.pending_episode;
         self.episode_offset = route.episode_offset;
+        self.episode_season = route.episode_season;
+        self.season_menu_open = false;
         self.route_key = route.key;
         self.anchor = route.anchor;
         self.reveal = self.anchor.clone();
@@ -299,6 +311,7 @@ impl State {
         self.warnings = route.warnings;
         self.streams.clear();
         self.stream_provider = None;
+        self.source_menu_open = false;
         self.loading = false;
         match self.page {
             Page::Discover if route.loading => self.fetch_catalog(),
@@ -466,6 +479,9 @@ impl State {
         self.detail = Some(meta.clone());
         self.selected_video_id = None;
         self.episode_offset = 0;
+        self.episode_season = None;
+        self.season_menu_open = false;
+        self.source_menu_open = false;
         self.library.snapshot = None;
         self.streams.clear();
         self.warnings.clear();
@@ -481,8 +497,55 @@ impl State {
         }
     }
 
+    fn seasons(&self) -> Vec<Option<u32>> {
+        let mut seasons: Vec<_> = self.detail.iter().flat_map(|meta| &meta.videos).map(|video| video.season).collect();
+        seasons.sort_by_key(|season| match season {
+            Some(0) => (1, 0),
+            Some(number) => (0, *number),
+            None => (2, 0),
+        });
+        seasons.dedup();
+        seasons
+    }
+
+    fn active_season(&self) -> Option<u32> {
+        let seasons = self.seasons();
+        self.episode_season.filter(|season| seasons.contains(season))
+            .or_else(|| seasons.first().copied()).flatten()
+    }
+
+    fn season_episode_indices(&self) -> Vec<usize> {
+        let season = self.active_season();
+        let Some(meta) = &self.detail else { return Vec::new(); };
+        let mut indices: Vec<_> = meta.videos.iter().enumerate()
+            .filter(|(_, video)| video.season == season).map(|(index, _)| index).collect();
+        indices.sort_by_key(|index| meta.videos[*index].episode);
+        indices
+    }
+
+    fn visible_episode_indices(&self) -> Vec<usize> {
+        self.season_episode_indices()[self.episode_range()].to_vec()
+    }
+
+    fn select_season(&mut self, season: Option<u32>) {
+        self.season_menu_open = false;
+        if !self.seasons().contains(&season) || self.active_season() == season { return; }
+        self.episode_season = Some(season);
+        self.episode_offset = 0;
+        self.selected_video_id = None;
+        self.stream_id += 1;
+        self.streams.clear();
+        self.stream_provider = None;
+        self.source_menu_open = false;
+        self.warnings.clear();
+        self.error = None;
+        self.loading = false;
+        self.status = "Choose an episode to find streams.".into();
+        self.register_library_detail();
+    }
+
     fn episode_range(&self) -> std::ops::Range<usize> {
-        let count = self.detail.as_ref().map_or(0, |meta| meta.videos.len());
+        let count = self.season_episode_indices().len();
         let last = count.saturating_sub(1) / EPISODES_PER_PAGE * EPISODES_PER_PAGE;
         let start = (self.episode_offset / EPISODES_PER_PAGE * EPISODES_PER_PAGE).min(last);
         start..start.saturating_add(EPISODES_PER_PAGE).min(count)
@@ -512,6 +575,7 @@ impl State {
 
     fn find_streams(&mut self, kind: String, id: String) {
         self.stream_id += 1;
+        self.source_menu_open = false;
         self.stream_provider = None;
         self.selected_video_id = Some(id.clone());
         self.refresh_library();
@@ -722,7 +786,13 @@ fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
                             .as_ref()
                             .and_then(|id| meta.videos.iter().position(|video| &video.id == id))
                         {
-                            s.episode_offset = index / EPISODES_PER_PAGE * EPISODES_PER_PAGE;
+                            s.episode_season = Some(meta.videos[index].season);
+                            let mut indices: Vec<_> = meta.videos.iter().enumerate()
+                                .filter(|(_, video)| video.season == meta.videos[index].season)
+                                .map(|(index, _)| index).collect();
+                            indices.sort_by_key(|index| meta.videos[*index].episode);
+                            let position = indices.iter().position(|value| *value == index).unwrap_or(0);
+                            s.episode_offset = position / EPISODES_PER_PAGE * EPISODES_PER_PAGE;
                         }
                         s.selected_video_id = episode.clone();
                         s.detail = Some(meta);
@@ -1114,11 +1184,6 @@ fn detail(s: &State) -> El {
     let t = tok::theme(true);
     let mut header = col().gap(8.0).w_full();
     let mut episode_panel = None;
-    let mut body = col()
-        .key("detail-body")
-        .gap(10.0)
-        .w_full()
-        .child(text("Streams").font(type_::SECTION).color(accent()));
     if let Some(meta) = &s.detail {
         let info = std::iter::once(meta.year.as_str())
             .chain(meta.genres.iter().map(String::as_str))
@@ -1134,27 +1199,24 @@ fn detail(s: &State) -> El {
         if meta.kind == "series" {
             let mut episodes = col().key("episodes").gap(5.0).w_full();
             let range = s.episode_range();
-            for index in range.clone() {
+            for index in s.visible_episode_indices() {
                 let video = &meta.videos[index];
                 let selected = s.selected_video_id.as_deref() == Some(video.id.as_str());
                 episodes = episodes.child(
-                    action(
-                        format!("episode-{index}"),
-                        format!(
-                            "S{:02} E{:02}  {}{}",
-                            video.season.unwrap_or(0),
-                            video.episode.unwrap_or(0),
-                            video.title,
-                            s.episode_label(&video.id)
-                        ),
-                        move |s| s.select_episode(index),
-                    )
+                    col().key(format!("episode-{index}")).role("button")
+                    .label(format!("Episode {} {}", video.episode.unwrap_or(0), video.title))
+                    .padding(12.0).gap(4.0).radius(6.0).hover(t.hover)
+                    .on_press(move |s: &mut State| s.select_episode(index))
                     .w_full()
                     .fill(if selected {
                         rune::oklch(0.31, 0.065, 220.0)
                     } else {
                         t.card
-                    }),
+                    })
+                    .child(text(format!("EPISODE {}{}", video.episode.unwrap_or(0), s.episode_label(&video.id)))
+                        .font(type_::SECTION).color(if selected { accent() } else { t.text_secondary }))
+                    .child(text(if video.title.is_empty() { format!("Episode {}", video.episode.unwrap_or(0)) } else { video.title.clone() })
+                        .wrap().font(TextStyle::new(14.0, 500.0)).color(t.text)),
                 );
             }
             let mut pages = row().gap(8.0);
@@ -1167,111 +1229,34 @@ fn detail(s: &State) -> El {
                 "Episodes {}–{} of {}",
                 if range.is_empty() { 0 } else { range.start + 1 },
                 range.end,
-                meta.videos.len()
+                s.season_episode_indices().len()
             )));
-            if range.end < meta.videos.len() {
+            if range.end < s.season_episode_indices().len() {
                 pages = pages.child(action("episodes-next", "Next 100", |s| {
                     s.move_episode_page(true);
                 }));
             }
             episode_panel = Some(
                 col()
-                    .w(310.0)
+                    .w(280.0)
                     .min_w(240.0)
                     .min_h(0.0)
-                    .grow(1.0)
                     .gap(8.0)
                     .child(
                         text("EPISODES")
                             .font(type_::SECTION)
                             .color(t.text_secondary),
                     )
+                    .child(season_selector(s))
                     .child(scroll(
-                        format!("episodes-scroll-{}-{}", s.route_key, range.start),
+                        format!("episodes-scroll-{}-{}-{:?}", s.route_key, range.start, s.active_season()),
                         episodes,
                     ))
                     .child(pages),
             );
         }
     }
-    body = body.child(label(s.status.clone()));
-    let mut providers = Vec::new();
-    for (provider, _) in &s.streams {
-        if !providers.contains(provider) {
-            providers.push(provider.clone());
-        }
-    }
-    if providers.len() > 1 {
-        let mut filters = col().key("source-filters").gap(5.0).w_full()
-            .child(action("source-all", "All add-ons", |s| s.stream_provider = None)
-                .fill(if s.stream_provider.is_none() { rune::oklch(0.30, 0.05, 220.0) } else { panel() }));
-        for (index, provider) in providers.into_iter().enumerate() {
-            let selected = s.stream_provider.as_ref() == Some(&provider);
-            filters = filters.child(action(format!("source-provider-{index}"), provider.clone(), move |s| {
-                s.stream_provider = Some(provider.clone());
-            }).fill(if selected { rune::oklch(0.30, 0.05, 220.0) } else { panel() }));
-        }
-        body = body.child(filters);
-    }
-    for (index, warning) in s.warnings.iter().enumerate() {
-        body = body.child(
-            text(warning.clone())
-                .wrap()
-                .key(format!("stream-warning-{index}"))
-                .font(type_::BODY)
-                .color(rune::oklch(0.8, 0.12, 70.0)),
-        );
-    }
-    for (index, (addon, stream)) in s.streams.iter().enumerate() {
-        if s.stream_provider.as_ref().is_some_and(|provider| provider != addon) {
-            continue;
-        }
-        let chosen = stream.clone();
-        let title = s
-            .detail
-            .as_ref()
-            .map(|m| m.name.clone())
-            .unwrap_or_default();
-        let supported = stream.validate_playback().is_ok();
-        let card = col()
-                .key(format!("stream-{index}"))
-                .role("button")
-                .label(format!("Play source {} from {addon}", index + 1))
-                .padding(16.0)
-                .gap(8.0)
-                .radius(4.0)
-                .border(1.0, edge())
-                .fill(panel())
-                .hover(t.hover)
-                .child(text(if stream.info_hash.is_some() { "P2P / TORRENT" } else { "DIRECT / HTTP" })
-                    .font(type_::SECTION).color(accent()))
-                .child(
-                    text(if stream.name.is_empty() {
-                        addon.clone()
-                    } else {
-                        format!("{} · {addon}", stream.name)
-                    })
-                    .truncate()
-                    .font(type_::TITLE)
-                    .color(t.text),
-                )
-                .child(label(excerpt(
-                    if stream.title.is_empty() {
-                        &stream.description
-                    } else {
-                        &stream.title
-                    },
-                    300,
-                )))
-                .child(text(if supported { "▶  Play source" } else { "Unavailable / unsupported source" })
-                    .font(type_::LABEL).color(if supported { accent() } else { t.text_secondary }));
-        body = body.child(if supported {
-            card.on_press(move |s: &mut State| s.play(chosen.clone(), title.clone()))
-        } else {
-            card
-        });
-    }
-    let sources = scroll(format!("sources-scroll-{}", s.route_key), body).w(0.0);
+    let sources = source_picker::view(s);
     let panels = if let Some(episodes) = episode_panel {
         row()
             .grow(1.0)
@@ -1299,6 +1284,43 @@ fn detail(s: &State) -> El {
         .gap(16.0)
         .child(header)
         .child(panels)
+}
+
+fn season_label(season: Option<u32>) -> String {
+    match season {
+        Some(0) => "Specials".into(),
+        Some(number) => format!("Season {number}"),
+        None => "Other episodes".into(),
+    }
+}
+
+fn season_selector(s: &State) -> El {
+    let seasons = s.seasons();
+    let current = s.active_season();
+    let position = seasons.iter().position(|season| *season == current).unwrap_or(0);
+    let mut bar = row().w_full().gap(6.0);
+    if position > 0 {
+        let previous = seasons[position - 1];
+        bar = bar.child(action("season-prev", "‹", move |s| s.select_season(previous)).w(32.0));
+    }
+    bar = bar.child(action("season-select", format!("{}  ▾", season_label(current)), |s| {
+        s.season_menu_open = !s.season_menu_open;
+    }).w(0.0).grow(1.0));
+    if let Some(next) = seasons.get(position + 1).copied() {
+        bar = bar.child(action("season-next", "›", move |s| s.select_season(next)).w(32.0));
+    }
+    let mut selector = col().w_full().gap(6.0).child(bar);
+    if s.season_menu_open {
+        let mut choices = col().w_full().gap(4.0);
+        for (index, season) in seasons.iter().copied().enumerate() {
+            choices = choices.child(action(format!("season-option-{index}"), season_label(season), move |s| {
+                s.select_season(season);
+            }).w_full().fill(if season == current { rune::oklch(0.30, 0.05, 220.0) } else { panel() }));
+        }
+        selector = selector.child(col().key("season-menu").w_full().h((seasons.len() as f32 * 36.0).min(144.0))
+            .scroll(ScrollSpec { stick_bottom: false }).child(choices));
+    }
+    selector
 }
 
 fn player(s: &State, scale: f32) -> El {
@@ -1855,7 +1877,7 @@ mod tests {
         let mut rt = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
         rt.frame(0.0);
         let toolbar = rect(&rt, "topbar");
-        let viewport = rect(&rt, "episodes-scroll-0-0");
+        let viewport = rect(&rt, "episodes-scroll-0-0-Some(1)");
         let sources = rect(&rt, "sources-scroll-0");
         let first = rect(&rt, "episode-0");
         assert!(viewport[3] > 100.0 && viewport[1] + viewport[3] <= 600.0);
@@ -2120,6 +2142,76 @@ mod tests {
         assert_eq!(s.episode_range(), 0..100);
     }
 
+    fn multi_season_series() -> Meta {
+        serde_json::from_value(serde_json::json!({
+            "id": "show", "type": "series", "name": "A show",
+            "videos": [
+                {"id":"show:2:2", "title":"Second finale", "season":2, "episode":2},
+                {"id":"show:0:1", "title":"Special", "season":0, "episode":1},
+                {"id":"show:1:2", "title":"First finale", "season":1, "episode":2},
+                {"id":"show:2:1", "title":"Second premiere", "season":2, "episode":1},
+                {"id":"show:1:1", "title":"First premiere", "season":1, "episode":1},
+                {"id":"extra", "title":"Unnumbered"}
+            ]
+        })).unwrap()
+    }
+
+    #[test]
+    fn season_selector_filters_and_sorts_episodes_without_changing_protocol_identity() {
+        let mut state = init();
+        state.page = Page::Detail;
+        state.detail = Some(multi_season_series());
+        assert_eq!(state.seasons(), [Some(1), Some(2), Some(0), None]);
+        assert_eq!(state.visible_episode_indices(), [4, 2]);
+        let mut rt = rune::Runtime::new(state, view, (1000.0, 800.0), rune::Env::default());
+        rt.frame(0.0);
+        assert!(rt.find("episode-4").is_some());
+        assert!(rt.find("episode-0").is_none());
+        tap(&mut rt, "season-next");
+        assert_eq!(rt.state.visible_episode_indices(), [3, 0]);
+        assert!(rt.find("episode-4").is_none());
+        tap(&mut rt, "episode-3");
+        assert_eq!(rt.state.selected_video_id.as_deref(), Some("show:2:1"));
+        assert_eq!(rt.state.visible_episode_keys().iter().map(|key| key.id.as_str()).collect::<Vec<_>>(), ["show:2:1", "show:2:2"]);
+        tap(&mut rt, "season-select");
+        for _ in 0..30 { rt.frame(1.0 / 60.0); }
+        tap(&mut rt, "season-option-2");
+        assert_eq!(rt.state.visible_episode_indices(), [1]);
+        assert!(rt.state.selected_video_id.is_none());
+        tap(&mut rt, "season-next");
+        assert_eq!(rt.state.visible_episode_indices(), [5]);
+    }
+
+    #[test]
+    fn changing_season_rejects_old_streams_and_history_restores_the_season() {
+        let (mut state, tx) = state_with_events();
+        state.page = Page::Detail;
+        state.detail = Some(multi_season_series());
+        state.select_episode(4);
+        let old_id = state.stream_id;
+        state.select_season(Some(2));
+        tx.try_send(Event::Streams(old_id, vec![("Old provider".into(), serde_json::from_value(serde_json::json!({"url":"https://example.invalid/video"})).unwrap())], vec![], true)).unwrap();
+        poll(&mut state, 0.0, &mut Tx::default());
+        assert!(state.streams.is_empty());
+        assert!(!state.loading);
+        state.navigate(Page::Addons);
+        state.travel(false);
+        assert_eq!(state.active_season(), Some(2));
+        assert_eq!(state.visible_episode_indices(), [3, 0]);
+    }
+
+    #[test]
+    fn library_episode_opens_the_correct_season_with_unsorted_metadata() {
+        let (mut state, tx) = state_with_events();
+        state.pending_episode = Some("show:2:2".into());
+        state.open_detail_from(series(0));
+        tx.try_send(Event::Detail(state.detail_id, Ok((multi_season_series(), "provider".into())))).unwrap();
+        poll(&mut state, 0.0, &mut Tx::default());
+        assert_eq!(state.active_season(), Some(2));
+        assert_eq!(state.selected_video_id.as_deref(), Some("show:2:2"));
+        assert_eq!(state.visible_episode_indices(), [3, 0]);
+    }
+
     #[test]
     fn pending_library_episode_opens_its_page_before_registration() {
         let (mut s, tx) = state_with_events();
@@ -2244,12 +2336,16 @@ mod tests {
         state.streams = vec![("Provider A".into(), stream.clone()), ("Provider B".into(), stream)];
         let mut rt = rune::Runtime::new(state, view, (1000.0, 800.0), rune::Env::default());
         rt.frame(0.0);
+        tap(&mut rt, "source-select");
+        for _ in 0..30 { rt.frame(1.0 / 60.0); }
         tap(&mut rt, "source-provider-1");
         assert!(rt.find("stream-0").is_none());
         assert!(rt.find("stream-1").is_some());
+        tap(&mut rt, "source-select");
         tap(&mut rt, "source-all");
         assert!(rt.find("stream-0").is_some());
         assert!(rt.find("stream-1").is_some());
+        tap(&mut rt, "source-select");
         tap(&mut rt, "source-provider-0");
         rt.update(|s, _| s.select_episode(1));
         assert!(rt.state.stream_provider.is_none());

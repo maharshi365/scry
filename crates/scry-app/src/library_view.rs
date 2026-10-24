@@ -150,14 +150,8 @@ impl State {
         };
         let mut entries = vec![parent.clone()];
         if parent.key.kind == MediaKind::Series {
-            for video in self
-                .detail
-                .as_ref()
-                .unwrap()
-                .videos
-                .iter()
-                .skip(self.episode_range().start)
-                .take(EPISODES_PER_PAGE)
+            for video in self.visible_episode_indices().into_iter()
+                .map(|index| &self.detail.as_ref().unwrap().videos[index])
                 .filter(|v| !v.id.trim().is_empty())
             {
                 entries.push(Media {
@@ -193,8 +187,8 @@ impl State {
         else {
             return Vec::new();
         };
-        self.detail.as_ref().unwrap().videos[self.episode_range()]
-            .iter()
+        self.visible_episode_indices().into_iter()
+            .map(|index| &self.detail.as_ref().unwrap().videos[index])
             .filter(|video| !video.id.trim().is_empty())
             .map(|video| key(&parent.key.namespace, MediaKind::Episode, &video.id))
             .collect()
