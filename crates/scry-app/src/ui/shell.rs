@@ -2,16 +2,22 @@
 use super::{
     Page, State,
     addons::addons,
-    components::{accent, action, excerpt, input, label},
+    controls::{action, icon_action, input, select_action},
+    design::{
+        icons,
+        tokens::{self, type_},
+    },
     detail::detail,
     discover::discover,
+    formatting::excerpt,
     library_view,
     player::player,
+    primitives::{
+        button::{Button, Variant},
+        text::label,
+    },
 };
-use rune::{
-    Cx, El, col, el, row, text,
-    tok::{self, TextStyle, type_},
-};
+use rune::{Cx, El, col, el, row, text};
 
 pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
     if s.navigation.page == Page::Player && s.player.fullscreen {
@@ -19,7 +25,7 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
             .key("fullscreen-player")
             .w_full()
             .h_full()
-            .fill(rune::oklch(0.08, 0.0, 0.0))
+            .fill(tokens::video())
             .child(player(s, cx.env().scale));
         if let Some(error) = &s.error {
             content = content.child(label(error.clone()));
@@ -47,7 +53,7 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
             text(error.clone())
                 .key("error")
                 .font(type_::BODY)
-                .color(rune::oklch(0.78, 0.14, 25.0)),
+                .color(tokens::danger()),
         );
     }
     if let Some(error) = &s.library.error {
@@ -73,7 +79,7 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
         .key("scry")
         .w_full()
         .h_full()
-        .fill(rune::oklch(0.17, 0.018, 240.0))
+        .fill(tokens::canvas())
         .on_secondary_press(|s: &mut State, p, _| {
             s.context_menu = Some((p, None));
         })
@@ -104,16 +110,12 @@ fn sidebar(s: &State) -> El {
         .h_full()
         .padding(14.0)
         .gap(8.0)
-        .fill(rune::oklch(0.145, 0.018, 240.0))
+        .fill(tokens::sidebar())
         .child(
             row()
                 .gap(8.0)
                 .child(el().key("brand-logo").w(28.0).h(28.0).pixels(&s.logo))
-                .child(
-                    text("SKRY")
-                        .font(TextStyle::new(19.0, 700.0).tracking(2.0))
-                        .color(rune::color::hex("#D8ED96").unwrap_or_else(accent)),
-                ),
+                .child(text("SKRY").font(type_::WORDMARK).color(tokens::brand())),
         )
         .child(el().h(16.0));
     for (key, title, page) in [
@@ -122,36 +124,31 @@ fn sidebar(s: &State) -> El {
         ("nav-calendar", "Calendar", Page::Calendar),
         ("nav-addons", "Add-ons", Page::Addons),
     ] {
-        sidebar = sidebar.child(action(key, title, move |s| s.navigate(page)).w_full().fill(
-            if s.navigation.page == page {
-                rune::oklch(0.29, 0.05, 220.0)
-            } else {
-                rune::oklch(0.145, 0.018, 240.0)
-            },
-        ));
+        sidebar = sidebar.child(
+            select_action(key, title, s.navigation.page == page, move |s| {
+                s.navigate(page);
+            })
+            .w_full(),
+        );
         if page == Page::Watching {
             sidebar = sidebar
                 .child(
-                    action("movies", "Movies", |s| s.choose_kind("movie"))
-                        .w_full()
-                        .fill(
-                            if s.navigation.page == Page::Discover && s.kind == "movie" {
-                                rune::oklch(0.25, 0.035, 220.0)
-                            } else {
-                                rune::oklch(0.145, 0.018, 240.0)
-                            },
-                        ),
+                    select_action(
+                        "movies",
+                        "Movies",
+                        s.navigation.page == Page::Discover && s.kind == "movie",
+                        |s| s.choose_kind("movie"),
+                    )
+                    .w_full(),
                 )
                 .child(
-                    action("series", "TV shows", |s| s.choose_kind("series"))
-                        .w_full()
-                        .fill(
-                            if s.navigation.page == Page::Discover && s.kind == "series" {
-                                rune::oklch(0.25, 0.035, 220.0)
-                            } else {
-                                rune::oklch(0.145, 0.018, 240.0)
-                            },
-                        ),
+                    select_action(
+                        "series",
+                        "TV shows",
+                        s.navigation.page == Page::Discover && s.kind == "series",
+                        |s| s.choose_kind("series"),
+                    )
+                    .w_full(),
                 );
         }
     }
@@ -162,19 +159,17 @@ fn topbar(s: &State) -> El {
     row()
         .key("topbar")
         .h(68.0)
-        .fill(rune::oklch(0.15, 0.018, 240.0))
+        .fill(tokens::topbar())
         .px(20.0)
         .gap(8.0)
         .center_y()
         .child(history_button(
             "nav-back",
-            "←",
             !s.navigation.back.is_empty(),
             false,
         ))
         .child(history_button(
             "nav-forward",
-            "→",
             !s.navigation.forward.is_empty(),
             true,
         ))
@@ -183,38 +178,28 @@ fn topbar(s: &State) -> El {
             &s.search,
             "Search movies and series…",
             |s| &mut s.search,
+            State::submit_search,
         ))
         .child(action("search-go", "Search", State::submit_search))
-        .child(action("page-refresh", "↻", State::refresh_page))
+        .child(icon_action(
+            "page-refresh",
+            "Refresh current page",
+            &icons::REFRESH,
+            State::refresh_page,
+        ))
 }
 
-fn history_button(key: &str, title: &str, enabled: bool, forward: bool) -> El {
-    let control = row()
-        .key(key)
-        .h(32.0)
-        .w(32.0)
-        .center()
-        .radius(7.0)
-        .label(if forward {
+fn history_button(key: &str, enabled: bool, forward: bool) -> El {
+    Button::new(
+        key,
+        if forward {
             "Forward (Alt+Right)"
         } else {
             "Back (Alt+Left)"
-        })
-        .child(
-            text(title)
-                .font(TextStyle::new(20.0, 500.0))
-                .color(if enabled {
-                    tok::theme(true).text
-                } else {
-                    rune::oklch(0.4, 0.01, 275.0)
-                }),
-        );
-    if enabled {
-        control
-            .role("button")
-            .hover(tok::theme(true).hover)
-            .on_press(move |s: &mut State| s.travel(forward))
-    } else {
-        control
-    }
+        },
+    )
+    .variant(Variant::Ghost)
+    .enabled(enabled)
+    .icon(if forward { &icons::RIGHT } else { &icons::LEFT })
+    .on_press(move |s: &mut State| s.travel(forward))
 }

@@ -132,6 +132,10 @@ fn on_close(s: &mut State, _: &mut Tx) {
     // Do not join or quit here. The Windows parent must still dispatch messages.
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "Standalone native playback probe does not use the app UI"
+)]
 fn view(s: &State, cx: &mut Cx<State>) -> El {
     let scale = cx.env().scale;
     col()

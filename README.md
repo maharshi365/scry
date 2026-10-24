@@ -173,6 +173,8 @@ the service crates depends on the app or Rune.
 
 See [UI state and shortcut ownership](docs/ui-state.md) for feature APIs,
 binding registration, and the remaining state extraction work.
+See [the shared UI system](docs/ui-system.md) for colors, icons, primitives,
+and the Clippy and test rules that prevent visual drift.
 
 ### macOS implementation path
 

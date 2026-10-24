@@ -2,12 +2,19 @@
 mod progress;
 use super::{
     State,
-    components::{accent, action, clock, empty_state, heading, label, scroll, watched_badge},
+    controls::{action, select_action},
+    design::{icons, tokens::theme},
+    formatting::clock,
+    primitives::{
+        button::{Button, Variant},
+        surface::{empty_state, scroll, watched_badge},
+        text::{heading, label},
+    },
 };
 use crate::library_worker::{Command, Event as DbEvent, Snapshot, Worker};
 #[cfg(test)]
 use rune::TextEdit;
-use rune::{El, col, row, tok};
+use rune::{El, col, row};
 use scry_library::{Media, MediaKey, MediaKind};
 use std::{collections::VecDeque, time::Instant};
 
@@ -384,54 +391,44 @@ pub(super) fn view(s: &State) -> El {
         .child(
             row()
                 .gap(8.0)
-                .child(
-                    action("library-watchlist-tab", "To watch", |s| {
+                .child(select_action(
+                    "library-watchlist-tab",
+                    "To watch",
+                    s.library.list == 0,
+                    |s| {
                         s.library.list = 0;
                         s.library.offset = 0;
                         s.refresh_library();
-                    })
-                    .fill(if s.library.list == 0 {
-                        rune::oklch(0.29, 0.05, 220.0)
-                    } else {
-                        super::components::panel()
-                    }),
-                )
-                .child(
-                    action("library-watched-tab", "Watched", |s| {
+                    },
+                ))
+                .child(select_action(
+                    "library-watched-tab",
+                    "Watched",
+                    s.library.list == 1,
+                    |s| {
                         s.library.list = 1;
                         s.library.offset = 0;
                         s.refresh_library();
-                    })
-                    .fill(if s.library.list == 1 {
-                        rune::oklch(0.29, 0.05, 220.0)
-                    } else {
-                        super::components::panel()
-                    }),
-                ),
+                    },
+                )),
         )
         .child(
             row()
                 .gap(8.0)
-                .child(action(
+                .child(select_action(
                     "library-movies",
-                    if s.library.kind == MediaKind::Movie {
-                        "Movies ✓"
-                    } else {
-                        "Movies"
-                    },
+                    "Movies",
+                    s.library.kind == MediaKind::Movie,
                     |s| {
                         s.library.kind = MediaKind::Movie;
                         s.library.offset = 0;
                         s.refresh_library();
                     },
                 ))
-                .child(action(
+                .child(select_action(
                     "library-series-filter",
-                    if s.library.kind == MediaKind::Series {
-                        "TV series ✓"
-                    } else {
-                        "TV series"
-                    },
+                    "TV series",
+                    s.library.kind == MediaKind::Series,
                     |s| {
                         s.library.kind = MediaKind::Series;
                         s.library.offset = 0;
@@ -497,20 +494,20 @@ fn library_empty(s: &State) -> El {
         "library-empty",
         title,
         description,
-        if watched { "✓" } else { "＋" },
+        if watched { &icons::CHECK } else { &icons::ADD },
         row().child(
-            action(
+            Button::new(
                 "library-browse",
                 if series {
                     "Browse TV series"
                 } else {
                     "Browse movies"
                 },
-                move |s| {
-                    s.choose_kind(if series { "series" } else { "movie" });
-                },
             )
-            .fill(accent().alpha(0.18)),
+            .variant(Variant::Primary)
+            .on_press(move |s: &mut State| {
+                s.choose_kind(if series { "series" } else { "movie" });
+            }),
         ),
     )
 }
@@ -522,7 +519,7 @@ fn media_row(media: &Media, index: usize, prefix: &str) -> El {
         .w_full()
         .padding(8.0)
         .radius(8.0)
-        .fill(tok::theme(true).card)
+        .fill(theme().card)
         .gap(8.0)
         .on_secondary_press(move |s: &mut State, p, _| {
             s.context_menu = Some((p, Some(menu.clone())));
@@ -533,7 +530,7 @@ fn media_row(media: &Media, index: usize, prefix: &str) -> El {
             })
             .grow(1.0)
             .justify_start()
-            .fill(tok::theme(true).card),
+            .fill(theme().card),
         )
 }
 
@@ -548,14 +545,15 @@ pub(super) fn watching(s: &State) -> El {
                 "watching-empty",
                 "Nothing in progress",
                 "Start a movie or series to save your place here.",
-                "▶",
+                &icons::PLAY,
                 row()
                     .gap(10.0)
                     .child(
-                        action("watching-browse-movies", "Browse movies", |s| {
-                            s.choose_kind("movie");
-                        })
-                        .fill(accent().alpha(0.18)),
+                        Button::new("watching-browse-movies", "Browse movies")
+                            .variant(Variant::Primary)
+                            .on_press(|s: &mut State| {
+                                s.choose_kind("movie");
+                            }),
                     )
                     .child(action("watching-browse-series", "TV series", |s| {
                         s.choose_kind("series");

@@ -1,13 +1,18 @@
 //! Release calendar. Each date owns a separate scroll viewport.
 use super::{
     State,
-    components::{action, button, heading, label, panel, scroll},
+    controls::{action, button, icon_action, select_action},
+    design::{
+        icons,
+        tokens::{accent, edge, panel, theme, type_},
+    },
+    primitives::{
+        surface::scroll,
+        text::{heading, label},
+    },
 };
 use chrono::{Datelike, Duration, Local, NaiveDate};
-use rune::{
-    El, col, row, text,
-    tok::{self, TextStyle},
-};
+use rune::{El, col, row, text};
 use scry_library::Media;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -181,22 +186,16 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
                 .gap(8.0)
                 .center_y()
                 .child(heading("Calendar").grow(1.0))
-                .child(action(
+                .child(select_action(
                     "calendar-week",
-                    if c.mode == Mode::Week {
-                        "Week ✓"
-                    } else {
-                        "Week"
-                    },
+                    "Week",
+                    c.mode == Mode::Week,
                     |s| s.calendar.mode = Mode::Week,
                 ))
-                .child(action(
+                .child(select_action(
                     "calendar-month",
-                    if c.mode == Mode::Month {
-                        "Month ✓"
-                    } else {
-                        "Month"
-                    },
+                    "Month",
+                    c.mode == Mode::Month,
                     |s| s.calendar.mode = Mode::Month,
                 ))
                 .child(action(
@@ -211,11 +210,21 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
                 .min_w(0.0)
                 .gap(8.0)
                 .center_y()
-                .child(action("calendar-prev", "←", |s| s.move_calendar(-1)))
+                .child(icon_action(
+                    "calendar-prev",
+                    "Previous calendar period",
+                    &icons::LEFT,
+                    |s| s.move_calendar(-1),
+                ))
                 .child(action("calendar-today", "Today", |s| {
                     s.calendar.anchor = Local::now().date_naive();
                 }))
-                .child(action("calendar-next", "→", |s| s.move_calendar(1)))
+                .child(icon_action(
+                    "calendar-next",
+                    "Next calendar period",
+                    &icons::RIGHT,
+                    |s| s.move_calendar(1),
+                ))
                 .child(
                     label(c.anchor.format("%B %Y").to_string())
                         .w(0.0)
@@ -269,8 +278,8 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
                         text(release.media.title.clone())
                             .w_full()
                             .truncate()
-                            .font(TextStyle::new(12.0, 550.0))
-                            .color(tok::theme(true).text),
+                            .font(type_::CALENDAR_TITLE)
+                            .color(theme().text),
                     )
                     .child(
                         text(format!(
@@ -280,16 +289,16 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
                         ))
                         .w_full()
                         .truncate()
-                        .font(TextStyle::new(10.0, 500.0))
-                        .color(super::components::accent()),
+                        .font(type_::SMALL_EMPHASIS)
+                        .color(accent()),
                     );
                 if !release.title.trim().is_empty() {
                     copy = copy.child(
                         text(release.title.clone())
                             .w_full()
                             .truncate()
-                            .font(TextStyle::new(10.0, 400.0))
-                            .color(tok::theme(true).text_secondary),
+                            .font(type_::SMALL)
+                            .color(theme().text_secondary),
                     );
                 }
                 let entry_key = format!("calendar-episode-{date}-{i}");
@@ -354,14 +363,7 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
                     .gap(if month { 4.0 } else { 5.0 })
                     .radius(7.0)
                     .fill(panel())
-                    .border(
-                        1.0,
-                        if today {
-                            super::components::accent()
-                        } else {
-                            super::components::edge()
-                        },
-                    )
+                    .border(1.0, if today { accent() } else { edge() })
                     .child(
                         label(format!(
                             "{} · {}{}",
@@ -369,10 +371,11 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
                             entries.len(),
                             if entries.len() > 1 { " ↕" } else { "" }
                         ))
-                        .font(rune::tok::TextStyle::new(
-                            if month { 10.0 } else { 11.0 },
-                            400.0,
-                        )),
+                        .font(if month {
+                            type_::SMALL
+                        } else {
+                            type_::CAPTION
+                        }),
                     )
                     .child(
                         scroll(format!("calendar-day-scroll-{date}"), list).on_layout(
@@ -410,13 +413,18 @@ fn series_pages(s: &State) -> El {
                 .saturating_add(u32::try_from(c.series.len()).unwrap_or(20))
         )
     };
-    controls = controls.child(label(caption).font(TextStyle::new(11.0, 400.0)));
+    controls = controls.child(label(caption).font(type_::CAPTION));
     if c.offset > 0 {
         controls = controls.child(
-            action("calendar-series-prev", "‹", |s| {
-                s.calendar.offset = s.calendar.offset.saturating_sub(20);
-                s.refresh_library();
-            })
+            icon_action(
+                "calendar-series-prev",
+                "Previous 20 library series",
+                &icons::LEFT,
+                |s| {
+                    s.calendar.offset = s.calendar.offset.saturating_sub(20);
+                    s.refresh_library();
+                },
+            )
             .w(28.0)
             .h(28.0)
             .label("Previous 20 library series"),
@@ -424,10 +432,15 @@ fn series_pages(s: &State) -> El {
     }
     if c.series.len() == 20 {
         controls = controls.child(
-            action("calendar-series-next", "›", |s| {
-                s.calendar.offset = s.calendar.offset.saturating_add(20);
-                s.refresh_library();
-            })
+            icon_action(
+                "calendar-series-next",
+                "Next 20 library series",
+                &icons::RIGHT,
+                |s| {
+                    s.calendar.offset = s.calendar.offset.saturating_add(20);
+                    s.refresh_library();
+                },
+            )
             .w(28.0)
             .h(28.0)
             .label("Next 20 library series"),

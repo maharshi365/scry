@@ -1,12 +1,17 @@
 use super::episodes::season_label;
 use super::{
     State,
-    components::{accent, action, badge, edge, label, panel, scroll},
+    controls::{action, select_action},
+    design::{
+        icons,
+        tokens::{accent, edge, panel, theme, type_, warning},
+    },
+    primitives::{
+        surface::{badge, card, scroll},
+        text::label,
+    },
 };
-use rune::{
-    El, ScrollSpec, col, el, row, text,
-    tok::{self, TextStyle, type_},
-};
+use rune::{El, ScrollSpec, col, el, icon, row, text};
 use scry_addons::Stream;
 
 // Add-on names often put the quality on a second line. Keep that information
@@ -39,14 +44,7 @@ fn filter(
     selected: bool,
     f: impl Fn(&mut State) + 'static,
 ) -> El {
-    action(key, title, f)
-        .w_full()
-        .fill(if selected {
-            rune::oklch(0.30, 0.05, 220.0)
-        } else {
-            panel()
-        })
-        .border(1.0, if selected { accent() } else { edge() })
+    select_action(key, title, selected, f).w_full()
 }
 
 #[expect(
@@ -54,7 +52,7 @@ fn filter(
     reason = "Declarative source picker layout keeps provider filters and source-card bindings together"
 )]
 pub(super) fn view(s: &State) -> El {
-    let t = tok::theme(true);
+    let t = theme();
     let visible = s
         .streams
         .iter()
@@ -76,7 +74,7 @@ pub(super) fn view(s: &State) -> El {
             .gap(12.0)
             .child(
                 text("Sources")
-                    .font(TextStyle::new(18.0, 600.0))
+                    .font(type_::SECTION_TITLE)
                     .color(t.text)
                     .grow(1.0),
             )
@@ -120,15 +118,14 @@ pub(super) fn view(s: &State) -> El {
         header = header.child(
             action(
                 "source-select",
-                format!(
-                    "{}  ▾",
-                    s.stream_provider.as_deref().unwrap_or("All add-ons")
-                ),
+                s.stream_provider.as_deref().unwrap_or("All add-ons"),
                 |s| {
                     s.source_menu_open = !s.source_menu_open;
                 },
             )
-            .w_full(),
+            .w_full()
+            .gap(6.0)
+            .child(icon(&icons::DOWN, 14.0).color(t.text)),
         );
     }
     if providers.len() > 1 && s.source_menu_open {
@@ -167,7 +164,7 @@ pub(super) fn view(s: &State) -> El {
     }
 
     let mut list = col().key("detail-body").w_full().gap(8.0);
-    for (index, warning) in s.warnings.iter().enumerate() {
+    for (index, message) in s.warnings.iter().enumerate() {
         list = list.child(
             col()
                 .w_full()
@@ -175,11 +172,11 @@ pub(super) fn view(s: &State) -> El {
                 .radius(6.0)
                 .fill(panel())
                 .child(
-                    text(warning.clone())
+                    text(message.clone())
                         .key(format!("stream-warning-{index}"))
                         .wrap()
                         .font(type_::BODY)
-                        .color(rune::oklch(0.8, 0.12, 70.0)),
+                        .color(warning()),
                 ),
         );
     }
@@ -244,7 +241,7 @@ pub(super) fn view(s: &State) -> El {
                     .key(format!("stream-release-{index}"))
                     .w_full()
                     .wrap()
-                    .font(TextStyle::new(13.0, 500.0))
+                    .font(type_::EMPHASIS)
                     .color(t.text),
             );
         }
@@ -253,8 +250,7 @@ pub(super) fn view(s: &State) -> El {
                 details.child(label(lines[1..].join("\n")).key(format!("stream-details-{index}")));
         }
         if name != *addon {
-            details = details
-                .child(label(format!("Provided by {addon}")).font(TextStyle::new(11.0, 400.0)));
+            details = details.child(label(format!("Provided by {addon}")).font(type_::CAPTION));
         }
         if !supported {
             details = details.child(label(
@@ -262,11 +258,11 @@ pub(super) fn view(s: &State) -> El {
             ));
         }
         let transport_color = if stream.info_hash.is_some() {
-            rune::oklch(0.78, 0.09, 80.0)
+            warning()
         } else {
             accent()
         };
-        let mut card = col()
+        let mut card = card()
             .key(format!("stream-{index}"))
             .w_full()
             .min_w(0.0)
@@ -286,7 +282,7 @@ pub(super) fn view(s: &State) -> El {
                             .grow(1.0)
                             .min_w(0.0)
                             .truncate()
-                            .font(TextStyle::new(14.0, 600.0))
+                            .font(type_::ITEM_TITLE)
                             .color(t.text),
                     )
                     .child(badge(
@@ -304,15 +300,11 @@ pub(super) fn view(s: &State) -> El {
                                 edge().alpha(0.3)
                             })
                             .center()
-                            .child(
-                                text(if supported { "▶" } else { "—" })
-                                    .font(TextStyle::new(11.0, 500.0))
-                                    .color(if supported {
-                                        accent()
-                                    } else {
-                                        t.text_secondary
-                                    }),
-                            ),
+                            .child(if supported {
+                                icon(&icons::PLAY, 14.0).color(accent())
+                            } else {
+                                text("—").font(type_::CAPTION).color(t.text_secondary)
+                            }),
                     ),
             )
             .child(details);
@@ -325,6 +317,8 @@ pub(super) fn view(s: &State) -> El {
                 .unwrap_or_default();
             card = card
                 .role("button")
+                .focusable(true)
+                .focus_ring(2.0, 2.0, accent())
                 .label(format!("Play {name} from {addon}"))
                 .hover(t.hover)
                 .on_press(move |s: &mut State| s.play(chosen.clone(), title.clone()));

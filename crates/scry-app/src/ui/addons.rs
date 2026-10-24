@@ -1,7 +1,13 @@
 //! Supported providers and one shared installation dialog.
 use super::{
     State,
-    components::{action, edge, heading, input, label, panel, scroll},
+    controls::{action, icon_action, input, select_action},
+    design::{icons, tokens},
+    primitives::{
+        button::{Button, Variant},
+        surface::{card, scroll, surface},
+        text::{heading, label},
+    },
 };
 use crate::services::CINEMETA;
 use rune::{El, col, el, row};
@@ -12,11 +18,10 @@ pub(super) fn addons(s: &State) -> El {
         for (index, addon) in s.addons.iter().enumerate() {
             let id = addon.manifest.id.clone();
             list = list.child(
-                row()
+                surface(row())
                     .w_full()
                     .padding(18.0)
                     .radius(12.0)
-                    .fill(panel())
                     .gap(16.0)
                     .center_y()
                     .child(
@@ -29,14 +34,19 @@ pub(super) fn addons(s: &State) -> El {
                                 addon.manifest.catalogs.len()
                             ))),
                     )
-                    .child(action(format!("remove-{index}"), "Remove", move |s| {
-                        if !s.config_busy
-                            && let Some(services) = &s.services
-                        {
-                            services.remove(id.clone());
-                            s.config_busy = true;
-                        }
-                    })),
+                    .child(
+                        Button::new(format!("remove-{index}"), "Remove")
+                            .variant(Variant::Danger)
+                            .enabled(!s.config_busy)
+                            .on_press(move |s: &mut State| {
+                                if !s.config_busy
+                                    && let Some(services) = &s.services
+                                {
+                                    services.remove(id.clone());
+                                    s.config_busy = true;
+                                }
+                            }),
+                    ),
             );
         }
         if s.addons.is_empty() {
@@ -59,11 +69,10 @@ pub(super) fn addons(s: &State) -> El {
         .enumerate()
         {
             list = list.child(
-                row()
+                surface(row())
                     .w_full()
                     .padding(18.0)
                     .radius(12.0)
-                    .fill(panel())
                     .gap(16.0)
                     .center_y()
                     .child(
@@ -88,12 +97,12 @@ pub(super) fn addons(s: &State) -> El {
         .child(row().w_full().gap(12.0).child(heading("Add-ons").grow(1.0))
             .child(action("add-addon","Add by URL…",|s| { s.install=rune::TextEdit::new("");s.addon_install_open=true; })))
         .child(row().gap(8.0)
-            .child(action("addons-supported-tab","Supported",|s|s.addon_installed_tab=false))
-            .child(action("addons-installed-tab",format!("Installed · {}",s.addons.len()),|s|s.addon_installed_tab=true)))
+            .child(select_action("addons-supported-tab","Supported",!s.addon_installed_tab,|s|s.addon_installed_tab=false))
+            .child(select_action("addons-installed-tab",format!("Installed · {}",s.addons.len()),s.addon_installed_tab,|s|s.addon_installed_tab=true)))
         .child(scroll("addons-scroll",list))
         .child(label("Configured URLs may contain credentials. They are stored locally as plaintext. Do not share the app database."))
         .child(heading("Direct play"))
-        .child(row().gap(8.0).child(input("direct-url",&s.direct,"HTTP / HTTPS video URL…",|s|&mut s.direct))
+        .child(row().gap(8.0).child(input("direct-url",&s.direct,"HTTP / HTTPS video URL…",|s|&mut s.direct,State::play_direct))
             .child(action("play-direct","Play URL",State::play_direct)))
         .child(label("Only play authorised media. Direct torrents expose your IP, may upload data, and use disk space."))
 }
@@ -104,13 +113,14 @@ pub(super) fn install_dialog(s: &State) -> El {
         feedback = feedback.child(label(error.clone()));
     }
     el().key("addon-dialog-layer").w_full().h_full().absolute(0.0,0.0).center()
-        .fill(rune::oklch(0.05,0.0,0.0).alpha(0.7))
-        .child(col().key("addon-install-dialog").w(560.0).padding(24.0).gap(16.0).radius(12.0).fill(panel()).border(1.0,edge())
+        .fill(tokens::scrim())
+        .child(card().key("addon-install-dialog").w(560.0).padding(24.0).gap(16.0)
             .modal(true,|s:&mut State|s.addon_install_open=false)
-            .child(row().w_full().child(heading("Install add-on").grow(1.0)).child(action("addon-dialog-close","×",|s|s.addon_install_open=false)))
+            .child(row().w_full().child(heading("Install add-on").grow(1.0)).child(icon_action("addon-dialog-close","Close install dialog",&icons::CLOSE,|s|s.addon_install_open=false)))
             .child(label("HTTPS manifest URL"))
-            .child(input("manifest",&s.install,"https://…/manifest.json",|s|&mut s.install).grow(0.0).w_full())
+            .child(input("manifest",&s.install,"https://…/manifest.json",|s|&mut s.install,|s|s.install(s.install.text.clone())).grow(0.0).w_full())
             .child(label("Use a configured Torrentio manifest for debrid sources. Its default manifest uses direct torrents."))
             .child(feedback)
-            .child(action("install-addon",if s.config_busy { "Working…" } else { "Install" },|s|s.install(s.install.text.clone()))))
+            .child(Button::new("install-addon",if s.config_busy { "Working…" } else { "Install" })
+                .variant(Variant::Primary).busy(s.config_busy).on_press(|s: &mut State|s.install(s.install.text.clone()))))
 }

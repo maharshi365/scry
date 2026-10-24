@@ -1,0 +1,8 @@
+# Resolve the actual Rune APIs, including calls through imported aliases.
+disallowed-methods = [
+    { path = "rune::color::oklch", reason = "Use ui::design::tokens instead of a raw color." },
+    { path = "rune::color::oklcha", reason = "Use ui::design::tokens instead of a raw color." },
+    { path = "rune::color::hex", reason = "Use ui::design::tokens instead of a raw color." },
+    { path = "rune::tok::theme", reason = "Use ui::design::tokens::theme." },
+    { path = "rune::tok::TextStyle::new", reason = "Use a named text role from ui::design::tokens::type_." },
+]

@@ -3,13 +3,20 @@ use super::episodes::season_label;
 use super::{
     State,
     artwork::poster,
-    components::{accent, action, edge, excerpt, heading, label, panel, scroll, watched_badge},
-    library_view, source_picker,
+    controls::{action, icon_action, select_action},
+    design::{
+        icons,
+        tokens::{self, accent, edge, panel, theme, type_},
+    },
+    formatting::excerpt,
+    library_view,
+    primitives::{
+        surface::{scroll, watched_badge},
+        text::{heading, label},
+    },
+    source_picker,
 };
-use rune::{
-    El, ScrollSpec, col, row, text,
-    tok::{self, TextStyle, type_},
-};
+use rune::{El, ScrollSpec, col, icon, row, text};
 
 pub(super) fn detail(s: &State) -> El {
     let mut header = col().gap(8.0).w_full();
@@ -68,7 +75,7 @@ pub(super) fn detail(s: &State) -> El {
     reason = "Episode layout keeps primary and context actions beside their protocol identity"
 )]
 fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
-    let t = tok::theme(true);
+    let t = theme();
     let mut episodes = col().key("episodes").gap(8.0).w_full();
     let range = s.episode_range();
     for index in s.visible_episode_indices() {
@@ -77,7 +84,7 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
         let mut status = row().w_full().center_y().gap(6.0).child(
             text(format!("EPISODE {}", video.episode.unwrap_or(0)))
                 .grow(1.0)
-                .font(TextStyle::new(10.0, 600.0))
+                .font(type_::BADGE)
                 .color(if selected { accent() } else { t.text_secondary }),
         );
         if s.episode_watched(&video.id) {
@@ -87,6 +94,9 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
             col()
                 .key(format!("episode-{index}"))
                 .role("button")
+                .focusable(true)
+                .focus_selected(selected)
+                .focus_ring(2.0, 2.0, accent())
                 .label(format!(
                     "Episode {} {}",
                     video.episode.unwrap_or(0),
@@ -130,7 +140,7 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
                 })
                 .w_full()
                 .fill(if selected {
-                    rune::oklch(0.25, 0.045, 220.0)
+                    tokens::selected()
                 } else {
                     panel()
                 })
@@ -142,7 +152,7 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
                         video.title.trim().to_owned()
                     })
                     .wrap()
-                    .font(TextStyle::new(14.0, 500.0))
+                    .font(type_::ITEM)
                     .color(if video.title.trim().is_empty() {
                         t.text_secondary
                     } else {
@@ -201,40 +211,44 @@ fn season_selector(s: &State) -> El {
     let mut bar = row().w_full().gap(6.0);
     if position > 0 {
         let previous = seasons[position - 1];
-        bar = bar.child(action("season-prev", "‹", move |s| s.select_season(previous)).w(32.0));
+        bar = bar.child(
+            icon_action("season-prev", "Previous season", &icons::LEFT, move |s| {
+                s.select_season(previous);
+            })
+            .w(32.0),
+        );
     }
     bar = bar.child(
-        action(
-            "season-select",
-            format!("{}  ▾", season_label(current)),
-            |s| {
-                s.season_menu_open = !s.season_menu_open;
-            },
-        )
+        action("season-select", season_label(current), |s| {
+            s.season_menu_open = !s.season_menu_open;
+        })
         .w(0.0)
-        .grow(1.0),
+        .grow(1.0)
+        .gap(6.0)
+        .child(icon(&icons::DOWN, 14.0).color(theme().text)),
     );
     if let Some(next) = seasons.get(position + 1).copied() {
-        bar = bar.child(action("season-next", "›", move |s| s.select_season(next)).w(32.0));
+        bar = bar.child(
+            icon_action("season-next", "Next season", &icons::RIGHT, move |s| {
+                s.select_season(next);
+            })
+            .w(32.0),
+        );
     }
     let mut selector = col().w_full().gap(6.0).child(bar);
     if s.season_menu_open {
         let mut choices = col().w_full().gap(4.0);
         for (index, season) in seasons.iter().copied().enumerate() {
             choices = choices.child(
-                action(
+                select_action(
                     format!("season-option-{index}"),
                     season_label(season),
+                    season == current,
                     move |s| {
                         s.select_season(season);
                     },
                 )
-                .w_full()
-                .fill(if season == current {
-                    rune::oklch(0.30, 0.05, 220.0)
-                } else {
-                    panel()
-                }),
+                .w_full(),
             );
         }
         let visible = u16::try_from(seasons.len().min(4)).unwrap_or(4);

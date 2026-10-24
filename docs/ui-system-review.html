@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skry · UI system review</title>
+<style>
+:root{color-scheme:dark;--bg:oklch(.17 .018 240);--panel:oklch(.205 .018 240);--edge:oklch(.32 .025 230);--accent:oklch(.79 .12 195);--brand:#D8ED96;--text:#edf2f5;--muted:#aab7c2}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.6 "Segoe UI",sans-serif}main{max-width:1120px;margin:auto;padding:48px 28px 64px}h1,h2,h3,p{margin:0}h1{font-size:clamp(30px,5vw,46px);line-height:1.15;margin:12px 0 18px}h2{font-size:24px;margin-bottom:16px}h3{font-size:16px;margin-bottom:8px}p{color:var(--muted)}section{margin-top:40px}.eyebrow{font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--brand)}.lede{max-width:760px;font-size:18px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.card{padding:22px;border:1px solid var(--edge);border-radius:12px;background:var(--panel)}.metric{font-size:32px;color:var(--accent);line-height:1.2;margin-bottom:8px}.small{font-size:12px;color:var(--muted);margin-top:12px}code,pre{font:13px/1.7 Consolas,monospace}code{color:var(--accent);overflow-wrap:anywhere}pre{margin:0;white-space:pre-wrap}.palette{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}.swatch{height:64px;border:1px solid var(--edge);border-radius:8px;margin-bottom:8px}.palette strong{font-size:13px}.palette code{display:block;font-size:11px}.split{display:grid;grid-template-columns:1fr 1fr;gap:16px}.tag{display:inline-block;font-size:11px;letter-spacing:.5px;color:var(--brand);margin-bottom:12px}.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:16px 0}.sample{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;padding:5px 12px;border:1px solid var(--edge);border-radius:6px;color:var(--text);font-size:13px}.selected{background:oklch(.29 .05 220);border-color:var(--accent)}.icon{width:36px;padding:0}.icon svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.rows{display:grid;gap:12px}.finding{display:grid;grid-template-columns:40px 1fr;gap:12px}.number{color:var(--accent);font-size:24px}.finding p{margin-bottom:6px}.step{border-left:2px solid var(--accent);padding-left:16px}.note{border-left:3px solid var(--brand);padding:12px 18px;background:var(--panel);margin-top:24px}.arrow{text-align:center;color:var(--accent);padding:8px}.boundary{font-size:12px;color:var(--muted);margin-top:14px;border-top:1px solid var(--edge);padding-top:12px}a{color:var(--accent)}@media(max-width:760px){main{padding:28px 18px 40px}.grid,.split{grid-template-columns:1fr}.palette{grid-template-columns:repeat(3,1fr)}section{margin-top:30px}}
+</style>
+</head>
+<body><main>
+<div class="eyebrow">Skry / native Rune UI / code review</div>
+<h1>One visual language.<br>Shared controls. Local behavior.</h1>
+<p class="lede">The foundation exists in <code>ui/components.rs</code>. The next step is to make it the default path, rather than restyling controls inside each screen.</p>
+<p class="small">Proposal, not an implemented redesign. Swatches use the app’s current colors. HTML text colors and control previews are illustrative, not native Rune captures.</p>
+<section class="grid" aria-label="Review counts">
+<div class="card"><div class="metric">27</div><h3>Raw color constructors</h3><p>Across 8 UI files, alongside 20 direct dark-theme lookups.</p></div>
+<div class="card"><div class="metric">24</div><h3>Inline text styles</h3><p>Across 8 files. Similar text roles have separate size and weight choices.</p></div>
+<div class="card"><div class="metric">2</div><h3>Icon approaches</h3><p>Text glyphs in screens; 11 SVG icon definitions inside the player.</p></div>
+</section>
+<p class="small">Counts: production UI source files, excluding the tests directory. Constructor counts are occurrences, not unique values.</p>
+<section><h2>Keep the palette. Give each color a role.</h2>
+<div class="palette">
+<div><div class="swatch" style="background:oklch(.17 .018 240)"></div><strong>Canvas</strong><code>.17 .018 240</code></div>
+<div><div class="swatch" style="background:oklch(.205 .018 240)"></div><strong>Surface</strong><code>.205 .018 240</code></div>
+<div><div class="swatch" style="background:oklch(.32 .025 230)"></div><strong>Border</strong><code>.32 .025 230</code></div>
+<div><div class="swatch" style="background:oklch(.79 .12 195)"></div><strong>Accent</strong><code>.79 .12 195</code></div>
+<div><div class="swatch" style="background:#D8ED96"></div><strong>Brand</strong><code>#D8ED96</code></div>
+<div><div class="swatch" style="background:oklch(.80 .10 155)"></div><strong>Success</strong><code>.80 .10 155</code></div>
+</div><p class="small">Also name: sidebar, topbar, selected surface, disabled text, warning, danger, scrim, video background, and poster placeholders. Keep brand and action accent separate. Wrap Rune’s text and hover tokens; do not copy its palette.</p>
+</section>
+<section><h2>Where the shared layer leaks</h2><div class="rows">
+<article class="card finding"><div class="number">01</div><div><h3>Selected state has several visual definitions</h3><p>Library tabs use a filled surface. Calendar and library type filters append “✓”. Source filters add an accent border. Add-on tabs do not get a selected treatment.</p><code>library_view/mod.rs:393–440 · calendar.rs:184–201 · source_picker.rs:36–50 · addons.rs:90–92</code></div></article>
+<article class="card finding"><div class="number">02</div><div><h3>Icons and their accessible names are not shared</h3><p>Refresh, close, season arrows, and play indicators are text symbols. The player already has vector icons and explicit action names. Reuse that approach; do not use the visible glyph as the control’s name.</p><code>shell.rs:188 · addons.rs:110 · detail.rs:204–218 · source_picker.rs:308 · player/mod.rs:308–424</code></div></article>
+<article class="card finding"><div class="number">03</div><div><h3>Interaction rules vary with the layout code</h3><p>The context menu explicitly adds focus behavior. Catalog cards have press handlers but no explicit button role or label. Shared interactive primitives should own consistent naming, focus, and disabled behavior.</p><code>context_menu.rs:85–100 · discover.rs:79–91 · components.rs:80–111</code><p class="small">Keyboard activation and focus-ring rendering need runtime verification; this review does not claim they are broken.</p></div></article>
+<article class="card finding"><div class="number">04</div><div><h3>The current components mix appearance with app commands</h3><p>The input helper routes submit behavior by key string. The player’s icon button also gates playback and handles the fullscreen transaction. Extract the visual shell, but keep these policies in feature code.</p><code>components.rs:114–143 · player/mod.rs:308–331</code></div></article>
+</div></section>
+<section><h2>What reuse should look like</h2><div class="split">
+<div class="card"><div class="tag">TODAY / SAME CONCEPT, DIFFERENT TREATMENTS</div><h3>Selection</h3><div class="controls"><span class="sample" style="background:oklch(.29 .05 220)">To watch</span><span class="sample">Week ✓</span><span class="sample selected">All add-ons</span></div><p>Each screen decides how “selected” looks.</p></div>
+<div class="card"><div class="tag">PROPOSED / ONE STATE CONTRACT</div><h3>Selection</h3><div class="controls"><span class="sample selected">To watch</span><span class="sample selected">Week</span><span class="sample selected">All add-ons</span></div><p><code>selected: bool</code> controls styling and exposes state through Rune’s supported semantics.</p></div>
+<div class="card"><div class="tag">PROPOSED / SHARED VECTOR ICONS</div><h3>Icon button</h3><div class="controls"><span class="sample icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg></span><code>Refresh current page</code></div><p>Central glyph, shared size and hit area, explicit action label. Decorative icons stay separate from controls.</p></div>
+<div class="card"><div class="tag">PROPOSED / SMALL, NAMED VARIANTS</div><h3>Button family</h3><div class="controls"><span class="sample selected">Primary</span><span class="sample">Secondary</span><span class="sample" style="border-color:transparent">Ghost</span></div><p>Also define disabled and busy behavior. Destructive actions can use a danger variant. Screens should not override fill and border to invent new variants.</p></div>
+</div></section>
+<section><h2>A small module boundary, not a new UI framework</h2><div class="split">
+<div class="card"><pre>crates/scry-app/src/ui/
+├── design/
+│   ├── mod.rs
+│   ├── tokens.rs     # color roles, type, control sizes
+│   └── icons.rs      # static Rune SVG icons
+├── primitives/
+│   ├── mod.rs
+│   ├── button.rs     # text / icon; state + focus
+│   ├── text.rs       # named text roles
+│   ├── input.rs      # caller supplies submit behavior
+│   └── surface.rs    # panel, badge, empty state
+├── shell.rs          # navigation + page composition
+├── detail.rs         # episode state + actions
+└── player/           # playback policy + transactions</pre></div>
+<div class="card"><h3>Dependency direction</h3><div class="sample" style="display:flex">Screens + feature state</div><div class="arrow">↓ compose</div><div class="sample" style="display:flex">Shared primitives</div><div class="arrow">↓ consume</div><div class="sample" style="display:flex">Tokens + icons → Rune</div><p class="boundary">Primitives receive callbacks. They do not read navigation, playback, or services. Start inside this crate. A separate workspace crate is not needed.</p><p class="small">Formatting helpers such as clock and excerpt do not belong in the design layer. Keep feature geometry, virtualization, and artwork loading outside it.</p></div>
+</div></section>
+<section><h2>Suggested order</h2><div class="grid">
+<div class="step"><div class="tag">1 / CENTRALIZE WITHOUT REDESIGN</div><h3>Tokens + icons</h3><p>Move existing values and vectors to shared modules. Replace text-only action glyphs. Preserve the current look before unifying variants.</p></div>
+<div class="step"><div class="tag">2 / PROVE THE API ON REAL SCREENS</div><h3>Buttons + selection</h3><p>Use the shell and library first. Add shared selected, disabled, and busy states. Then move the add-on, calendar, and source controls.</p></div>
+<div class="step"><div class="tag">3 / CONSOLIDATE REPEATED PATTERNS</div><h3>Text + surfaces</h3><p>Extract repeated text roles and panel treatments. Share dropdown behavior only after season and provider requirements are clear.</p></div>
+</div><div class="note"><strong>Guardrails:</strong> Preserve element keys, scroll bounds, poster virtualization, and fullscreen transaction behavior. Extend the existing Rune runtime tests for labels, focus, disabled/busy actions, and selection. Compare native screens at 880 × 600 and 1280 × 820. Do not test Rune’s own rendering internals.</div></section>
+<p class="small">Review artifact only. No application source was changed and no tests were run. Native visual and keyboard validation remain follow-up work.</p>
+</main></body></html>

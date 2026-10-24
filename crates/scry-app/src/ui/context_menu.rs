@@ -1,9 +1,10 @@
 use super::{
     Page, State,
-    components::{action, edge, label, panel},
+    controls::action,
+    primitives::{surface::card, text::label},
 };
 use crate::library_worker::Command;
-use rune::{Cx, El, col};
+use rune::{Cx, El};
 use scry_library::{Media, MediaKind};
 
 impl State {
@@ -58,14 +59,12 @@ impl State {
 pub(super) fn view(s: &State, cx: &Cx<State>) -> Option<El> {
     let (point, item) = s.context_menu.as_ref()?;
     let bounds = cx.layout("scry").unwrap_or([0.0, 0.0, 880.0, 600.0]);
-    let mut menu = col()
+    let mut menu = card()
         .key("context-menu")
         .w(250.0)
         .padding(6.0)
         .gap(5.0)
         .radius(8.0)
-        .fill(panel())
-        .border(1.0, edge())
         .modal(true, |s: &mut State| s.context_menu = None)
         .focus_group()
         .absolute(

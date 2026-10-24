@@ -1,0 +1,135 @@
+use super::super::design::tokens::{self, control, type_};
+use rune::{El, Icon, Tx, icon, row, text};
+
+#[derive(Clone, Copy, Default)]
+pub(in crate::ui) enum Variant {
+    Primary,
+    #[default]
+    Secondary,
+    Ghost,
+    Danger,
+}
+
+pub(in crate::ui) struct Button {
+    key: String,
+    title: String,
+    variant: Variant,
+    selected: bool,
+    enabled: bool,
+    busy: bool,
+    glyph: Option<&'static Icon>,
+}
+
+impl Button {
+    pub fn new(key: impl Into<String>, title: impl Into<String>) -> Self {
+        Self {
+            key: key.into(),
+            title: title.into(),
+            variant: Variant::Secondary,
+            selected: false,
+            enabled: true,
+            busy: false,
+            glyph: None,
+        }
+    }
+    pub fn variant(mut self, variant: Variant) -> Self {
+        self.variant = variant;
+        self
+    }
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
+    }
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+    pub fn busy(mut self, busy: bool) -> Self {
+        self.busy = busy;
+        self
+    }
+    pub fn icon(mut self, glyph: &'static Icon) -> Self {
+        self.glyph = Some(glyph);
+        self
+    }
+
+    /// Shared interactive frame for controls with caller-owned contents.
+    pub fn frame(&self) -> El {
+        let active = self.enabled && !self.busy;
+        let label = if self.busy {
+            format!("{}, busy", self.title)
+        } else if !self.enabled {
+            format!("{}, unavailable", self.title)
+        } else if self.selected {
+            format!("{}, selected", self.title)
+        } else {
+            self.title.clone()
+        };
+        let (fill, border) = if self.selected {
+            (tokens::selected(), tokens::accent())
+        } else {
+            match self.variant {
+                Variant::Primary => (tokens::accent().alpha(0.18), tokens::accent().alpha(0.5)),
+                Variant::Secondary => (tokens::panel(), tokens::edge()),
+                Variant::Ghost => (tokens::panel().alpha(0.0), tokens::edge().alpha(0.0)),
+                Variant::Danger => (tokens::danger().alpha(0.12), tokens::danger().alpha(0.4)),
+            }
+        };
+        let frame = row()
+            .key(self.key.clone())
+            .role("button")
+            .label(label)
+            .h(control::HEIGHT)
+            .px(10.0)
+            .center()
+            .radius(control::RADIUS)
+            .fill(fill)
+            .border(1.0, border)
+            .focusable(active)
+            .focus_selected(self.selected);
+        if active {
+            frame
+                .hover(tokens::theme().hover)
+                .focus_ring(2.0, 2.0, tokens::accent())
+        } else {
+            frame.opacity(0.5)
+        }
+    }
+
+    fn content(&self) -> El {
+        let color = if !self.enabled || self.busy {
+            tokens::disabled()
+        } else if matches!(self.variant, Variant::Danger) {
+            tokens::danger()
+        } else {
+            tokens::theme().text
+        };
+        if let Some(glyph) = self.glyph {
+            self.frame()
+                .w(control::ICON_TARGET)
+                .h(control::ICON_TARGET)
+                .px(0.0)
+                .child(icon(glyph, control::ICON_SIZE).color(color))
+        } else {
+            self.frame().child(
+                text(self.title.clone())
+                    .truncate()
+                    .font(type_::LABEL)
+                    .color(color),
+            )
+        }
+    }
+
+    pub fn on_press<S: 'static>(self, f: impl Fn(&mut S) + 'static) -> El {
+        self.on_press_tx(move |s, _| f(s))
+    }
+
+    pub fn on_press_tx<S: 'static>(self, f: impl Fn(&mut S, &mut Tx) + 'static) -> El {
+        let control = self.content();
+        if self.enabled && !self.busy {
+            control.on_press_tx(f)
+        } else {
+            control
+        }
+    }
+}

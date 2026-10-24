@@ -1,6 +1,9 @@
 //! Visible poster selection and artwork presentation.
-use super::{Page, State, components::accent};
-use rune::{El, el, text, tok::TextStyle};
+use super::{
+    Page, State,
+    design::tokens::{self, accent, type_},
+};
+use rune::{El, el, text};
 use scry_addons::Meta;
 
 pub(super) const POSTER_CARD_HEIGHT: f32 = 302.0;
@@ -108,11 +111,11 @@ pub(super) fn visible_artwork(s: &State) -> Vec<String> {
 }
 
 pub(super) fn poster(s: &State, meta: &Meta, index: usize) -> El {
-    let surface = el().w_full().h(246.0).radius(4.0).fill(rune::oklch(
-        0.25 + [0.0, 0.025, 0.05][index % 3],
-        0.035,
-        230.0,
-    ));
+    let surface = el()
+        .w_full()
+        .h(246.0)
+        .radius(4.0)
+        .fill(tokens::poster(index));
     if let Some(image) = meta
         .poster
         .as_ref()
@@ -122,7 +125,7 @@ pub(super) fn poster(s: &State, meta: &Meta, index: usize) -> El {
     } else {
         surface.center().child(
             text(meta.name.chars().next().unwrap_or('S').to_string())
-                .font(TextStyle::new(52.0, 300.0))
+                .font(type_::POSTER_FALLBACK)
                 .color(accent()),
         )
     }
@@ -140,7 +143,7 @@ pub(super) fn poster_thumbnail(s: &State, key: &str, url: Option<&str>, title: &
         .w(32.0)
         .h(48.0)
         .radius(4.0)
-        .fill(rune::oklch(0.25, 0.035, 230.0));
+        .fill(tokens::poster(0));
     if let Some(image) = url.and_then(|url| s.artwork.as_ref()?.get(url)) {
         surface.child(
             el().key(format!("{key}-image"))
@@ -152,7 +155,7 @@ pub(super) fn poster_thumbnail(s: &State, key: &str, url: Option<&str>, title: &
         surface.center().child(
             text(title.chars().next().unwrap_or('S').to_string())
                 .key(format!("{key}-fallback"))
-                .font(TextStyle::new(16.0, 500.0))
+                .font(type_::THUMBNAIL_FALLBACK)
                 .color(accent()),
         )
     }

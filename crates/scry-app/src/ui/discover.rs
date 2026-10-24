@@ -2,19 +2,21 @@
 use super::{
     State,
     artwork::{POSTER_CARD_HEIGHT, POSTER_GAP, poster, poster_columns},
-    components::{action, heading, label, panel, scroll},
+    controls::action,
+    design::tokens::{panel, theme, type_},
+    primitives::{
+        surface::scroll,
+        text::{heading, label},
+    },
 };
-use rune::{
-    Cx, El, col, row, text,
-    tok::{self, TextStyle},
-};
+use rune::{Cx, El, col, row, text};
 
 #[expect(
     clippy::too_many_lines,
     reason = "Grid geometry and virtualized row layout are kept together so viewport invariants stay visible"
 )]
 pub(super) fn discover(s: &State, cx: &Cx<State>) -> El {
-    let t = tok::theme(true);
+    let t = theme();
     let viewport_key = format!("titles-scroll-{}", s.navigation.route_key);
     let columns = cx
         .layout(&viewport_key)
@@ -78,6 +80,10 @@ pub(super) fn discover(s: &State, cx: &Cx<State>) -> El {
             card_row = card_row.child(
                 col()
                     .key(format!("title-{index}"))
+                    .role("button")
+                    .label(format!("Open {}", meta.name))
+                    .focusable(true)
+                    .focus_ring(2.0, 2.0, super::design::tokens::accent())
                     .w_full()
                     .min_w(0.0)
                     .gap(8.0)
@@ -97,7 +103,7 @@ pub(super) fn discover(s: &State, cx: &Cx<State>) -> El {
                                 text(meta.name.clone())
                                     .w_full()
                                     .truncate()
-                                    .font(TextStyle::new(14.0, 550.0))
+                                    .font(type_::POSTER_TITLE)
                                     .color(t.text),
                             )
                             .child(

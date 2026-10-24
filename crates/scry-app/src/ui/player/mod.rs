@@ -5,23 +5,32 @@ pub(super) mod shortcuts;
 pub(crate) mod state;
 use super::{
     Page, State,
-    components::{accent, action, clock, label, metric, panel},
+    controls::action,
+    design::{
+        icons::{
+            AUDIO, BACK, CAPTIONS, EXIT_FULLSCREEN, FORWARD, FULLSCREEN, MUTED, PAUSE, PLAY, STOP,
+            VOLUME,
+        },
+        tokens::{accent, edge, panel, theme, type_, video},
+    },
+    formatting::{clock, metric},
+    primitives::{
+        button::{Button, Variant},
+        text::label,
+    },
 };
 use actions::PlayerAction;
-use rune::{
-    El, Icon, Phase, col, el, icon, row, text,
-    tok::{self, TextStyle},
-};
+use rune::{El, Icon, Phase, col, el, row, text};
 use scry_app::platform::VideoHost;
 
 pub(super) fn player(s: &State, scale: f32) -> El {
-    let t = tok::theme(true);
+    let t = theme();
     let mut surface = el()
         .key("video")
         .w_full()
         .grow(1.0)
         .min_h(0.0)
-        .fill(rune::oklch(0.08, 0.0, 0.0));
+        .fill(video());
     if s.player.playing {
         surface = surface.on_layout(move |s: &mut State, rect| {
             if s.player.playing && s.navigation.page == Page::Player {
@@ -57,11 +66,11 @@ pub(super) fn player(s: &State, scale: f32) -> El {
                 .child(
                     text(s.player.title.clone())
                         .truncate()
-                        .font(TextStyle::new(20.0, 550.0))
+                        .font(type_::PLAYER_TITLE)
                         .color(t.text)
                         .grow(1.0),
                 )
-                .child(action("player-back", "← Sources", |s| s.travel(false))),
+                .child(action("player-back", "Sources", |s| s.travel(false))),
         )
         .child(surface)
         .child(controls(s))
@@ -115,8 +124,8 @@ fn loading(s: &State) -> El {
     } else {
         text(s.player.title.clone())
             .key("player-loading-title")
-            .font(TextStyle::new(30.0, 550.0))
-            .color(tok::theme(true).text)
+            .font(type_::LOADING_TITLE)
+            .color(theme().text)
     };
     loading = loading.child(
         col()
@@ -138,7 +147,7 @@ fn loading(s: &State) -> El {
     );
     if s.player.fullscreen {
         loading = loading
-            .child(action("player-back", "← Sources", |s| s.travel(false)).absolute(16.0, 16.0));
+            .child(action("player-back", "Sources", |s| s.travel(false)).absolute(16.0, 16.0));
     }
     loading
 }
@@ -184,6 +193,7 @@ fn controls(s: &State) -> El {
         .gap(4.0)
         .center_y()
         .child(icon_button(
+            s,
             "pause",
             if s.player.sample.paused {
                 "Play (Space / K)"
@@ -198,6 +208,7 @@ fn controls(s: &State) -> El {
             |s| s.player_action(PlayerAction::TogglePause),
         ))
         .child(icon_button(
+            s,
             "seek-back",
             "Back 10 seconds (J)",
             &BACK,
@@ -206,6 +217,7 @@ fn controls(s: &State) -> El {
             },
         ))
         .child(icon_button(
+            s,
             "seek-forward",
             "Forward 10 seconds (L)",
             &FORWARD,
@@ -214,6 +226,7 @@ fn controls(s: &State) -> El {
             },
         ))
         .child(icon_button(
+            s,
             "mute",
             if s.player.muted {
                 "Unmute (M)"
@@ -254,6 +267,7 @@ fn controls(s: &State) -> El {
         )
         .child(el().grow(1.0))
         .child(icon_button(
+            s,
             "subtitles",
             "Cycle subtitles (C)",
             &CAPTIONS,
@@ -261,11 +275,11 @@ fn controls(s: &State) -> El {
                 s.player_action(PlayerAction::CycleSubtitles);
             },
         ))
-        .child(icon_button("audio", "Cycle audio track", &AUDIO, |s| {
+        .child(icon_button(s, "audio", "Cycle audio track", &AUDIO, |s| {
             s.player_action(PlayerAction::CycleAudio);
         }))
         .child(fullscreen_button(s))
-        .child(icon_button("stop", "Stop playback", &STOP, |s| {
+        .child(icon_button(s, "stop", "Stop playback", &STOP, |s| {
             s.player_action(PlayerAction::Stop);
         }));
     control_panel(s, buttons)
@@ -290,6 +304,7 @@ fn control_panel(s: &State, buttons: El) -> El {
 
 fn fullscreen_button(s: &State) -> El {
     icon_button(
+        s,
         "fullscreen",
         if s.player.fullscreen {
             "Exit full screen (F / Esc)"
@@ -306,19 +321,16 @@ fn fullscreen_button(s: &State) -> El {
 }
 
 fn icon_button(
+    state: &State,
     key: &'static str,
     title: &'static str,
     glyph: &'static Icon,
     f: impl Fn(&mut State) + 'static,
 ) -> El {
-    el().key(key)
-        .role("button")
-        .label(title)
-        .w(36.0)
-        .h(36.0)
-        .center()
-        .radius(6.0)
-        .hover(tok::theme(true).hover)
+    Button::new(key, title)
+        .variant(Variant::Ghost)
+        .icon(glyph)
+        .enabled(state.player.playing)
         .on_press_tx(move |s: &mut State, tx| {
             if s.player.playing {
                 let fullscreen = s.player.fullscreen;
@@ -328,7 +340,6 @@ fn icon_button(
                 }
             }
         })
-        .child(icon(glyph, 22.0).color(tok::theme(true).text))
 }
 
 #[expect(
@@ -347,13 +358,13 @@ fn rail(key: &'static str, fraction: f64) -> El {
         .h(24.0)
         .center_y()
         .child(el().w(0.0).min_w(0.0).grow(fraction).h(4.0).fill(accent()))
-        .child(el().w(10.0).h(10.0).radius(5.0).fill(tok::theme(true).text))
+        .child(el().w(10.0).h(10.0).radius(5.0).fill(theme().text))
         .child(
             el().w(0.0)
                 .min_w(0.0)
                 .grow(1.0 - fraction)
                 .h(4.0)
-                .fill(super::components::edge()),
+                .fill(edge()),
         )
 }
 
@@ -365,60 +376,3 @@ fn rail(key: &'static str, fraction: f64) -> El {
 fn volume_at(fraction: f32) -> u32 {
     (fraction.clamp(0.0, 1.0) * 100.0).round() as u32
 }
-
-static PLAY: Icon = Icon {
-    name: "player-play",
-    view: 24.0,
-    body: r#"<path d="M8 5v14l11-7Z" fill="currentColor"/>"#,
-};
-static PAUSE: Icon = Icon {
-    name: "player-pause",
-    view: 24.0,
-    body: r#"<path d="M6 5h4v14H6zM14 5h4v14h-4z" fill="currentColor"/>"#,
-};
-static BACK: Icon = Icon {
-    name: "player-back",
-    view: 24.0,
-    body: r#"<path d="m11 6-8 6 8 6V6Zm10 0-8 6 8 6V6Z" fill="currentColor"/>"#,
-};
-static FORWARD: Icon = Icon {
-    name: "player-forward",
-    view: 24.0,
-    body: r#"<path d="m3 6 8 6-8 6V6Zm10 0 8 6-8 6V6Z" fill="currentColor"/>"#,
-};
-static VOLUME: Icon = Icon {
-    name: "player-volume",
-    view: 24.0,
-    body: r#"<path d="M3 9h4l5-4v14l-5-4H3Z" fill="currentColor"/><path d="M16 8q4 4 0 8m3-11q7 7 0 14" fill="none" stroke="currentColor" stroke-width="2"/>"#,
-};
-static MUTED: Icon = Icon {
-    name: "player-muted",
-    view: 24.0,
-    body: r#"<path d="M3 9h4l5-4v14l-5-4H3Z" fill="currentColor"/><path d="m16 9 6 6m0-6-6 6" stroke="currentColor" stroke-width="2"/>"#,
-};
-static CAPTIONS: Icon = Icon {
-    name: "player-captions",
-    view: 24.0,
-    body: r#"<rect x="2" y="5" width="20" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 9H6v6h4m8-6h-4v6h4" fill="none" stroke="currentColor" stroke-width="2"/>"#,
-};
-static AUDIO: Icon = Icon {
-    name: "player-audio",
-    view: 24.0,
-    body: r#"<path d="M5 10v4m4-8v12m4-15v18m4-15v12m4-8v4" stroke="currentColor" stroke-width="2"/>"#,
-};
-static STOP: Icon = Icon {
-    name: "player-stop",
-    view: 24.0,
-    body: r#"<rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor"/>"#,
-};
-
-static FULLSCREEN: Icon = Icon {
-    name: "player-fullscreen",
-    view: 24.0,
-    body: r#"<path d="M9 3H3v6m12-6h6v6M3 15v6h6m12-6v6h-6" fill="none" stroke="currentColor" stroke-width="2"/>"#,
-};
-static EXIT_FULLSCREEN: Icon = Icon {
-    name: "player-exit-fullscreen",
-    view: 24.0,
-    body: r#"<path d="M3 9h6V3m12 6h-6V3M9 21v-6H3m12 6v-6h6" fill="none" stroke="currentColor" stroke-width="2"/>"#,
-};

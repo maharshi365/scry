@@ -14,6 +14,8 @@ use std::sync::Arc;
 
 mod calendar;
 mod catalog;
+mod controls;
+mod design_contract;
 mod episodes;
 mod layout;
 mod library;
