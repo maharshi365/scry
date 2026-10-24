@@ -3,6 +3,7 @@ mod library_worker;
 mod services;
 mod search;
 mod artwork;
+mod artwork_cache;
 mod ui;
 use scry::{playback, telemetry};
 

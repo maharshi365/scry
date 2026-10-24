@@ -15,6 +15,12 @@ use std::{
 };
 
 const EPISODES_PER_PAGE: usize = 100;
+const POSTER_CARD_HEIGHT: f32 = 302.0;
+const POSTER_GAP: f32 = 18.0;
+
+fn poster_columns(width: f32) -> usize {
+    ((width + POSTER_GAP) / 174.0).floor().max(1.0) as usize
+}
 
 fn accent() -> rune::Color {
     rune::oklch(0.79, 0.12, 195.0)
@@ -61,6 +67,7 @@ pub struct State {
     artwork: Option<crate::artwork::Artwork>,
     artwork_urls: Vec<String>,
     poster_rects: std::collections::BTreeMap<usize, [f32; 4]>,
+    poster_columns: usize,
     poster_viewport: Option<[f32; 4]>,
     poster_route: u64,
     library: LibraryUi,
@@ -119,6 +126,7 @@ impl State {
             artwork: None,
             artwork_urls: Vec::new(),
             poster_rects: Default::default(),
+            poster_columns: 3,
             poster_viewport: None,
             poster_route: 0,
             library: LibraryUi::default(),
@@ -167,6 +175,16 @@ impl State {
             volume: 70,
             startup_play: None,
             quit: None,
+        }
+    }
+
+    fn refresh_artwork(&mut self) {
+        let urls = visible_artwork(self);
+        if urls != self.artwork_urls {
+            if let Some(artwork) = &mut self.artwork {
+                artwork.set_visible(&urls);
+            }
+            self.artwork_urls = urls;
         }
     }
 
@@ -614,15 +632,18 @@ fn setup(s: &mut State, wake: rune::Waker) {
 
 fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
     if let Some(anchor) = s.reveal.take() {
-        tx.scroll_into_view(anchor);
-    }
-    let urls = visible_artwork(s);
-    if urls != s.artwork_urls {
-        if let Some(artwork) = &mut s.artwork {
-            artwork.set_visible(&urls);
+        if s.page == Page::Discover
+            && let Some(index) = anchor
+                .strip_prefix("title-")
+                .and_then(|index| index.parse::<usize>().ok())
+        {
+            let columns = s.poster_viewport.map_or(3, |rect| poster_columns(rect[2]));
+            tx.scroll_into_view(format!("title-row-{}", index / columns));
+        } else {
+            tx.scroll_into_view(anchor);
         }
-        s.artwork_urls = urls;
     }
+    s.refresh_artwork();
     let mut changed = s.poll_library() | s.artwork.as_mut().is_some_and(|artwork| artwork.poll());
     if !headless() && s.services.is_some() && s.startup_play.is_some() && s.host.target().is_ok() {
         let input = s.startup_play.take().unwrap();
@@ -876,7 +897,7 @@ fn visible_artwork(s: &State) -> Vec<String> {
         for (index, meta) in s.metas.iter().enumerate() {
             let visible = if s.poster_route == s.route_key && !s.poster_rects.is_empty() {
                 s.poster_viewport
-                    .zip(s.poster_rects.get(&index))
+                    .zip(s.poster_rects.get(&(index / s.poster_columns)))
                     .is_some_and(|(viewport, rect)| {
                         rect[1] < viewport[1] + viewport[3] && rect[1] + rect[3] > viewport[1]
                     })
@@ -912,7 +933,7 @@ fn poster(s: &State, meta: &Meta, index: usize) -> El {
         .as_ref()
         .and_then(|url| s.artwork.as_ref()?.get(url))
     {
-        surface.pixels_fit(image.pixels(), rune::SurfaceFit::Fill)
+        surface.pixels_fit(&image, rune::SurfaceFit::Fill)
     } else {
         surface.center().child(
             text(meta.name.chars().next().unwrap_or('S').to_string())
@@ -925,13 +946,8 @@ fn poster(s: &State, meta: &Meta, index: usize) -> El {
 fn discover(s: &State, cx: &Cx<State>) -> El {
     let t = tok::theme(true);
     let viewport_key = format!("titles-scroll-{}", s.route_key);
-    let columns = cx.layout(&viewport_key).map_or(3, |rect| {
-        ((rect[2] + 18.0) / 174.0).floor().max(1.0) as usize
-    });
-    let mut cards = col().key("title-cards").gap(18.0).w_full();
-    if !s.metas.is_empty() {
-        cards = cards.equal_columns(columns);
-    }
+    let columns = cx.layout(&viewport_key).map_or(3, |rect| poster_columns(rect[2]));
+    let mut cards = col().key("title-cards").gap(POSTER_GAP).w_full();
     if s.addons.is_empty() {
         cards = cards.child(col().padding(28.0).gap(16.0).radius(16.0).fill(t.card)
              .child(heading("No catalogs installed"))
@@ -943,46 +959,75 @@ fn discover(s: &State, cx: &Cx<State>) -> El {
             "No titles found. Try searching for a movie or TV show.",
         ));
     }
-    for (index, meta) in s.metas.iter().enumerate() {
+    for (row_index, metas) in s.metas.chunks(columns).enumerate() {
         let route_key = s.route_key;
-        cards = cards.child(
-            col()
-                .key(format!("title-{index}"))
-                .w_full()
-                .min_w(0.0)
-                .gap(8.0)
-                 .padding(4.0)
-                 .radius(4.0)
-                 .fill(panel())
-                .hover(t.hover)
-                .on_press(move |s: &mut State| s.open_result(index))
-                .on_layout(move |s: &mut State, rect| {
-                    if s.poster_route != route_key {
-                        s.poster_rects.clear();
-                        s.poster_route = route_key;
-                    }
-                    s.poster_rects.insert(index, rect);
+        let mut card_row = col()
+            .key(format!("title-row-{row_index}"))
+            .w_full()
+            .h(POSTER_CARD_HEIGHT)
+            .gap(POSTER_GAP)
+            .equal_columns(columns)
+            .on_layout(move |s: &mut State, rect| {
+                if s.poster_route != route_key || s.poster_columns != columns {
+                    s.poster_rects.clear();
+                }
+                s.poster_route = route_key;
+                s.poster_columns = columns;
+                s.poster_rects.insert(row_index, rect);
+                // Poll runs before layout. Queue these URLs now; an idle window
+                // might not get another frame until a worker or user wakes it.
+                s.refresh_artwork();
+            });
+        // Keep cheap row-sized placeholders for scroll geometry and history.
+        // Only nearby rows need poster handles, text shaping and hit targets.
+        let nearby = if s.poster_route == s.route_key && s.poster_columns == columns {
+            s.poster_viewport.zip(s.poster_rects.get(&row_index))
+                .is_none_or(|(viewport, rect)| {
+                    rect[1] < viewport[1] + viewport[3] * 2.0
+                        && rect[1] + rect[3] > viewport[1] - viewport[3]
                 })
-                .child(poster(s, meta, index))
-                .child(
-                    col()
-                        .gap(5.0)
-                        .child(
-                            text(meta.name.clone())
-                                .w_full()
-                                .truncate()
-                                .font(TextStyle::new(14.0, 550.0))
-                                .color(t.text),
-                        )
-                        .child(label(if s.displayed_query.is_empty() {
-                            meta.year.clone()
-                        } else {
-                            format!("{}{}{}", meta.year,
-                                if meta.year.is_empty() { "" } else { " · " },
-                                if meta.kind == "series" { "TV show" } else { "Movie" })
-                        }).key(format!("title-info-{index}"))),
-                ),
-        );
+        } else {
+            row_index < 4
+        };
+        if !nearby {
+            cards = cards.child(card_row);
+            continue;
+        }
+        for (column, meta) in metas.iter().enumerate() {
+            let index = row_index * columns + column;
+            card_row = card_row.child(
+                col()
+                    .key(format!("title-{index}"))
+                    .w_full()
+                    .min_w(0.0)
+                    .gap(8.0)
+                    .padding(4.0)
+                    .radius(4.0)
+                    .fill(panel())
+                    .hover(t.hover)
+                    .on_press(move |s: &mut State| s.open_result(index))
+                    .child(poster(s, meta, index))
+                    .child(
+                        col()
+                            .gap(5.0)
+                            .child(
+                                text(meta.name.clone())
+                                    .w_full()
+                                    .truncate()
+                                    .font(TextStyle::new(14.0, 550.0))
+                                    .color(t.text),
+                            )
+                            .child(label(if s.displayed_query.is_empty() {
+                                meta.year.clone()
+                            } else {
+                                format!("{}{}{}", meta.year,
+                                    if meta.year.is_empty() { "" } else { " · " },
+                                    if meta.kind == "series" { "TV show" } else { "Movie" })
+                            }).key(format!("title-info-{index}"))),
+                    ),
+            );
+        }
+        cards = cards.child(card_row);
     }
     col()
         .key("discover")
@@ -1002,7 +1047,10 @@ fn discover(s: &State, cx: &Cx<State>) -> El {
         )
         .child(
                     scroll(viewport_key, cards)
-                        .on_layout(|s: &mut State, rect| s.poster_viewport = Some(rect)),
+                        .on_layout(|s: &mut State, rect| {
+                            s.poster_viewport = Some(rect);
+                            s.refresh_artwork();
+                        }),
         )
 }
 
@@ -1833,6 +1881,72 @@ mod tests {
     }
 
     #[test]
+    fn large_catalog_only_lays_out_nearby_cards() {
+        let mut state = init();
+        scene_discover(&mut state);
+        state.metas = Arc::new(
+            (0..1000).map(|index| {
+                let mut meta = state.metas[index % state.metas.len()].clone();
+                meta.id = format!("title-{index}");
+                meta.name = format!("Catalog title {index}");
+                meta
+            }).collect(),
+        );
+        let started = std::time::Instant::now();
+        let mut rt = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
+        rt.poll = Some(poll);
+        for _ in 0..5 {
+            rt.frame(1.0 / 60.0);
+        }
+        let mounted = rt.elements().iter().filter(|element| {
+            !element.exiting && element.key.as_deref().is_some_and(|key| {
+                key.strip_prefix("title-").is_some_and(|index| index.parse::<usize>().is_ok())
+            })
+        }).count();
+        eprintln!("catalog: mounted={mounted}, settle={:?}, memory={:?}",
+            started.elapsed(), scry::platform::memory());
+        assert!(mounted < 100, "Only nearby cards should be laid out, got {mounted}");
+        let viewport = rect(&rt, "titles-scroll-0");
+        rt.wheel(viewport[0] + 30.0, viewport[1] + 30.0, -1_000_000.0);
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        let last = rect(&rt, "title-999");
+        assert!(last[1] >= viewport[1] && last[1] + last[3] <= viewport[1] + viewport[3] + 1.0);
+        tap(&mut rt, "title-999");
+        tap(&mut rt, "nav-back");
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        let restored = rect(&rt, "title-999");
+        assert!(restored[1] >= viewport[1] && restored[1] + restored[3] <= viewport[1] + viewport[3] + 1.0);
+    }
+
+    #[test]
+    fn idle_scroll_queues_newly_visible_posters_without_an_extra_wake() {
+        let mut state = init();
+        scene_discover(&mut state);
+        state.metas = Arc::new((0..12).map(|index| {
+            let mut meta = state.metas[index % state.metas.len()].clone();
+            meta.poster = Some(format!("https://example.invalid/poster-{index}.jpg"));
+            meta
+        }).collect());
+        let mut rt = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
+        rt.poll = Some(poll);
+        for _ in 0..120 { rt.frame(1.0 / 60.0); }
+        let url = "https://example.invalid/poster-11.jpg".to_owned();
+        assert!(!rt.state.artwork_urls.contains(&url));
+        let viewport = rect(&rt, "titles-scroll-0");
+        rt.wheel(viewport[0] + 30.0, viewport[1] + 30.0, -250.0);
+        for _ in 0..20 {
+            let moving = rt.frame(1.0 / 60.0);
+            if !moving && !rt.has_pending_input() { break; }
+        }
+        assert!(visible_artwork(&rt.state).contains(&url), "Fixture must reveal the last row");
+        assert!(rt.state.artwork_urls.contains(&url), "Visible posters must be queued before the window goes idle");
+    }
+
+    #[test]
     fn poster_grid_scrolls_to_last_title_and_back_reveals_the_opened_card() {
         let mut state = init();
         scene_discover(&mut state);
@@ -1853,7 +1967,6 @@ mod tests {
         }
         let toolbar = rect(&rt, "topbar");
         let viewport = rect(&rt, "titles-scroll-0");
-        let first = rect(&rt, "title-0");
         assert!(
             visible_artwork(&rt.state).len() < 12,
             "Do not request every result's artwork"
@@ -1870,7 +1983,7 @@ mod tests {
         assert!(artwork.contains(&"https://example.invalid/poster-39.jpg".to_owned()));
         assert!(!artwork.contains(&"https://example.invalid/poster-0.jpg".to_owned()));
         assert!(last[1] >= viewport[1] && last[1] + last[3] <= viewport[1] + viewport[3] + 1.0);
-        assert!(rect(&rt, "title-0")[1] < first[1] - 100.0);
+        assert!(!rt.elements().iter().any(|element| !element.exiting && element.key.as_deref() == Some("title-0")), "Distant cards should be unmounted");
         assert_eq!(rect(&rt, "topbar"), toolbar);
         tap(&mut rt, "title-39");
         assert_eq!(rt.state.detail.as_ref().unwrap().id, "title-39");

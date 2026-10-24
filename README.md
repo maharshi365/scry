@@ -52,6 +52,48 @@ calendar views are not implemented yet.
 
 ## Performance diagnostics
 
+Measure the idle native window on Windows (release build, no playback):
+
+```powershell
+cargo build --release
+pwsh -File scripts/measure-idle.ps1 -Report idle.json
+```
+
+Keep the same window size, catalog, and machine for comparisons. The script
+waits 15 seconds, then samples for 15 seconds and closes only the app it started.
+Use `-ProcessId` to measure an existing window without closing it. Resident memory
+includes shared driver/code pages; private bytes measure committed memory, not
+resident RAM. The final private working set is closest to Task Manager's default
+Memory column. Idle CPU is reported relative to one core.
+
+Posters use a 32-thumbnail RAM cache (up to 4.7 MiB of pixel data) and a disposable local disk cache capped at
+32 MiB or 256 files. Disk entries expire seven days after download. Revisits load
+small, already-decoded thumbnails instead of downloading and decoding the full
+poster again. Cache work stays off the UI thread. Cache failures fall back to the
+network. On Windows, the cache is `%LOCALAPPDATA%\Scry\Scry\cache\artwork`;
+close Scry before clearing it. It contains image pixels and opaque hashed keys,
+not plaintext URLs or credentials, but artwork can still reveal browsing history.
+Only nearby catalog rows build full cards; distant rows keep cheap placeholders
+for scroll position and back/forward navigation.
+
+To exercise other screens, with Cinemeta already installed and Windows display
+scaling at 100%:
+
+```powershell
+pwsh -File scripts/measure-ui.ps1 -Report navigation.json
+```
+
+This runs a fixed native click/scroll route through movies, title details,
+Library, Add-ons, series, and search. It samples memory every 100 ms and reports
+CPU work per step. It does not measure click-to-paint latency: each step includes
+a fixed settling window and may include network work. The window must have a
+1280×820 client area. The script takes foreground focus and closes its own app.
+It does not start playback or change watchlists, playlists, or installed add-ons.
+Optional `-CaptureDirectory` saves app-only screenshots for checking that each
+step reached the intended screen. Screenshots can reveal titles and configuration;
+keep them private. Numeric reports contain no URLs, search text, or title names.
+See [measured results and remaining limits](docs/ui-performance.md).
+
 ```powershell
 cargo run --release -- --self-test --report self-test.jsonl
 cargo run --release -- --probe "https://your-server.example/authorized-video.mp4" --seconds 30 --report probe.jsonl

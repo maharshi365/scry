@@ -1,14 +1,15 @@
 //! Small, memory-only poster cache. Call `set_visible` with viewport URLs, not
 //! the whole catalogue; `get` never starts work. Nothing is fetched at startup.
 //!
-//! We retain at most 32 thumbnails (160 × 240; about 6.3 MiB including Rune
-//! mips), plus two in-flight jobs. Source buffers are capped at 2 MiB and
+//! We retain at most 32 thumbnails (160 × 240; about 4.7 MiB), plus two
+//! in-flight jobs. Source buffers are capped at 2 MiB and
 //! decoded pixel buffers at 32 MiB per job. Decoder scratch space is additional.
 //! Keep returned image handles only in the current view, not another cache.
+//! A separate 32 MiB disposable disk cache keeps thumbnails for up to seven days.
 //!
 //! This is NOT a total renderer memory bound: Rune's ImageAtlas uses shelf
 //! pages. It reclaims empty pages, but live images can prevent fragmented pages
-//! from being reclaimed. ImageCache has no capacity/atlas eviction API.
+//! from being reclaimed. Rune exposes no atlas compaction API to the app.
 use anyhow::{Result, anyhow};
 use image::ImageDecoder;
 use std::{
@@ -73,7 +74,7 @@ impl<T> Cache<T> {
 #[derive(Default)]
 struct State {
     visible: Vec<String>,
-    ready: Cache<rune::Image>,
+    ready: Cache<rune::Pixels>,
     failed: Cache<()>,
     active: HashMap<String, watch::Sender<bool>>,
     stop: bool,
@@ -126,9 +127,9 @@ pub struct Artwork {
 
 impl Artwork {
     /// Two sleeping workers each run async HTTP on a current-thread runtime.
-    /// Decode happens on those same workers, never on the UI thread. Rune has
-    /// one additional mip worker; waiting for it bounds its otherwise unbounded
-    /// internal job queue to at most two small thumbnails.
+    /// Decode happens on those same workers, never on the UI thread. Thumbnails
+    /// are already display-sized; use Pixels directly rather than queueing
+    /// another worker to build a mip chain that these poster sizes never sample.
     pub fn start(wake: rune::Waker) -> Result<Self> {
         let client = reqwest::Client::builder()
             .https_only(true)
@@ -140,7 +141,11 @@ impl Artwork {
             .map_err(|_| anyhow!("Cannot create the artwork client"))?;
         let shared = Arc::new(Shared::default());
         let artwork = Self { shared };
-        let images = Arc::new(rune::ImageCache::new(wake.clone()));
+        let disk = directories::ProjectDirs::from("app", "Scry", "Scry").map(|dirs| {
+            Arc::new(Mutex::new(crate::artwork_cache::DiskCache::new(
+                dirs.cache_dir().join("artwork"),
+            )))
+        });
         for index in 0..WORKERS {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -149,11 +154,11 @@ impl Artwork {
                 .map_err(|_| anyhow!("Cannot create the artwork runtime"))?;
             let state = artwork.shared.clone();
             let client = client.clone();
-            let images = images.clone();
             let wake = wake.clone();
+            let disk = disk.clone();
             thread::Builder::new()
                 .name(format!("scry-artwork-{index}"))
-                .spawn(move || worker(state, client, images, wake, runtime))
+                .spawn(move || worker(state, client, wake, runtime, disk))
                 .map_err(|_| anyhow!("Cannot start the artwork worker"))?;
         }
         Ok(artwork)
@@ -169,7 +174,7 @@ impl Artwork {
 
     /// Read-only and nonblocking apart from a short cache lock. Returns only
     /// fully decoded images; draw a local placeholder for missing artwork.
-    pub fn get(&self, url: &str) -> Option<rune::Image> {
+    pub fn get(&self, url: &str) -> Option<rune::Pixels> {
         self.shared.state.lock().unwrap().ready.get(url).cloned()
     }
 
@@ -197,9 +202,9 @@ impl Drop for Artwork {
 fn worker(
     shared: Arc<Shared>,
     client: reqwest::Client,
-    images: Arc<rune::ImageCache>,
     wake: rune::Waker,
     runtime: tokio::runtime::Runtime,
+    disk: Option<Arc<Mutex<crate::artwork_cache::DiskCache>>>,
 ) {
     loop {
         let (url, mut cancel) = {
@@ -216,26 +221,35 @@ fn worker(
                 state = shared.available.wait(state).unwrap();
             }
         };
-        let result = runtime
-            .block_on(async {
-                tokio::select! {
-                    biased;
-                    _ = cancel.changed() => Err(()),
-                    result = download(&client, &url) => result,
-                }
-            })
-            .and_then(|bytes| {
-                if *cancel.borrow() {
-                    return Err(());
-                }
-                let (width, height, pixels) = thumbnail(&bytes)?;
-                if *cancel.borrow() {
-                    return Err(());
-                }
-                let image = images.rgba(width, height, pixels);
-                image.wait().map_err(|_| ())?;
-                Ok(image)
-            });
+        let cached = disk.as_ref().and_then(|disk| disk.lock().unwrap().load(&url));
+        let decoded = cached.map(Ok).unwrap_or_else(|| {
+            runtime
+                .block_on(async {
+                    tokio::select! {
+                        biased;
+                        _ = cancel.changed() => Err(()),
+                        result = download(&client, &url) => result,
+                    }
+                })
+                .and_then(|bytes| {
+                    if *cancel.borrow() {
+                        return Err(());
+                    }
+                    let (width, height, pixels) = thumbnail(&bytes)?;
+                    if let Some(disk) = &disk {
+                        disk.lock().unwrap().store(&url, width, height, &pixels);
+                    }
+                    Ok((width, height, pixels))
+                })
+        });
+        let result = decoded.and_then(|(width, height, pixels)| {
+            if *cancel.borrow() {
+                return Err(());
+            }
+            let image = rune::Pixels::new();
+            image.set(width, height, pixels);
+            Ok(image)
+        });
         let mut state = shared.state.lock().unwrap();
         state.active.remove(&url);
         let changed = !state.stop && !*cancel.borrow() && state.visible.contains(&url);
