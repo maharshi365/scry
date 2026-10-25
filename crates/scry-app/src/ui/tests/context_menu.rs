@@ -133,3 +133,58 @@ fn library_actions_use_add_and_remove_library_labels() {
             .all(|e| e.text.as_deref() != Some("Watch later"))
     );
 }
+
+#[test]
+fn currently_watching_context_menu_dismisses_without_removing_saved_progress() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("library.db");
+    let media = Media {
+        key: MediaKey::new("test", MediaKind::Movie, "continue"),
+        title: "Continue".into(),
+        parent: None,
+    };
+    {
+        let mut db = Library::open(&path).unwrap();
+        db.upsert_media(&media).unwrap();
+        db.add_to_watchlist(&media.key).unwrap();
+        db.record_playback(&media.key, 30.0, 120.0, 15.0).unwrap();
+    }
+    let mut state = init();
+    state.library.worker =
+        Some(crate::library_worker::Worker::start(path.clone(), Arc::new(|| {})).unwrap());
+    let mut runtime = rune::Runtime::new(state, view, (1280.0, 820.0), rune::Env::default());
+    runtime.poll = Some(poll);
+    settle_library(&mut runtime, |state| state.library.watching.len() == 1);
+    right_click(&mut runtime, "watching-open-0");
+    assert!(runtime.find("context-dismiss-watching").is_some());
+    tap(&mut runtime, "context-dismiss-watching");
+    settle_library(&mut runtime, |state| state.library.watching.is_empty());
+    assert!(runtime.state.context_menu.is_none());
+    let db = Library::open(&path).unwrap();
+    assert!(
+        db.list_currently_watching(scry_library::Page::default())
+            .unwrap()
+            .is_empty()
+    );
+    assert!(db.is_in_watchlist(&media.key).unwrap());
+    let progress = db.load_progress(&media.key).unwrap().unwrap();
+    assert_eq!(progress.position_seconds, 30.0);
+    assert_eq!(
+        db.media_states(&[media.key])
+            .unwrap()
+            .first()
+            .unwrap()
+            .watched_seconds,
+        15.0
+    );
+}
+
+#[test]
+fn dismiss_action_is_not_offered_for_titles_outside_currently_watching() {
+    let mut state = init();
+    scene_discover(&mut state);
+    let mut runtime = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
+    runtime.frame(0.0);
+    right_click(&mut runtime, "title-0");
+    assert!(runtime.find("context-dismiss-watching").is_none());
+}

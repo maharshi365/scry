@@ -142,10 +142,12 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> Option<El> {
         .focus_group()
         .absolute(
             point.x.min(bounds[2] - 258.0).max(8.0),
-            point.y.min(bounds[3] - 230.0).max(8.0),
+            point.y.min(bounds[3] - 360.0).max(8.0),
         );
     if let Some(Target::Title(media)) = item {
-        menu = menu.child(label(media.title.clone()));
+        menu = menu
+            .child(label(media.title.clone()))
+            .children(dismiss_watching(s, media));
         if matches!(media.key.kind, MediaKind::Movie | MediaKind::Series) {
             let media = media.clone();
             menu = menu.child(menu_item(
@@ -216,4 +218,25 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> Option<El> {
         }
     }
     Some(menu.child(menu_item("context-refresh", "Refresh", State::refresh_page)))
+}
+
+fn dismiss_watching(s: &State, media: &Media) -> Option<El> {
+    if s.navigation.page != Page::Watching
+        || !s
+            .library
+            .watching
+            .iter()
+            .any(|(item, _)| item.key == media.key)
+    {
+        return None;
+    }
+    let key = media.key.clone();
+    Some(menu_item(
+        "context-dismiss-watching",
+        "Dismiss from Currently watching",
+        move |s: &mut State| {
+            s.context_menu = None;
+            s.db(Command::DismissWatching(key.clone()), true);
+        },
+    ))
 }

@@ -160,6 +160,7 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
             library.record_media_playback(&item, position, duration, delta)?;
         }
         Command::FinishPlayback(key, next) => library.finish_playback(&key, next.as_ref())?,
+        Command::DismissWatching(key) => library.dismiss_currently_watching(&key)?,
         Command::Refresh {
             generation,
             selected,

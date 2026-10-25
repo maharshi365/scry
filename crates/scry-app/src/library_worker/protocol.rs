@@ -54,6 +54,7 @@ pub enum Command {
     },
     SavePlayback(Media, f64, f64, f64),
     FinishPlayback(MediaKey, Option<Media>),
+    DismissWatching(MediaKey),
     Refresh {
         generation: u64,
         selected: Option<MediaKey>,
@@ -196,6 +197,7 @@ impl Command {
                 | Self::SavePlayback(..)
                 | Self::FinishPlayback(..)
                 | Self::Upsert(..)
+                | Self::DismissWatching(..)
                 | Self::ToggleWatchlist(..)
                 | Self::SetWatchlist(..)
                 | Self::SetWatched(..)

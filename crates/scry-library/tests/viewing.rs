@@ -301,6 +301,115 @@ fn calendar_excludes_unsaved_shows_with_episode_watch_or_playback_state() -> any
 }
 
 #[test]
+fn dismissing_currently_watching_preserves_library_progress_and_history() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("library.db");
+    let dismissed = movie("dismissed");
+    let other = movie("other");
+    let before;
+    {
+        let mut db = Library::open(&path)?;
+        for media in [&dismissed, &other] {
+            db.upsert_media(media)?;
+            db.add_to_watchlist(&media.key)?;
+        }
+        db.record_playback(&dismissed.key, 80.0, 100.0, 80.0)?;
+        db.record_playback(&other.key, 20.0, 100.0, 20.0)?;
+        before = db.media_states(&[dismissed.key.clone(), other.key.clone()])?;
+        db.dismiss_currently_watching(&dismissed.key)?;
+        assert_eq!(
+            db.list_currently_watching(Page::default())?
+                .into_iter()
+                .map(|(media, _)| media)
+                .collect::<Vec<_>>(),
+            vec![other.clone()]
+        );
+        assert!(db.is_in_watchlist(&dismissed.key)?);
+        assert_eq!(
+            db.media_states(&[dismissed.key.clone(), other.key.clone()])?,
+            before
+        );
+    }
+    let mut db = Library::open(&path)?;
+    assert_eq!(db.list_currently_watching(Page::default())?.len(), 1);
+    assert_eq!(
+        db.media_states(&[dismissed.key.clone(), other.key])?,
+        before
+    );
+    db.dismiss_currently_watching(&dismissed.key)?;
+    db.record_playback(&dismissed.key, 81.0, 100.0, 1.0)?;
+    assert_eq!(
+        db.list_currently_watching(Page::default())?
+            .first()
+            .map(|(media, _)| &media.key),
+        Some(&dismissed.key)
+    );
+    Ok(())
+}
+
+#[test]
+fn dismissing_an_episode_hides_the_show_without_resurfacing_older_episodes() -> anyhow::Result<()> {
+    use diesel::{Connection, connection::SimpleConnection};
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("library.db");
+    let parent = Media {
+        key: MediaKey::new("test", MediaKind::Series, "show"),
+        title: "Show".into(),
+        parent: None,
+    };
+    let first = Media {
+        key: MediaKey::new("test", MediaKind::Episode, "show:1"),
+        title: "First".into(),
+        parent: Some(parent.key.clone()),
+    };
+    let second = Media {
+        key: MediaKey::new("test", MediaKind::Episode, "show:2"),
+        title: "Second".into(),
+        parent: Some(parent.key.clone()),
+    };
+    let unrelated = movie("other");
+    let mut db = Library::open(&path)?;
+    db.upsert_media(&parent)?;
+    db.add_to_watchlist(&parent.key)?;
+    for item in [&first, &second, &unrelated] {
+        db.record_media_playback(item, 30.0, 120.0, 10.0)?;
+    }
+    // The list can hide older active episode rows. Dismissing must hide the
+    // entire show, not expose one of those rows on the next refresh.
+    diesel::SqliteConnection::establish(
+        path.to_str()
+            .ok_or_else(|| anyhow::anyhow!("Invalid fixture path"))?,
+    )?
+    .batch_execute("UPDATE viewing SET active=1;")?;
+    let keys = [first.key.clone(), second.key.clone(), unrelated.key.clone()];
+    let before = db.media_states(&keys)?;
+    assert_eq!(db.list_currently_watching(Page::default())?.len(), 2);
+    db.dismiss_currently_watching(&second.key)?;
+    assert_eq!(
+        db.list_currently_watching(Page::default())?
+            .into_iter()
+            .map(|(media, _)| media)
+            .collect::<Vec<_>>(),
+        vec![unrelated]
+    );
+    assert_eq!(db.media_states(&keys)?, before);
+    assert!(db.is_in_watchlist(&parent.key)?);
+    db.record_playback(&first.key, 35.0, 120.0, 5.0)?;
+    assert!(
+        db.list_currently_watching(Page::default())?
+            .iter()
+            .any(|(media, _)| media.key == first.key)
+    );
+    db.dismiss_currently_watching(&parent.key)?;
+    assert!(
+        !db.list_currently_watching(Page::default())?
+            .iter()
+            .any(|(media, _)| media.parent.as_ref() == Some(&parent.key))
+    );
+    Ok(())
+}
+
+#[test]
 fn calendar_keeps_watched_saved_titles_until_removed() -> anyhow::Result<()> {
     let mut db = Library::memory()?;
     for kind in [MediaKind::Movie, MediaKind::Series] {

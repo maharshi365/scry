@@ -472,6 +472,40 @@ impl Library {
             })
     }
 
+    /// Hide a movie or a show's episodes from Currently watching without
+    /// changing library membership, resume positions, or watched history.
+    /// New playback automatically makes the selected video active again.
+    /// # Errors
+    /// Returns an error for missing media or failed writes.
+    pub fn dismiss_currently_watching(&mut self, key: &MediaKey) -> Result<()> {
+        self.connection
+            .borrow_mut()
+            .immediate_transaction(|connection| {
+                let id = media_id(connection, key)?;
+                let parent = if key.kind == MediaKind::Series {
+                    Some(id)
+                } else {
+                    media::table
+                        .find(id)
+                        .select(media::parent_id)
+                        .first::<Option<i64>>(connection)?
+                };
+                if let Some(parent) = parent {
+                    let episodes = media::table
+                        .filter(media::parent_id.eq(parent))
+                        .select(media::media_id);
+                    diesel::update(viewing::table.filter(viewing::media_id.eq_any(episodes)))
+                        .set(viewing::active.eq(false))
+                        .execute(connection)?;
+                } else {
+                    diesel::update(viewing::table.find(id))
+                        .set(viewing::active.eq(false))
+                        .execute(connection)?;
+                }
+                Ok(())
+            })
+    }
+
     /// # Errors
     /// Returns an error on database reads. One most-recent entry per series.
     pub fn list_currently_watching(&self, page: Page) -> Result<Vec<(Media, Progress)>> {
