@@ -9,10 +9,6 @@ pub(super) fn excerpt(value: &str, max: usize) -> String {
     result
 }
 
-pub(super) fn metric(value: Option<f64>) -> String {
-    value.map_or_else(|| "—".into(), |n| format!("{n:.1}"))
-}
-
 #[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,

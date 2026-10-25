@@ -13,7 +13,7 @@ use super::{
         },
         tokens::{panel, theme, type_, video},
     },
-    formatting::{clock, metric},
+    formatting::clock,
     primitives::{
         button::{Button, Variant},
         progress::slider,
@@ -156,23 +156,6 @@ pub(super) fn player(s: &State, scale: f32) -> El {
         )
         .child(surface)
         .child(controls(s))
-        .child(label(format!(
-            "cache {}s   ·   drops {}   ·   RAM {} MiB   ·   {}",
-            metric(s.player.sample.cache_s),
-            s.player
-                .sample
-                .dropped_frames
-                .map_or_else(|| "—".into(), |n| n.to_string()),
-            s.player
-                .sample
-                .resident_bytes
-                .map_or_else(|| "—".into(), |n| (n / 1024 / 1024).to_string()),
-            s.player
-                .sample
-                .hw_decoder
-                .as_deref()
-                .unwrap_or("decoder pending")
-        )))
 }
 
 fn loading(s: &State) -> El {
