@@ -12,6 +12,7 @@ pub(super) enum Page {
     Discover,
     Library,
     Addons,
+    Settings,
     Stats,
     Detail,
     Player,
@@ -91,7 +92,7 @@ impl State {
         if page == Page::Stats {
             self.refresh_stats();
         }
-        if page == Page::Guide {
+        if matches!(page, Page::Guide | Page::Settings) {
             self.refresh_guide();
         }
         if page == Page::Discover && self.catalog.is_some() && self.metas.is_empty() {
@@ -202,7 +203,7 @@ impl State {
         self.source_menu_open = false;
         self.loading = false;
         match self.navigation.page {
-            Page::Guide => self.refresh_guide(),
+            Page::Guide | Page::Settings => self.refresh_guide(),
             Page::Stats => self.refresh_stats(),
             Page::Discover if route.loading => self.fetch_catalog(),
             Page::Detail => {

@@ -131,7 +131,7 @@ fn browsing_does_not_touch_playback_and_tuning_stays_in_the_guide() {
         &enter,
         super::super::shortcuts::Focus::Screen
     ));
-    assert!(!state.guide.settings);
+    assert!(!state.guide.collections_open);
     assert_eq!(state.guide.tuned.as_ref().unwrap().0, "himym");
     assert!(!state.guide.resolving);
 }
@@ -142,7 +142,7 @@ fn entering_guide_automatically_tunes_an_available_program() {
     let data = state.guide.data.clone();
     state.apply_guide(0, data);
     assert_eq!(state.guide.tuned.as_ref().unwrap().0, "office");
-    assert!(!state.guide.settings);
+    assert!(!state.guide.collections_open);
     assert!(
         (600..=602).contains(
             &state
@@ -184,14 +184,14 @@ fn clicking_the_current_program_tunes_the_channel_without_opening_settings() {
     runtime.pointer_up(x, y);
     runtime.frame(1.0 / 60.0);
     assert_eq!(runtime.state.guide.tuned.as_ref().unwrap().0, "office");
-    assert!(!runtime.state.guide.settings);
+    assert!(!runtime.state.guide.collections_open);
 }
 
 #[test]
 fn settings_use_aligned_horizontal_choices_without_repeated_channel_controls() {
     for viewport in [(1280.0, 820.0), (880.0, 600.0)] {
         let mut state = state();
-        state.guide.settings = true;
+        state.navigation.page = Page::Settings;
         state.addons = vec![serde_json::from_value(serde_json::json!({"manifest_url":"https://example.com/manifest.json","manifest":{"id":"streams","name":"Streams","resources":["stream"]}})).unwrap()];
         let mut runtime = rune::Runtime::new(
             state,
@@ -212,20 +212,19 @@ fn settings_use_aligned_horizontal_choices_without_repeated_channel_controls() {
         let provider = rect("guide-provider-0");
         assert!((any[1] - provider[1]).abs() < 1.0);
         assert!(
-            any[2] < 200.0 && provider[2] < 200.0,
-            "Provider choices must not stretch across the page"
+            (any[2] - provider[2]).abs() < 1.0,
+            "Provider choices share their control column equally"
         );
         let quality_label = rect("guide-quality-label");
         let provider_label = rect("guide-provider-label");
         assert!((quality_label[0] - provider_label[0]).abs() < 1.0);
         assert!((rect("guide-quality-")[0] - any[0]).abs() < 1.0);
         assert!(runtime.find("guide-order-shuffle").is_some());
-        assert!(
-            (rect("guide-order-shuffle")[1] - rect("guide-episodes-all")[1]).abs() < 1.0,
-            "Shared programming choices should share a row"
-        );
-        let panel = rect("guide-shared-settings");
-        assert!(panel[3] < 300.0, "Shared settings are too tall: {panel:?}");
+        assert!((rect("guide-order-shuffle")[0] - rect("guide-episodes-all")[0]).abs() < 1.0);
+        let panel = rect("guide-source-settings");
+        let choices = rect("guide-quality-choices");
+        assert!(choices[0] > quality_label[0] + quality_label[2]);
+        assert!(choices[0] + choices[2] <= panel[0] + panel[2]);
         assert!(
             rect("guide-episodes-watched")[0] + rect("guide-episodes-watched")[2] <= viewport.0,
             "Programming options overflow the window"

@@ -245,7 +245,7 @@ fn apply(s: &mut State, event: Event) {
                 s.library.observed = None;
             }
             if s.navigation.page == Page::Player
-                || (s.navigation.page == Page::Guide && !s.guide.settings)
+                || (s.navigation.page == Page::Guide && !s.guide.collections_open)
             {
                 s.host.show();
             }

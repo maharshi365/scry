@@ -1,5 +1,5 @@
 //! Guide-owned state, tuning, and clock-driven program transitions.
-mod settings;
+mod collections;
 mod sources;
 mod tuning;
 mod view;
@@ -19,7 +19,7 @@ pub(super) use view::view;
 
 pub(super) struct GuideUi {
     pub data: Snapshot,
-    pub settings: bool,
+    pub collections_open: bool,
     pub adding: Option<Media>,
     pub collection: Option<i64>,
     pub name: TextEdit,
@@ -45,7 +45,7 @@ impl Default for GuideUi {
     fn default() -> Self {
         Self {
             data: Snapshot::default(),
-            settings: false,
+            collections_open: false,
             adding: None,
             collection: None,
             name: TextEdit::new(""),
@@ -154,7 +154,7 @@ impl State {
     pub(in crate::ui) fn autoplay_guide(&mut self) {
         if self.navigation.page != Page::Guide
             || self.config_busy
-            || self.guide.settings
+            || self.guide.collections_open
             || self.guide.busy
             || self.guide.tuned.is_some()
             || self.guide.resolving
@@ -359,7 +359,7 @@ impl State {
             self.guide.error = Some(if self.guide.data.policy.allow_torrents {
                 "No playable source from the selected providers. Retry or choose another provider."
             } else {
-                "No direct stream found. Your provider may only offer torrents; enable them below to play."
+                "No direct stream found. Your provider may only offer torrents; enable them in Settings → Guide → Sources to play."
             }.into());
             return;
         }
@@ -508,12 +508,12 @@ pub(super) fn shortcut(
             s.set_fullscreen(false);
             return true;
         }
-        if s.guide.settings {
-            s.guide.settings = false;
+        if s.guide.collections_open {
+            s.guide.collections_open = false;
             return true;
         }
     }
-    if s.guide.settings {
+    if s.guide.collections_open {
         return false;
     }
     match &event.key {

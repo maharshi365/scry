@@ -3,14 +3,14 @@ use super::super::{
     controls::input,
     primitives::{
         button::{Button, Variant},
-        surface::{card, scroll},
+        surface::scroll,
         text::{heading, label},
     },
 };
 use rune::{El, col, row};
 use scry_library::{
     Media, MediaKind,
-    guide::{ChannelSource, Collection, EpisodeOrder, GuideAction, SourcePolicy},
+    guide::{ChannelSource, Collection, GuideAction},
 };
 
 pub(super) fn view(s: &State) -> El {
@@ -21,15 +21,14 @@ pub(super) fn view(s: &State) -> El {
             row()
                 .center_y()
                 .gap(12.0)
-                .child(heading("Guide settings").grow(1.0))
+                .child(heading("Manage collections").grow(1.0))
                 .child(
-                    Button::new("guide-close-settings", "Done").on_press(|s: &mut State| {
-                        s.guide.settings = false;
+                    Button::new("guide-close-collections", "Done").on_press(|s: &mut State| {
+                        s.guide.collections_open = false;
                         s.autoplay_guide();
                     }),
                 ),
         )
-        .child(source_settings(s))
         .child(collection_editor(s));
     if let Some(error) = &s.guide.error {
         content = content.child(label(error.clone()));
@@ -40,141 +39,11 @@ pub(super) fn view(s: &State) -> El {
     for group in &s.guide.data.collections {
         content = content.child(collection(s, group));
     }
-    scroll("guide-settings-scroll", content)
+    scroll("guide-collections-scroll", content)
 }
 
 fn choices() -> El {
     row().min_w(0.0).gap(6.0).center_y().flex_wrap()
-}
-
-fn option_row(key: &str, title: &str, options: El) -> El {
-    row()
-        .gap(12.0)
-        .center_y()
-        .w_full()
-        .min_w(0.0)
-        .child(label(title).key(format!("{key}-label")).w(76.0).min_w(76.0))
-        .child(options.grow(1.0))
-}
-
-fn policy_button(s: &State, key: String, title: &str, selected: bool, policy: SourcePolicy) -> El {
-    Button::new(key, title)
-        .selected(selected)
-        .enabled(!s.guide.busy)
-        .on_press(move |s: &mut State| {
-            s.update_guide_policy(policy.clone());
-        })
-}
-
-fn source_settings(s: &State) -> El {
-    let policy = &s.guide.data.policy;
-    let mut qualities = choices();
-    for (quality, title) in [
-        ("", "Auto"),
-        ("720", "720p"),
-        ("1080", "1080p"),
-        ("2160", "4K"),
-    ] {
-        let mut next = policy.clone();
-        next.quality = quality.into();
-        qualities = qualities.child(policy_button(
-            s,
-            format!("guide-quality-{quality}"),
-            title,
-            policy.quality == quality,
-            next,
-        ));
-    }
-    let mut order = choices();
-    for (key, title, value) in [
-        ("shuffle", "Shuffle", EpisodeOrder::Shuffle),
-        ("sequential", "In order", EpisodeOrder::Sequential),
-    ] {
-        let mut next = policy.clone();
-        next.order = value;
-        order = order.child(policy_button(
-            s,
-            format!("guide-order-{key}"),
-            title,
-            policy.order == value,
-            next,
-        ));
-    }
-    let mut episodes = choices();
-    for (key, title, value) in [
-        ("all", "All released", false),
-        ("watched", "Watched only", true),
-    ] {
-        let mut next = policy.clone();
-        next.watched_only = value;
-        episodes = episodes.child(policy_button(
-            s,
-            format!("guide-episodes-{key}"),
-            title,
-            policy.watched_only == value,
-            next,
-        ));
-    }
-    let mut sources = choices();
-    for (key, title, allow) in [
-        ("direct", "Direct only", false),
-        ("torrents", "Allow torrents", true),
-    ] {
-        let mut next = policy.clone();
-        next.allow_torrents = allow;
-        sources = sources.child(policy_button(
-            s,
-            format!("guide-sources-{key}"),
-            title,
-            policy.allow_torrents == allow,
-            next,
-        ));
-    }
-    card().key("guide-shared-settings").padding(12.0).gap(8.0)
-        .child(label("Applies to every channel · playback starts automatically"))
-        .child(option_row("guide-provider","Provider",provider_choices(s)))
-        .child(option_row("guide-quality","Quality",qualities))
-        .child(option_row("guide-programming","Programs",choices().gap(16.0).child(order).child(episodes)))
-        .child(option_row("guide-sources","Sources",sources))
-        .child(label("Quality is a preference. Torrents can upload data and expose your IP. Current programs stay in place when settings change."))
-}
-
-fn provider_choices(s: &State) -> El {
-    let policy = &s.guide.data.policy;
-    let mut any = policy.clone();
-    any.provider.clear();
-    let mut providers = choices().child(policy_button(
-        s,
-        "guide-provider-any".into(),
-        "Auto",
-        policy.provider.is_empty(),
-        any,
-    ));
-    for (index, addon) in s
-        .addons
-        .iter()
-        .filter(|addon| {
-            !addon.disabled
-                && addon.manifest.resources.iter().any(|resource| {
-                    resource.as_str() == Some("stream")
-                        || resource.get("name").and_then(serde_json::Value::as_str)
-                            == Some("stream")
-                })
-        })
-        .enumerate()
-    {
-        let name = &addon.manifest.name;
-        let mut next = policy.clone();
-        next.provider.clone_from(name);
-        providers = providers.child(policy_button(
-            s,
-            format!("guide-provider-{index}"),
-            name,
-            policy.provider == *name,
-            next,
-        ));
-    }
-    providers
 }
 
 fn collection_editor(s: &State) -> El {

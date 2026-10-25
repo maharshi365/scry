@@ -1,5 +1,5 @@
 use super::super::{
-    State,
+    Page, State,
     design::tokens::{self, type_},
     primitives::{
         button::Button,
@@ -40,8 +40,8 @@ pub(in crate::ui) fn view(s: &State, cx: &Cx<State>) -> El {
     if s.player.fullscreen {
         return preview(s, cx.env().scale, true);
     }
-    if s.guide.settings {
-        return super::settings::view(s);
+    if s.guide.collections_open {
+        return super::collections::view(s);
     }
     let now = chrono::Utc::now().timestamp();
     let mut content = col().grow(1.0).min_h(0.0).gap(12.0).child(header(s)).child(
@@ -136,10 +136,14 @@ fn header(s: &State) -> El {
         );
     }
     header = header.child(
-        Button::new("guide-settings", "Settings").on_press(|s: &mut State| {
-            s.guide.settings = true;
+        Button::new("guide-manage-collections", "Manage collections").on_press(|s: &mut State| {
+            s.guide.collections_open = true;
             s.host.hide();
         }),
+    );
+    header = header.child(
+        Button::new("guide-settings", "Settings")
+            .on_press(|s: &mut State| s.navigate(Page::Settings)),
     );
     header
 }
@@ -293,7 +297,7 @@ fn preview(s: &State, scale: f32, fullscreen: bool) -> El {
     if s.player.playing {
         video = video.on_layout(move |s: &mut State, rect| {
             if s.navigation.page == super::super::Page::Guide
-                && !s.guide.settings
+                && !s.guide.collections_open
                 && s.player.playing
             {
                 s.host.place(rect, scale);

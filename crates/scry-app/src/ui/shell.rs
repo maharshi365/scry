@@ -15,6 +15,7 @@ use super::{
     primitives::{
         button::{Button, Variant},
         input_group::input_group,
+        surface::scroll,
         text::label,
     },
 };
@@ -78,6 +79,7 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
         Page::Guide => super::guide::view(s, cx),
         Page::Library => library_view::view(s, cx),
         Page::Addons => addons(s),
+        Page::Settings => super::settings::view(s),
         Page::Stats => super::stats::view(s),
         Page::Detail if s.detail_preview => row()
             .grow(1.0)
@@ -172,9 +174,11 @@ fn sidebar(s: &State) -> El {
         .w(240.0)
         .min_w(240.0)
         .h_full()
+        .min_h(0.0)
         .padding(18.0)
         .gap(12.0)
         .fill(tokens::sidebar());
+    let mut links = col().w_full().gap(12.0);
     for (key, title, page, glyph) in [
         (
             "nav-watching",
@@ -185,10 +189,8 @@ fn sidebar(s: &State) -> El {
         ("nav-library", "Library", Page::Library, &icons::LIBRARY),
         ("nav-guide", "Guide", Page::Guide, &icons::TV),
         ("nav-calendar", "Calendar", Page::Calendar, &icons::CALENDAR),
-        ("nav-stats", "Stats for Nerds", Page::Stats, &icons::CHART),
-        ("nav-addons", "Add-ons", Page::Addons, &icons::ADDONS),
     ] {
-        sidebar = sidebar.child(
+        links = links.child(
             nav_action(key, title, glyph, s.navigation.page == page, move |s| {
                 s.navigate(page);
             })
@@ -201,7 +203,7 @@ fn sidebar(s: &State) -> El {
                     "series" => ("series".to_owned(), &icons::TV),
                     _ => (format!("category-{kind}"), &icons::MOVIE),
                 };
-                sidebar = sidebar.child(
+                links = links.child(
                     nav_action(
                         &key,
                         &super::catalog::category_label(&kind),
@@ -214,7 +216,21 @@ fn sidebar(s: &State) -> El {
             }
         }
     }
-    sidebar = sidebar.child(el().grow(1.0));
+    sidebar = sidebar.child(scroll("sidebar-pages", links));
+    let mut utilities = col().key("sidebar-utilities").w_full().gap(12.0);
+    for (key, title, page, glyph) in [
+        ("nav-stats", "Stats for Nerds", Page::Stats, &icons::CHART),
+        ("nav-addons", "Add-ons", Page::Addons, &icons::ADDONS),
+        ("nav-settings", "Settings", Page::Settings, &icons::SETTINGS),
+    ] {
+        utilities = utilities.child(
+            nav_action(key, title, glyph, s.navigation.page == page, move |s| {
+                s.navigate(page);
+            })
+            .w_full(),
+        );
+    }
+    sidebar = sidebar.child(utilities);
     if s.app_fullscreen {
         sidebar = sidebar.child(
             icon_action(

@@ -21,6 +21,7 @@ mod primitives;
 #[cfg(feature = "profiling")]
 mod profiling;
 mod scenes;
+mod settings;
 mod shell;
 mod shortcuts;
 mod source_picker;

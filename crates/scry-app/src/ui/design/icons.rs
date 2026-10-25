@@ -26,6 +26,11 @@ pub(in crate::ui) static ADDONS: Icon = Icon {
     view: 24.0,
     body: include_str!("../../../assets/icons/rune/addons.svg"),
 };
+pub(in crate::ui) static SETTINGS: Icon = Icon {
+    name: "settings",
+    view: 24.0,
+    body: include_str!("../../../assets/icons/rune/settings.svg"),
+};
 pub(in crate::ui) static MOVIE: Icon = Icon {
     name: "movie",
     view: 24.0,
@@ -204,6 +209,7 @@ mod tests {
             source!(CLOSE, "x"),
             source!(CHECK, "check"),
             source!(ADD, "plus"),
+            source!(SETTINGS, "settings"),
             source!(LAYERS, "layers"),
             source!(FLAG, "flag"),
             source!(SUN, "sun"),

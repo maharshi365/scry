@@ -77,7 +77,7 @@ impl State {
         self.retry_series_details();
         self.request_series_tracking(true);
         match self.navigation.page {
-            Page::Guide => self.refresh_guide(),
+            Page::Guide | Page::Settings => self.refresh_guide(),
             Page::Stats => self.refresh_stats(),
             Page::Discover => self.fetch_catalog(),
             Page::Calendar => self.refresh_calendar(),
@@ -156,7 +156,7 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> Option<El> {
                 move |s: &mut State| {
                     s.context_menu = None;
                     s.guide.adding = Some(media.clone());
-                    s.guide.settings = true;
+                    s.guide.collections_open = true;
                     s.navigate(Page::Guide);
                 },
             ));
