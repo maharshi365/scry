@@ -5,6 +5,60 @@ use crate::ui::{
 };
 
 #[test]
+fn shared_progress_bars_bound_values_and_keep_accessible_percentages() {
+    struct Bars {
+        values: Vec<(&'static str, f64)>,
+    }
+    fn bars(s: &Bars, _: &mut rune::Cx<Bars>) -> rune::El {
+        let mut bars = rune::col().w(200.0);
+        for (key, value) in &s.values {
+            bars = bars.child(crate::ui::primitives::progress::bar(key, *value));
+        }
+        bars
+    }
+    let mut rt = rune::Runtime::new(
+        Bars {
+            values: vec![
+                ("partial", 0.25),
+                ("negative", -0.5),
+                ("overflow", 1.5),
+                ("unknown", f64::NAN),
+                ("infinite", f64::INFINITY),
+            ],
+        },
+        bars,
+        (400.0, 300.0),
+        rune::Env::default(),
+    );
+    rt.frame(0.0);
+    let elements = rt.elements();
+    for (key, percent) in [
+        ("partial", 25.0),
+        ("negative", 0.0),
+        ("overflow", 100.0),
+        ("unknown", 0.0),
+        ("infinite", 0.0),
+    ] {
+        let track = elements
+            .iter()
+            .find(|e| e.key.as_deref() == Some(&format!("{key}-track")))
+            .unwrap();
+        let fill = elements
+            .iter()
+            .find(|e| e.key.as_deref() == Some(&format!("{key}-fill")))
+            .unwrap();
+        assert_eq!(
+            track.label.as_deref(),
+            Some(format!("{percent:.0}% complete").as_str())
+        );
+        assert!(
+            (fill.rect[2] - track.rect[2] * percent / 100.0).abs() < 0.1,
+            "{key} must match the displayed percentage"
+        );
+    }
+}
+
+#[test]
 fn icon_only_actions_have_action_names_not_glyph_labels() {
     let mut rt = rune::Runtime::new(init(), view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);

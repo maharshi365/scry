@@ -6,7 +6,7 @@ use super::{
     controls::{action, icon_action, select_action},
     design::{
         icons,
-        tokens::{self, accent, edge, panel, theme, type_},
+        tokens::{self, accent, panel, theme, type_},
     },
     library_view,
     primitives::{
@@ -34,7 +34,7 @@ pub(super) fn detail(s: &State) -> El {
         .min_h(0.0)
         .padding(20.0)
         .gap(12.0)
-        .fill(panel().alpha(0.94));
+        .fill(tokens::preview_panel());
     if let Some(meta) = &s.detail {
         if meta.kind == "series" && s.selected_video_id.is_none() {
             side = side.child(episodes(s, meta));
@@ -82,7 +82,7 @@ fn backdrop(s: &State) -> El {
                 .w_full()
                 .h_full()
                 .pixels_fit(&image, rune::SurfaceFit::Fill)
-                .opacity(0.38),
+                .opacity(tokens::opacity::DETAIL_BACKDROP),
         );
     }
     surface
@@ -194,7 +194,7 @@ fn chips(title: &str, values: &[String]) -> El {
                     .max_w(PREVIEW_WIDTH - PREVIEW_PADDING * 2.0)
                     .min_w(0.0)
                     .radius(18.0)
-                    .fill(panel().alpha(0.8))
+                    .fill(tokens::chip_fill())
                     .child(
                         text(value.clone())
                             .truncate()
@@ -292,106 +292,102 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
                 .color(if selected { accent() } else { t.text_secondary }),
         );
         if s.episode_watched(&video.id) {
-            status = status.child(
-                el().key(format!("episode-watched-{index}"))
-                    .role("img")
-                    .label("Watched")
-                    .w(22.0)
-                    .h(22.0)
-                    .center()
-                    .child(icon(&icons::CHECK, 16.0).color(tokens::success())),
-            );
+            status = status.child(super::primitives::status::watched(
+                format!("episode-watched-{index}"),
+                22.0,
+            ));
         }
         episodes = episodes.child(
-            row()
-                .key(format!("episode-{index}"))
-                .role("button")
-                .focusable(true)
-                .focus_selected(selected)
-                .focus_ring(2.0, 2.0, accent())
-                .label(format!(
-                    "Episode {} {}",
-                    video.episode.unwrap_or(0),
-                    video.title
-                ))
-                .padding(12.0)
-                .gap(8.0)
-                .radius(9.0)
-                .border(
-                    1.0,
-                    if selected {
-                        accent().alpha(0.5)
-                    } else {
-                        edge().alpha(0.6)
-                    },
-                )
-                .hover(t.hover)
-                .on_press(move |s: &mut State| s.select_episode(index))
-                .on_secondary_press(move |s: &mut State, p, _| {
-                    let item = s.detail.as_ref().and_then(|meta| {
-                        meta.videos.get(index).map(|video| scry_library::Media {
-                            key: super::library_view::key(
-                                &super::library_view::key(
-                                    &s.detail_namespace,
-                                    scry_library::MediaKind::Series,
-                                    &meta.id,
-                                )
-                                .namespace,
-                                scry_library::MediaKind::Episode,
-                                &video.id,
-                            ),
-                            title: format!("{} · {}", meta.name, video.title),
-                            parent: Some(super::library_view::key(
+            super::primitives::interaction::focus_ring(
+                row()
+                    .key(format!("episode-{index}"))
+                    .role("button")
+                    .focusable(true)
+                    .focus_selected(selected),
+            )
+            .label(format!(
+                "Episode {} {}",
+                video.episode.unwrap_or(0),
+                video.title
+            ))
+            .padding(12.0)
+            .gap(8.0)
+            .radius(9.0)
+            .border(
+                1.0,
+                if selected {
+                    tokens::primary_edge()
+                } else {
+                    tokens::subtle_edge()
+                },
+            )
+            .hover(t.hover)
+            .on_press(move |s: &mut State| s.select_episode(index))
+            .on_secondary_press(move |s: &mut State, p, _| {
+                let item = s.detail.as_ref().and_then(|meta| {
+                    meta.videos.get(index).map(|video| scry_library::Media {
+                        key: super::library_view::key(
+                            &super::library_view::key(
                                 &s.detail_namespace,
                                 scry_library::MediaKind::Series,
                                 &meta.id,
-                            )),
-                        })
-                    });
-                    s.open_title_menu(p, item);
-                })
-                .w_full()
-                .fill(if selected {
-                    tokens::selected()
-                } else {
-                    panel()
-                })
-                .child(episode_thumbnail(s, video, index))
-                .child(
-                    col()
-                        .w(0.0)
-                        .grow(1.0)
-                        .min_w(0.0)
-                        .gap(6.0)
-                        .child(status)
-                        .child(
-                            text(if video.title.trim().is_empty() {
-                                "Title unavailable".to_owned()
-                            } else {
-                                video.title.trim().to_owned()
-                            })
-                            .key(format!("episode-title-{index}"))
-                            .wrap()
-                            .font(type_::ITEM)
-                            .color(if video.title.trim().is_empty() {
-                                t.text_secondary
-                            } else {
-                                t.text
-                            }),
-                        )
-                        .child(
-                            label(
-                                video
-                                    .released
-                                    .as_deref()
-                                    .unwrap_or("Release date unavailable")
-                                    .split('T')
-                                    .next()
-                                    .unwrap_or_default(),
                             )
-                            .font(type_::CAPTION),
+                            .namespace,
+                            scry_library::MediaKind::Episode,
+                            &video.id,
                         ),
-                ),
+                        title: format!("{} · {}", meta.name, video.title),
+                        parent: Some(super::library_view::key(
+                            &s.detail_namespace,
+                            scry_library::MediaKind::Series,
+                            &meta.id,
+                        )),
+                    })
+                });
+                s.open_title_menu(p, item);
+            })
+            .w_full()
+            .fill(if selected {
+                tokens::selected()
+            } else {
+                panel()
+            })
+            .child(episode_thumbnail(s, video, index))
+            .child(
+                col()
+                    .w(0.0)
+                    .grow(1.0)
+                    .min_w(0.0)
+                    .gap(6.0)
+                    .child(status)
+                    .child(
+                        text(if video.title.trim().is_empty() {
+                            "Title unavailable".to_owned()
+                        } else {
+                            video.title.trim().to_owned()
+                        })
+                        .key(format!("episode-title-{index}"))
+                        .wrap()
+                        .font(type_::ITEM)
+                        .color(if video.title.trim().is_empty() {
+                            t.text_secondary
+                        } else {
+                            t.text
+                        }),
+                    )
+                    .child(
+                        label(
+                            video
+                                .released
+                                .as_deref()
+                                .unwrap_or("Release date unavailable")
+                                .split('T')
+                                .next()
+                                .unwrap_or_default(),
+                        )
+                        .font(type_::CAPTION),
+                    ),
+            ),
         );
     }
     let mut pages = row().gap(8.0);

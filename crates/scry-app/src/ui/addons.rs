@@ -1,11 +1,13 @@
 //! Available and installed providers, with one shared installation dialog.
 use super::{
     State,
-    controls::{icon_action, input},
+    controls::input,
     design::{icons, tokens},
     primitives::{
         button::{Button, Variant},
-        surface::{card, scroll, surface},
+        dialog,
+        status::spinner,
+        surface::{scroll, surface},
         text::{heading, label},
     },
 };
@@ -162,12 +164,7 @@ pub(super) fn install_dialog(s: &State) -> El {
         submit = Button::new("addon-install-done", "Done")
             .on_press(|s: &mut State| s.addon_install_open = false);
     } else if s.config_busy {
-        submit = submit.child(
-            icon(&icons::SPINNER, 24.0)
-                .key("addon-install-spinner")
-                .color(tokens::accent())
-                .looping(rune::LoopSpec::rotation(0.8)),
-        );
+        submit = submit.child(spinner("addon-install-spinner", 24.0));
     } else {
         submit = submit
             .child(icon(&icons::DOWNLOAD, 24.0).color(tokens::accent()))
@@ -180,59 +177,48 @@ pub(super) fn install_dialog(s: &State) -> El {
                 .color(tokens::accent()),
         );
     }
-    el().key("addon-dialog-layer")
-        .w_full()
-        .h_full()
-        .absolute(0.0, 0.0)
-        .center()
-        .fill(tokens::scrim())
+    dialog::layer(
+        "addon-dialog-layer",
+        dialog::panel("addon-install-dialog", |s: &mut State| {
+            s.addon_install_open = false;
+        })
+        .w(640.0)
+        .padding(28.0)
+        .gap(20.0)
+        .child(dialog::header("Install add-on").child(dialog::close(
+            "addon-dialog-close",
+            "Close install dialog",
+            |s: &mut State| s.addon_install_open = false,
+        )))
+        .child(label("Manifest URL"))
         .child(
-            card()
-                .key("addon-install-dialog")
-                .w(640.0)
-                .padding(28.0)
-                .gap(20.0)
-                .modal(true, |s: &mut State| s.addon_install_open = false)
-                .child(
-                    row()
-                        .w_full()
-                        .child(heading("Install add-on").grow(1.0))
-                        .child(icon_action(
-                            "addon-dialog-close",
-                            "Close install dialog",
-                            &icons::CLOSE,
-                            |s| s.addon_install_open = false,
-                        )),
-                )
-                .child(label("Manifest URL"))
-                .child(
-                    input(
-                        "manifest",
-                        &s.install,
-                        "http://…/manifest.json or https://…/manifest.json",
-                        |s| &mut s.install,
-                        |s| {
-                            if !s.addon_install_complete {
-                                s.install(s.install.text.clone());
-                            }
-                        },
-                    )
-                    .grow(0.0)
-                    .w_full()
-                    .h(48.0)
-                    .min_h(48.0),
-                )
-                .child(feedback)
-                .child(
-                    row().gap(12.0).center_y().child(submit).child(
-                        text(if s.error.is_some() {
-                            "Check the URL and try again."
-                        } else {
-                            ""
-                        })
-                        .font(tokens::type_::LABEL)
-                        .color(tokens::theme().text),
-                    ),
-                ),
+            input(
+                "manifest",
+                &s.install,
+                "http://…/manifest.json or https://…/manifest.json",
+                |s| &mut s.install,
+                |s| {
+                    if !s.addon_install_complete {
+                        s.install(s.install.text.clone());
+                    }
+                },
+            )
+            .grow(0.0)
+            .w_full()
+            .h(48.0)
+            .min_h(48.0),
         )
+        .child(feedback)
+        .child(
+            row().gap(12.0).center_y().child(submit).child(
+                text(if s.error.is_some() {
+                    "Check the URL and try again."
+                } else {
+                    ""
+                })
+                .font(tokens::type_::LABEL)
+                .color(tokens::theme().text),
+            ),
+        ),
+    )
 }

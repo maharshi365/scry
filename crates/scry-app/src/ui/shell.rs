@@ -253,12 +253,7 @@ fn topbar(s: &State) -> El {
         .w(112.0)
         .gap(8.0);
     if searching {
-        search = search.child(
-            rune::icon(&icons::SPINNER, 16.0)
-                .key("search-spinner")
-                .color(tokens::accent())
-                .looping(rune::LoopSpec::rotation(0.8)),
-        );
+        search = search.child(super::primitives::status::spinner("search-spinner", 16.0));
     }
     let search = search.child(text("Search").font(type_::BODY).color(tokens::theme().text));
     let search = if searching {

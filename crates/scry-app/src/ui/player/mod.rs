@@ -11,11 +11,12 @@ use super::{
             AUDIO, BACK, CAPTIONS, EXIT_FULLSCREEN, FORWARD, FULLSCREEN, MUTED, PAUSE, PLAY, STOP,
             VOLUME,
         },
-        tokens::{accent, edge, panel, theme, type_, video},
+        tokens::{panel, theme, type_, video},
     },
     formatting::{clock, metric},
     primitives::{
         button::{Button, Variant},
+        progress::slider,
         text::label,
     },
 };
@@ -110,7 +111,7 @@ fn loading(s: &State) -> El {
                 .w_full()
                 .h_full()
                 .pixels_fit(&background, rune::SurfaceFit::Fill)
-                .opacity(0.45)
+                .opacity(super::design::tokens::opacity::PLAYER_BACKDROP)
                 .transition(rune::Transition::opacity()),
         );
     }
@@ -162,7 +163,7 @@ fn timeline(s: &State) -> El {
         }
         _ => 0.0,
     };
-    rail("player-timeline", progress)
+    slider("player-timeline", progress)
         .w_full()
         .label("Seek through video")
         .on_drag(|s: &mut State, drag, _| {
@@ -241,7 +242,7 @@ fn controls(s: &State) -> El {
             |s| s.player_action(PlayerAction::ToggleMute),
         ))
         .child(
-            rail(
+            slider(
                 "player-volume",
                 if s.player.muted {
                     0.0
@@ -340,32 +341,6 @@ fn icon_button(
                 }
             }
         })
-}
-
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "A clamped UI fraction fits in f32"
-)]
-fn rail(key: &'static str, fraction: f64) -> El {
-    let fraction = if fraction.is_finite() {
-        fraction.clamp(0.0, 1.0) as f32
-    } else {
-        0.0
-    };
-    row()
-        .key(key)
-        .role("slider")
-        .h(24.0)
-        .center_y()
-        .child(el().w(0.0).min_w(0.0).grow(fraction).h(4.0).fill(accent()))
-        .child(el().w(10.0).h(10.0).radius(5.0).fill(theme().text))
-        .child(
-            el().w(0.0)
-                .min_w(0.0)
-                .grow(1.0 - fraction)
-                .h(4.0)
-                .fill(edge()),
-        )
 }
 
 #[expect(

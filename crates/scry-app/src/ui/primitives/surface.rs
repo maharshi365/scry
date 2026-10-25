@@ -1,6 +1,6 @@
 use super::super::design::{
     icons,
-    tokens::{accent, edge, panel, success, theme, type_},
+    tokens::{self, accent, edge, panel, success, theme, type_},
 };
 use super::text::label;
 use rune::{Align, Color, El, Icon, ScrollSpec, Side, col, el, icon, row, text};
@@ -21,8 +21,8 @@ pub(in crate::ui) fn badge(key: impl Into<String>, value: impl Into<String>, col
         .gap(4.0)
         .center()
         .radius(11.0)
-        .fill(color.alpha(0.12))
-        .border(1.0, color.alpha(0.25))
+        .fill(tokens::badge_fill(color))
+        .border(1.0, tokens::badge_edge(color))
         .child(text(value).font(type_::BADGE).color(color))
 }
 
@@ -48,7 +48,7 @@ pub(in crate::ui) fn empty_state(
                 el().w(64.0)
                     .h(64.0)
                     .radius(18.0)
-                    .fill(accent().alpha(0.08))
+                    .fill(tokens::empty_icon_fill())
                     .center()
                     .child(icon(glyph, 26.0).color(accent())),
             )

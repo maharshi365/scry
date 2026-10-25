@@ -221,7 +221,7 @@ fn watching_cards_show_posters_progress_and_resume_the_saved_episode() {
     assert!(rt.find("watching-poster-1").is_some());
     assert_eq!(
         rect(&rt, "watching-open-0")[3],
-        super::super::artwork::POSTER_CARD_HEIGHT
+        super::super::design::tokens::poster::CARD_HEIGHT
     );
     assert_eq!(
         visible_artwork(&rt.state),

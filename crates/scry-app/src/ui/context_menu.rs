@@ -1,11 +1,6 @@
 use super::{
     Page, State,
-    design::tokens,
-    primitives::{
-        button::{Button, Variant},
-        surface::card,
-        text::label,
-    },
+    primitives::{button::menu_item, surface::card, text::label},
 };
 use crate::library_worker::Command;
 use rune::{Cx, El};
@@ -147,14 +142,18 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> Option<El> {
             ("unwatched", "Mark as unwatched", 3),
         ] {
             let media = media.clone();
-            menu = menu.child(menu_action(format!("context-{key}"), title, move |s| {
-                s.context_menu = None;
-                if choice >= 2 {
-                    s.mark_media_watched(media.clone(), choice == 2);
-                    return;
-                }
-                s.db(Command::SetWatchlist(media.clone(), choice == 0), true);
-            }));
+            menu = menu.child(menu_item(
+                format!("context-{key}"),
+                title,
+                move |s: &mut State| {
+                    s.context_menu = None;
+                    if choice >= 2 {
+                        s.mark_media_watched(media.clone(), choice == 2);
+                        return;
+                    }
+                    s.db(Command::SetWatchlist(media.clone(), choice == 0), true);
+                },
+            ));
         }
     } else if let Some(Target::Season {
         parent,
@@ -174,37 +173,23 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> Option<El> {
         ] {
             let (parent, episodes) = (parent.clone(), episodes.clone());
             let inventory = inventory.clone();
-            menu = menu.child(menu_action(format!("context-{key}"), title, move |s| {
-                s.context_menu = None;
-                s.db(
-                    Command::SetEpisodesWatched {
-                        parent: parent.clone(),
-                        episodes: episodes.clone(),
-                        inventory: inventory.clone(),
-                        watched,
-                    },
-                    true,
-                );
-            }));
+            menu = menu.child(menu_item(
+                format!("context-{key}"),
+                title,
+                move |s: &mut State| {
+                    s.context_menu = None;
+                    s.db(
+                        Command::SetEpisodesWatched {
+                            parent: parent.clone(),
+                            episodes: episodes.clone(),
+                            inventory: inventory.clone(),
+                            watched,
+                        },
+                        true,
+                    );
+                },
+            ));
         }
     }
-    Some(menu.child(menu_action(
-        "context-refresh",
-        "Refresh",
-        State::refresh_page,
-    )))
-}
-
-fn menu_action(
-    key: impl Into<String>,
-    title: impl Into<String>,
-    f: impl Fn(&mut State) + 'static,
-) -> El {
-    Button::new(key, title)
-        .variant(Variant::Ghost)
-        .on_press(f)
-        .w_full()
-        .justify_start()
-        .border(0.0, tokens::edge())
-        .focus_follows()
+    Some(menu.child(menu_item("context-refresh", "Refresh", State::refresh_page)))
 }

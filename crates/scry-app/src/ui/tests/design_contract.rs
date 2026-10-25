@@ -27,11 +27,13 @@ fn check_source(path: &Path, violations: &mut Vec<String>) {
                     "color::hex(",
                     "tok::theme(",
                     "TextStyle::new(",
+                    ".alpha(",
                 ]
                 .iter()
                 .any(|pattern| text.contains(pattern))
             };
             let inline_svg = !is_icons && text.contains("body: r#");
+            let inline_focus = parent != "primitives" && text.contains(".focus_ring(");
             let feature_dependency = parent == "primitives"
                 && [
                     "State",
@@ -41,7 +43,7 @@ fn check_source(path: &Path, violations: &mut Vec<String>) {
                 ]
                 .iter()
                 .any(|pattern| text.contains(pattern));
-            if forbidden || inline_svg || feature_dependency {
+            if forbidden || inline_svg || inline_focus || feature_dependency {
                 violations.push(format!("{}:{}: {}", path.display(), line + 1, text.trim()));
             }
         }

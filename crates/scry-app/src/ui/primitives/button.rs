@@ -1,6 +1,20 @@
 use super::super::design::tokens::{self, control, type_};
 use rune::{El, Icon, Tx, icon, row, text};
 
+pub(in crate::ui) fn menu_item<S: 'static>(
+    key: impl Into<String>,
+    title: impl Into<String>,
+    f: impl Fn(&mut S) + 'static,
+) -> El {
+    Button::new(key, title)
+        .variant(Variant::Ghost)
+        .on_press(f)
+        .w_full()
+        .justify_start()
+        .border(0.0, tokens::edge())
+        .focus_follows()
+}
+
 pub(in crate::ui) fn segmented_group() -> El {
     row()
         .gap(4.0)
@@ -95,10 +109,10 @@ impl Button {
             (tokens::selected(), tokens::accent())
         } else {
             match self.variant {
-                Variant::Primary => (tokens::accent().alpha(0.18), tokens::accent().alpha(0.5)),
+                Variant::Primary => (tokens::primary_fill(), tokens::primary_edge()),
                 Variant::Secondary => (tokens::panel(), tokens::edge()),
-                Variant::Ghost => (tokens::panel().alpha(0.0), tokens::edge().alpha(0.0)),
-                Variant::Danger => (tokens::danger().alpha(0.12), tokens::danger().alpha(0.4)),
+                Variant::Ghost => (tokens::transparent(), tokens::transparent_edge()),
+                Variant::Danger => (tokens::danger_fill(), tokens::danger_edge()),
             }
         };
         let frame = row()
@@ -114,11 +128,9 @@ impl Button {
             .focusable(active)
             .focus_selected(self.selected);
         if active {
-            frame
-                .hover(tokens::theme().hover)
-                .focus_ring(2.0, 2.0, tokens::accent())
+            super::interaction::focus_ring(frame.hover(tokens::theme().hover))
         } else {
-            frame.opacity(0.5)
+            frame.opacity(tokens::opacity::DISABLED)
         }
     }
 

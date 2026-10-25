@@ -282,8 +282,8 @@ pub(super) fn view(s: &State) -> El {
             .padding(12.0)
             .gap(10.0)
             .radius(8.0)
-            .border(1.0, edge().alpha(0.3))
-            .fill(panel().alpha(0.4))
+            .border(1.0, super::design::tokens::source_edge())
+            .fill(super::design::tokens::source_fill())
             .child(
                 row()
                     .w_full()
@@ -305,9 +305,9 @@ pub(super) fn view(s: &State) -> El {
                             .h(28.0)
                             .radius(14.0)
                             .fill(if supported {
-                                accent().alpha(0.12)
+                                super::design::tokens::play_fill()
                             } else {
-                                edge().alpha(0.3)
+                                super::design::tokens::source_edge()
                             })
                             .center()
                             .child(if supported {
@@ -324,10 +324,7 @@ pub(super) fn view(s: &State) -> El {
                 .as_ref()
                 .map(|meta| meta.name.clone())
                 .unwrap_or_default();
-            card = card
-                .role("button")
-                .focusable(true)
-                .focus_ring(2.0, 2.0, accent())
+            card = super::primitives::interaction::focus_ring(card.role("button").focusable(true))
                 .label(format!("Play {name} from {addon}"))
                 .hover(t.hover)
                 .on_press(move |s: &mut State| s.play(chosen.clone(), title.clone()));

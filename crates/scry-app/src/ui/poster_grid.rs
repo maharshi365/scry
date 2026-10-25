@@ -1,12 +1,13 @@
 //! One virtualized poster grid for catalogs, search, Library, and Currently watching.
 use super::{
     Page, State,
-    artwork::{
-        POSTER_CARD_HEIGHT, POSTER_GAP, poster, poster_columns, poster_overlay,
-        poster_status_overlay,
+    artwork::{poster, poster_columns, poster_overlay, poster_status_overlay},
+    design::tokens::{
+        self, panel,
+        poster::{CARD_HEIGHT as POSTER_CARD_HEIGHT, GAP as POSTER_GAP},
+        theme, type_,
     },
-    design::tokens::{accent, panel, theme, type_},
-    primitives::{surface::scroll, text::label},
+    primitives::{interaction::focus_ring, surface::scroll, text::label},
 };
 use rune::{Cx, El, col, text};
 use scry_library::{Media, MediaKey, MediaKind};
@@ -397,62 +398,67 @@ fn card(s: &State, entry: &Entry, index: usize, prefix: &str) -> El {
     };
     let item = entry.media.clone();
     let menu = entry.media.clone();
-    col()
-        .key(key.clone())
-        .role("button")
-        .label(format!("Open {}", entry.title))
-        .focusable(true)
-        .focus_selected(selected)
-        .focus_ring(2.0, 2.0, accent())
-        .w_full()
-        .min_w(0.0)
-        .gap(8.0)
-        .padding(4.0)
-        .radius(4.0)
-        .fill(if selected {
-            super::design::tokens::selected()
+    focus_ring(
+        col()
+            .key(key.clone())
+            .role("button")
+            .label(format!("Open {}", entry.title))
+            .focusable(true)
+            .focus_selected(selected),
+    )
+    .w_full()
+    .min_w(0.0)
+    .gap(8.0)
+    .padding(4.0)
+    .radius(4.0)
+    .fill(if selected {
+        super::design::tokens::selected()
+    } else {
+        panel()
+    })
+    .hover(theme().hover)
+    .on_press(move |s: &mut State| {
+        s.navigation.anchor = Some(key.clone());
+        if let Some(media) = &item {
+            s.open_library_media(media);
         } else {
-            panel()
-        })
-        .hover(theme().hover)
-        .on_press(move |s: &mut State| {
-            s.navigation.anchor = Some(key.clone());
-            if let Some(media) = &item {
-                s.open_library_media(media);
-            } else {
-                s.open_result(index);
+            s.open_result(index);
+        }
+    })
+    .on_secondary_press(move |s: &mut State, p, _| {
+        s.open_title_menu(p, menu.clone().or_else(|| s.result_media(index)));
+    })
+    .child({
+        let surface = poster(s, &entry.title, entry.poster.as_deref(), index);
+        let key = format!("{prefix}-poster-{index}");
+        match entry.overlay {
+            Overlay::Summary => poster_overlay(
+                s,
+                surface,
+                entry.identity.as_ref(),
+                &key,
+                tokens::poster::HEIGHT,
+            ),
+            Overlay::Item { watched, progress } => {
+                poster_status_overlay(surface, &key, tokens::poster::HEIGHT, watched, progress)
             }
-        })
-        .on_secondary_press(move |s: &mut State, p, _| {
-            s.open_title_menu(p, menu.clone().or_else(|| s.result_media(index)));
-        })
-        .child({
-            let surface = poster(s, &entry.title, entry.poster.as_deref(), index);
-            let key = format!("{prefix}-poster-{index}");
-            match entry.overlay {
-                Overlay::Summary => {
-                    poster_overlay(s, surface, entry.identity.as_ref(), &key, 246.0)
-                }
-                Overlay::Item { watched, progress } => {
-                    poster_status_overlay(surface, &key, 246.0, watched, progress)
-                }
-            }
-        })
-        .child(
-            col()
-                .gap(5.0)
-                .child(
-                    text(entry.title.clone())
-                        .w_full()
-                        .truncate()
-                        .font(type_::POSTER_TITLE)
-                        .color(theme().text),
-                )
-                .child(
-                    label(entry.subtitle.clone())
-                        .key(format!("{prefix}-info-{index}"))
-                        .w_full()
-                        .truncate(),
-                ),
-        )
+        }
+    })
+    .child(
+        col()
+            .gap(5.0)
+            .child(
+                text(entry.title.clone())
+                    .w_full()
+                    .truncate()
+                    .font(type_::POSTER_TITLE)
+                    .color(theme().text),
+            )
+            .child(
+                label(entry.subtitle.clone())
+                    .key(format!("{prefix}-info-{index}"))
+                    .w_full()
+                    .truncate(),
+            ),
+    )
 }

@@ -2,11 +2,9 @@
 use super::{
     Page, State,
     design::tokens::{self, accent, type_},
+    primitives::progress,
 };
-use rune::{El, el, icon, row, text};
-
-pub(super) const POSTER_CARD_HEIGHT: f32 = 302.0;
-pub(super) const POSTER_GAP: f32 = 18.0;
+use rune::{El, el, row, text};
 
 #[expect(
     clippy::cast_possible_truncation,
@@ -14,7 +12,9 @@ pub(super) const POSTER_GAP: f32 = 18.0;
     reason = "The floored, nonnegative layout column count intentionally saturates to usize"
 )]
 pub(super) fn poster_columns(width: f32) -> usize {
-    ((width + POSTER_GAP) / 174.0).floor().max(1.0) as usize
+    ((width + tokens::poster::GAP) / (tokens::poster::MIN_WIDTH + tokens::poster::GAP))
+        .floor()
+        .max(1.0) as usize
 }
 
 impl State {
@@ -129,8 +129,8 @@ pub(super) fn poster(s: &State, title: &str, url: Option<&str>, index: usize) ->
         .role("img")
         .label(title)
         .w_full()
-        .h(246.0)
-        .radius(4.0)
+        .h(tokens::poster::HEIGHT)
+        .radius(tokens::poster::RADIUS)
         .fill(tokens::poster(index));
     if let Some(image) = url.and_then(|url| s.artwork.as_ref()?.get(url)) {
         surface.pixels_fit(&image, rune::SurfaceFit::Fill)
@@ -180,15 +180,9 @@ pub(super) fn poster_status_overlay(
                 .px(8.0)
                 .child(el().grow(1.0))
                 .child(
-                    el().key(format!("{key}-watched"))
-                        .role("img")
-                        .label("Watched")
-                        .w(24.0)
-                        .h(24.0)
+                    super::primitives::status::watched(format!("{key}-watched"), 24.0)
                         .radius(12.0)
-                        .fill(tokens::scrim())
-                        .center()
-                        .child(icon(&super::design::icons::CHECK, 16.0).color(tokens::success())),
+                        .fill(tokens::scrim()),
                 ),
         );
     }
@@ -196,35 +190,16 @@ pub(super) fn poster_status_overlay(
     else {
         return surface;
     };
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "A clamped progress fraction fits f32"
-    )]
-    let fraction = (progress.position_seconds / progress.duration_seconds).clamp(0.0, 1.0) as f32;
     surface.child(
         row()
-            .absolute(0.0, height * 7.0 / 8.0 - 3.0)
+            .absolute(0.0, height * 7.0 / 8.0 - tokens::progress::RADIUS)
             .w_full()
-            .h(6.0)
+            .h(tokens::progress::HEIGHT)
             .px(8.0)
-            .child(
-                row()
-                    .key(format!("{key}-progress-track"))
-                    .role("progressbar")
-                    .label(format!("{:.0}% complete", fraction * 100.0))
-                    .grow(1.0)
-                    .h(6.0)
-                    .radius(3.0)
-                    .fill(tokens::scrim())
-                    .child(
-                        el().key(format!("{key}-progress-fill"))
-                            .grow(fraction)
-                            .h_full()
-                            .radius(3.0)
-                            .fill(accent()),
-                    )
-                    .child(el().grow(1.0 - fraction).h_full()),
-            ),
+            .child(progress::bar(
+                &format!("{key}-progress"),
+                progress.position_seconds / progress.duration_seconds,
+            )),
     )
 }
 
@@ -237,9 +212,9 @@ pub(super) fn poster_thumbnail(s: &State, key: &str, url: Option<&str>, title: &
         .key(key)
         .role("img")
         .label(title)
-        .w(32.0)
-        .h(48.0)
-        .radius(4.0)
+        .w(tokens::poster::THUMBNAIL_WIDTH)
+        .h(tokens::poster::THUMBNAIL_HEIGHT)
+        .radius(tokens::poster::RADIUS)
         .fill(tokens::poster(0));
     if let Some(image) = url.and_then(|url| s.artwork.as_ref()?.get(url)) {
         surface.child(

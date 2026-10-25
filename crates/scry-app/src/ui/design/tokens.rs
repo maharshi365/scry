@@ -54,6 +54,86 @@ pub(in crate::ui) fn poster(index: usize) -> Color {
     rune::oklch(0.25 + [0.0, 0.025, 0.05][index % 3], 0.035, 230.0)
 }
 
+pub(in crate::ui) fn primary_fill() -> Color {
+    accent().alpha(0.18)
+}
+pub(in crate::ui) fn primary_edge() -> Color {
+    accent().alpha(0.5)
+}
+pub(in crate::ui) fn danger_fill() -> Color {
+    danger().alpha(0.12)
+}
+pub(in crate::ui) fn danger_edge() -> Color {
+    danger().alpha(0.4)
+}
+pub(in crate::ui) fn transparent() -> Color {
+    panel().alpha(0.0)
+}
+pub(in crate::ui) fn transparent_edge() -> Color {
+    edge().alpha(0.0)
+}
+pub(in crate::ui) fn preview_panel() -> Color {
+    panel().alpha(0.94)
+}
+pub(in crate::ui) fn chip_fill() -> Color {
+    panel().alpha(0.8)
+}
+pub(in crate::ui) fn subtle_edge() -> Color {
+    edge().alpha(0.6)
+}
+pub(in crate::ui) fn source_fill() -> Color {
+    panel().alpha(0.4)
+}
+pub(in crate::ui) fn source_edge() -> Color {
+    edge().alpha(0.3)
+}
+pub(in crate::ui) fn play_fill() -> Color {
+    accent().alpha(0.12)
+}
+pub(in crate::ui) fn empty_icon_fill() -> Color {
+    accent().alpha(0.08)
+}
+pub(in crate::ui) fn badge_fill(color: Color) -> Color {
+    color.alpha(0.12)
+}
+pub(in crate::ui) fn badge_edge(color: Color) -> Color {
+    color.alpha(0.25)
+}
+
+pub(in crate::ui) mod focus {
+    pub const WIDTH: f32 = 2.0;
+    pub const OFFSET: f32 = 2.0;
+}
+
+pub(in crate::ui) mod opacity {
+    pub const DISABLED: f32 = 0.5;
+    pub const DETAIL_BACKDROP: f32 = 0.38;
+    pub const PLAYER_BACKDROP: f32 = 0.45;
+}
+
+pub(in crate::ui) mod motion {
+    pub const SPINNER_PERIOD: f64 = 0.8;
+    pub const REFRESH_PERIOD: f64 = 0.9;
+}
+
+pub(in crate::ui) mod poster {
+    pub const HEIGHT: f32 = 246.0;
+    pub const CARD_HEIGHT: f32 = 302.0;
+    pub const GAP: f32 = 18.0;
+    pub const MIN_WIDTH: f32 = 156.0;
+    pub const RADIUS: f32 = 4.0;
+    pub const THUMBNAIL_WIDTH: f32 = 32.0;
+    pub const THUMBNAIL_HEIGHT: f32 = 48.0;
+}
+
+pub(in crate::ui) mod progress {
+    pub const HEIGHT: f32 = 6.0;
+    pub const RADIUS: f32 = HEIGHT / 2.0;
+    pub const SLIDER_HEIGHT: f32 = 24.0;
+    pub const RAIL_HEIGHT: f32 = 4.0;
+    pub const THUMB_SIZE: f32 = 10.0;
+}
+
 pub(in crate::ui) mod control {
     pub const HEIGHT: f32 = 38.0;
     pub const ICON_SIZE: f32 = 22.0;

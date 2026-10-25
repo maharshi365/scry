@@ -8,7 +8,7 @@ use super::{
     },
     primitives::{
         button::Button,
-        surface::{card, scroll},
+        surface::scroll,
         text::{heading, label},
     },
 };
@@ -545,28 +545,23 @@ pub(super) fn day_dialog(s: &State, cx: &rune::Cx<State>) -> El {
         );
     }
     let size = cx.layout("scry").unwrap_or([0.0, 0.0, 1280.0, 820.0]);
-    el().key("calendar-dialog-layer")
-        .w_full()
-        .h_full()
-        .absolute(0.0, 0.0)
-        .center()
-        .fill(super::design::tokens::scrim())
+    super::primitives::dialog::layer(
+        "calendar-dialog-layer",
+        super::primitives::dialog::panel("calendar-day-dialog", |s: &mut State| {
+            s.calendar.expanded_day = None;
+        })
+        .w((size[2] - 64.0).clamp(320.0, 840.0))
+        .h((size[3] - 80.0).max(240.0))
+        .padding(24.0)
+        .gap(16.0)
+        .child(day_dialog_header(date))
         .child(
-            card()
-                .key("calendar-day-dialog")
-                .w((size[2] - 64.0).clamp(320.0, 840.0))
-                .h((size[3] - 80.0).max(240.0))
-                .padding(24.0)
-                .gap(16.0)
-                .modal(true, |s: &mut State| s.calendar.expanded_day = None)
-                .child(day_dialog_header(date))
-                .child(
-                    scroll("calendar-dialog-scroll", list).on_layout(|s: &mut State, rect| {
-                        s.calendar.dialog_viewport = Some(rect);
-                        s.refresh_artwork();
-                    }),
-                ),
-        )
+            scroll("calendar-dialog-scroll", list).on_layout(|s: &mut State, rect| {
+                s.calendar.dialog_viewport = Some(rect);
+                s.refresh_artwork();
+            }),
+        ),
+    )
 }
 
 fn refresh_button(s: &State) -> El {
@@ -575,9 +570,12 @@ fn refresh_button(s: &State) -> El {
         .key("calendar-refresh-icon")
         .color(accent());
     if busy {
-        glyph = glyph
-            .key("calendar-refresh-spinner")
-            .looping(rune::LoopSpec::rotation(0.9));
+        glyph = super::primitives::status::spinning_icon(
+            "calendar-refresh-spinner",
+            &icons::REFRESH,
+            16.0,
+            super::design::tokens::motion::REFRESH_PERIOD,
+        );
     }
     let frame = Button::new("calendar-refresh", "Refresh")
         .busy(busy)
@@ -595,16 +593,7 @@ fn refresh_button(s: &State) -> El {
 }
 
 fn day_dialog_header(date: NaiveDate) -> El {
-    row()
-        .w_full()
-        .center_y()
-        .gap(12.0)
-        .child(
-            heading(date.format("%A, %B %-d").to_string())
-                .w(0.0)
-                .grow(1.0)
-                .min_w(0.0),
-        )
+    super::primitives::dialog::header(date.format("%A, %B %-d").to_string())
         .child(icon_action(
             "calendar-dialog-prev",
             "Previous day",
@@ -621,11 +610,10 @@ fn day_dialog_header(date: NaiveDate) -> El {
                 s.calendar.expanded_day = s.calendar.expanded_day.and_then(|d| d.succ_opt());
             },
         ))
-        .child(icon_action(
+        .child(super::primitives::dialog::close(
             "calendar-dialog-close",
             "Close day",
-            &icons::CLOSE,
-            |s| s.calendar.expanded_day = None,
+            |s: &mut State| s.calendar.expanded_day = None,
         ))
 }
 
