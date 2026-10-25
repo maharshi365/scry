@@ -1,5 +1,10 @@
 # Rust development rules
 
+- Use `pwsh -File scripts/install.ps1 -Launch` to build and update the per-user
+  production app outside the repo. Use `pwsh -File scripts/dev.ps1` for a separate
+  development copy with isolated data in `target/dev-data` (`-Release` optional).
+  Both close only their own deployed app; use `-Force` only if normal shutdown fails.
+
 - New workspace members must inherit `[lints] workspace = true`.
 - Run `pwsh -File scripts/check.ps1` and
   `pwsh -File scripts/check.ps1 -AllFeatures` before handoff.
