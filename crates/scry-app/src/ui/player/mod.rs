@@ -1,5 +1,6 @@
 //! Native video surface and playback controls.
 pub(crate) mod actions;
+mod interaction;
 mod session;
 pub(super) mod shortcuts;
 pub(crate) mod state;
@@ -8,8 +9,7 @@ use super::{
     controls::action,
     design::{
         icons::{
-            AUDIO, BACK, CAPTIONS, EXIT_FULLSCREEN, FORWARD, FULLSCREEN, MUTED, PAUSE, PLAY, STOP,
-            VOLUME,
+            AUDIO, BACK, CAPTIONS, EXIT_FULLSCREEN, FORWARD, FULLSCREEN, MUTED, PAUSE, PLAY, VOLUME,
         },
         tokens::{panel, theme, type_, video},
     },
@@ -24,37 +24,118 @@ use actions::PlayerAction;
 use rune::{El, Icon, Phase, col, el, row, text};
 use scry_app::platform::VideoHost;
 
-pub(super) fn player(s: &State, scale: f32) -> El {
-    let t = theme();
+fn surface(s: &State, scale: f32, compact: bool) -> El {
     let mut surface = el()
-        .key("video")
+        .key(if compact { "guide-video" } else { "video" })
         .w_full()
         .grow(1.0)
         .min_h(0.0)
-        .fill(video());
+        .fill(video())
+        .on_pointer_move(|s: &mut State, p| {
+            s.player.interaction.pointer(
+                Some([f64::from(p.x), f64::from(p.y)]),
+                std::time::Instant::now(),
+            );
+        })
+        .on_drag(|s: &mut State, drag, tx| {
+            if drag.phase == Phase::Up && drag.dx.abs() <= 4.0 && drag.dy.abs() <= 4.0 {
+                let click = scry_app::platform::VideoClick {
+                    at: std::time::Instant::now(),
+                    position: [f64::from(drag.x), f64::from(drag.y)],
+                };
+                if let Some(action) = s.player.interaction.click(click, s.player.fullscreen) {
+                    if matches!(action, PlayerAction::ToggleFullscreen) && s.player.fullscreen {
+                        s.set_fullscreen(false);
+                    } else {
+                        s.player_action(action);
+                    }
+                    tx.instant();
+                }
+                tx.wake_after(s.player.interaction.double_click);
+            }
+        });
     if s.player.playing {
         surface = surface.on_layout(move |s: &mut State, rect| {
-            if s.player.playing && s.navigation.page == Page::Player {
+            s.player.interaction.video_rect = Some(rect);
+            s.player.interaction.scale = scale;
+            if s.player.playing && matches!(s.navigation.page, Page::Player | Page::Guide) {
                 s.host.place(rect, scale);
+                let cover = if s.player.fullscreen && s.player.interaction.visible {
+                    s.player.interaction.controls_rect.map_or(100.0, |r| r[3])
+                } else {
+                    0.0
+                };
+                s.host.cover_bottom(cover, scale);
                 if s.player.ready {
                     s.host.show();
                 }
             }
         });
-        if !s.player.ready {
-            surface = surface.child(loading(s));
+    }
+    if s.navigation.page == Page::Guide && !s.player.ready {
+        if let Some(image) = s
+            .guide_artwork()
+            .first()
+            .and_then(|url| s.artwork.as_ref()?.get(url))
+        {
+            surface = surface.child(
+                el().absolute(0.0, 0.0)
+                    .w_full()
+                    .h_full()
+                    .pixels_fit(&image, rune::SurfaceFit::Fit),
+            );
         }
-    } else {
+        surface = surface.child(label(super::guide::preview_status(s)).padding(12.0));
+    } else if s.player.playing && !s.player.ready {
+        surface = surface.child(loading(s));
+    } else if !s.player.playing {
         surface = surface.child(label("Choose another source to continue."));
     }
-    if s.player.fullscreen {
+    surface
+}
+
+pub(super) fn player(s: &State, scale: f32) -> El {
+    let t = theme();
+    let compact = s.navigation.page == Page::Guide && !s.player.fullscreen;
+    let surface = surface(s, scale, compact);
+    if compact {
         return col()
+            .key("guide-preview")
+            .min_h(0.0)
+            .gap(6.0)
+            .child(surface)
+            .child(super::guide::player_actions(s, true));
+    }
+    if s.player.fullscreen {
+        let mut page = el()
             .key("player-page")
             .w_full()
             .grow(1.0)
             .min_h(0.0)
-            .child(surface)
-            .child(controls(s));
+            .child(surface.absolute(0.0, 0.0).h_full())
+            .on_hover_change(|s: &mut State, inside, tx| {
+                if !inside
+                    && !matches!(
+                        s.host.pointer_position(s.player.interaction.scale),
+                        scry_app::platform::VideoPointer::Inside(_)
+                    )
+                {
+                    s.player
+                        .interaction
+                        .pointer(None, std::time::Instant::now());
+                    tx.instant();
+                }
+            })
+            .on_pointer_move(|s: &mut State, p| {
+                s.player.interaction.pointer(
+                    Some([f64::from(p.x), f64::from(p.y)]),
+                    std::time::Instant::now(),
+                );
+            });
+        if s.player.interaction.visible {
+            page = page.child(controls(s).pin(Some(0.0), None, Some(0.0), Some(0.0)));
+        }
+        return page;
     }
     col()
         .key("player-page")
@@ -163,29 +244,35 @@ fn timeline(s: &State) -> El {
         }
         _ => 0.0,
     };
-    slider("player-timeline", progress)
-        .w_full()
-        .label("Seek through video")
-        .on_drag(|s: &mut State, drag, _| {
-            if !s.player.playing || drag.w <= 0.0 {
-                return;
-            }
-            let Some(duration) = s
-                .player
-                .sample
-                .duration_s
-                .filter(|n| n.is_finite() && *n > 0.0)
-            else {
-                return;
-            };
-            let target = f64::from((drag.x / drag.w).clamp(0.0, 1.0)) * duration;
-            if drag.phase == Phase::Up {
-                s.player_action(PlayerAction::SeekTo(target));
-                s.player.seek_preview = None;
-            } else {
-                s.player.seek_preview = Some(target);
-            }
-        })
+    keyboard_control(super::primitives::progress::buffered_slider(
+        "player-timeline",
+        progress,
+        buffered_range(s),
+    ))
+    .w_full()
+    .label("Seek through video")
+    .on_drag(|s: &mut State, drag, _| {
+        s.player.interaction.dragging = drag.phase != Phase::Up;
+        s.player.interaction.reveal(std::time::Instant::now());
+        if !s.player.playing || drag.w <= 0.0 {
+            return;
+        }
+        let Some(duration) = s
+            .player
+            .sample
+            .duration_s
+            .filter(|n| n.is_finite() && *n > 0.0)
+        else {
+            return;
+        };
+        let target = f64::from((drag.x / drag.w).clamp(0.0, 1.0)) * duration;
+        if drag.phase == Phase::Up {
+            s.player_action(PlayerAction::SeekTo(target));
+            s.player.seek_preview = None;
+        } else {
+            s.player.seek_preview = Some(target);
+        }
+    })
 }
 
 fn controls(s: &State) -> El {
@@ -242,17 +329,19 @@ fn controls(s: &State) -> El {
             |s| s.player_action(PlayerAction::ToggleMute),
         ))
         .child(
-            slider(
+            keyboard_control(slider(
                 "player-volume",
                 if s.player.muted {
                     0.0
                 } else {
                     f64::from(s.player.volume) / 100.0
                 },
-            )
+            ))
             .w(64.0)
             .label(format!("Volume {}% (↑ / ↓)", s.player.volume))
             .on_drag(|s: &mut State, drag, _| {
+                s.player.interaction.dragging = drag.phase != Phase::Up;
+                s.player.interaction.reveal(std::time::Instant::now());
                 if s.player.playing && drag.w > 0.0 {
                     s.player_action(PlayerAction::SetVolume(volume_at(drag.x / drag.w)));
                 }
@@ -279,15 +368,12 @@ fn controls(s: &State) -> El {
         .child(icon_button(s, "audio", "Cycle audio track", &AUDIO, |s| {
             s.player_action(PlayerAction::CycleAudio);
         }))
-        .child(fullscreen_button(s))
-        .child(icon_button(s, "stop", "Stop playback", &STOP, |s| {
-            s.player_action(PlayerAction::Stop);
-        }));
+        .child(fullscreen_button(s));
     control_panel(s, buttons)
 }
 
 fn control_panel(s: &State, buttons: El) -> El {
-    let controls = col()
+    let mut controls = col()
         .key("player-controls")
         .w_full()
         .padding(12.0)
@@ -295,7 +381,22 @@ fn control_panel(s: &State, buttons: El) -> El {
         .radius(8.0)
         .fill(panel())
         .child(timeline(s))
-        .child(buttons);
+        .child(buttons)
+        .on_layout(|s: &mut State, rect| {
+            s.player.interaction.controls_rect = Some(rect);
+            if s.player.fullscreen {
+                s.host.cover_bottom(rect[3], s.player.interaction.scale);
+            }
+        })
+        .on_pointer_move(|s: &mut State, p| {
+            s.player.interaction.pointer(
+                Some([f64::from(p.x), f64::from(p.y)]),
+                std::time::Instant::now(),
+            );
+        });
+    if s.navigation.page == Page::Guide {
+        controls = controls.child(super::guide::player_actions(s, false));
+    }
     if s.player.fullscreen {
         controls
     } else {
@@ -303,21 +404,47 @@ fn control_panel(s: &State, buttons: El) -> El {
     }
 }
 
+fn buffered_range(s: &State) -> Option<(f64, f64)> {
+    if !s.player.playing || s.player.seek_preview.is_some() {
+        return None;
+    }
+    let position = s.player.sample.position_s?;
+    let duration = s.player.sample.duration_s?;
+    let cached = s.player.sample.cache_s?;
+    if !position.is_finite()
+        || !duration.is_finite()
+        || duration <= 0.0
+        || !cached.is_finite()
+        || cached <= 0.0
+    {
+        return None;
+    }
+    let start = (position / duration).clamp(0.0, 1.0);
+    let end = ((position + cached) / duration).clamp(start, 1.0);
+    (end > start).then_some((start, end))
+}
+
 fn fullscreen_button(s: &State) -> El {
-    icon_button(
-        s,
-        "fullscreen",
-        if s.player.fullscreen {
-            "Exit full screen (F / Esc)"
-        } else {
-            "Full screen (F)"
-        },
-        if s.player.fullscreen {
+    keyboard_control(
+        Button::new(
+            "fullscreen",
+            if s.player.fullscreen {
+                "Exit full screen (F / Esc)"
+            } else {
+                "Full screen (F)"
+            },
+        )
+        .variant(Variant::Ghost)
+        .icon(if s.player.fullscreen {
             &EXIT_FULLSCREEN
         } else {
             &FULLSCREEN
-        },
-        |s| s.player_action(PlayerAction::ToggleFullscreen),
+        })
+        .enabled(s.player.playing || s.player.fullscreen)
+        .on_press_tx(|s: &mut State, tx| {
+            s.set_fullscreen(!s.player.fullscreen);
+            tx.instant();
+        }),
     )
 }
 
@@ -328,19 +455,32 @@ fn icon_button(
     glyph: &'static Icon,
     f: impl Fn(&mut State) + 'static,
 ) -> El {
-    Button::new(key, title)
-        .variant(Variant::Ghost)
-        .icon(glyph)
-        .enabled(state.player.playing)
-        .on_press_tx(move |s: &mut State, tx| {
-            if s.player.playing {
-                let fullscreen = s.player.fullscreen;
-                f(s);
-                if s.player.fullscreen != fullscreen {
-                    tx.instant();
+    keyboard_control(
+        Button::new(key, title)
+            .variant(Variant::Ghost)
+            .icon(glyph)
+            .enabled(state.player.playing)
+            .on_press_tx(move |s: &mut State, tx| {
+                if s.player.playing {
+                    let fullscreen = s.player.fullscreen;
+                    f(s);
+                    if s.player.fullscreen != fullscreen {
+                        tx.instant();
+                    }
                 }
-            }
-        })
+            }),
+    )
+}
+
+pub(super) fn keyboard_control(control: El) -> El {
+    control.on_physical_input(|s: &mut State, event, tx| {
+        if s.player.fullscreen && matches!(event, rune::PhysicalInput::Key { pressed: true, .. }) {
+            s.player.interaction.keyboard = true;
+            s.player.interaction.reveal(std::time::Instant::now());
+            tx.instant();
+        }
+        false
+    })
 }
 
 #[expect(

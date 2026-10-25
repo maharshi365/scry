@@ -32,7 +32,7 @@ const BINDINGS: &[Binding<PlayerAction>] = &[
 ];
 
 pub(in crate::ui) fn handle(s: &mut State, event: &KeyEvent, focus: Focus) -> bool {
-    if s.navigation.page != Page::Player || !s.player.playing {
+    if !matches!(s.navigation.page, Page::Player | Page::Guide) || !s.player.playing {
         return false;
     }
     if s.player.fullscreen && event.key == rune::Key::Escape && focus == Focus::Screen {

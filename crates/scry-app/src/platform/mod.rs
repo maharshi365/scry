@@ -1,6 +1,18 @@
 //! OS boundary. Shared UI and services must not import Win32 or Cocoa APIs.
 use anyhow::Result;
 use scry_playback::PlaybackTarget;
+
+#[derive(Clone, Copy)]
+pub struct VideoClick {
+    pub at: std::time::Instant,
+    pub position: [f64; 2],
+}
+
+pub enum VideoPointer {
+    Unavailable,
+    Outside,
+    Inside([f64; 2]),
+}
 mod browser;
 mod navigation;
 pub use browser::open_browser;
@@ -25,6 +37,16 @@ pub trait VideoHost: Clone + Default {
     fn place(&self, rect: [f32; 4], scale: f32);
     fn show(&self);
     fn hide(&self);
+    fn cover_bottom(&self, _height: f32, _scale: f32) {}
+    fn video_clicks(&self) -> Vec<VideoClick> {
+        Vec::new()
+    }
+    fn pointer_position(&self, _scale: f32) -> VideoPointer {
+        VideoPointer::Unavailable
+    }
+    fn double_click_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(500)
+    }
     /// # Errors
     /// Returns an error if the native window cannot enter or leave full screen.
     fn set_fullscreen(&self, fullscreen: bool) -> Result<()>;

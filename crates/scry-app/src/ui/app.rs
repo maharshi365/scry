@@ -43,6 +43,12 @@ const SHORTCUTS: &[Registration] = &[
 ];
 
 pub(super) fn on_key(s: &mut State, event: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
+    if s.player.fullscreen {
+        s.player.interaction.reveal(std::time::Instant::now());
+        if event.key == rune::Key::Tab {
+            s.player.interaction.keyboard = true;
+        }
+    }
     if event.key == rune::Key::Escape && (s.context_menu.is_some() || s.addon_install_open) {
         s.context_menu = None;
         s.addon_install_open = false;

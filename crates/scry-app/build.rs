@@ -2,6 +2,7 @@ use std::{env, fs, path::PathBuf};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=assets/skry.svg");
+    println!("cargo:rerun-if-changed=assets/app.manifest");
     let out = PathBuf::from(env::var_os("OUT_DIR").ok_or("Missing Cargo output directory")?);
     let source = fs::read("assets/skry.svg")?;
     let tree = resvg::usvg::Tree::from_data(&source, &resvg::usvg::Options::default())?;
@@ -34,6 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     icons.write(fs::File::create(&icon_path)?)?;
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         winresource::WindowsResource::new()
+            .set_manifest(include_str!("assets/app.manifest"))
             .set_icon(icon_path.to_str().ok_or("Icon path is not UTF-8")?)
             .set("ProductName", "Scry")
             .set("FileDescription", "Scry streaming app")

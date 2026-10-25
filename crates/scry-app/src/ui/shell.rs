@@ -55,10 +55,7 @@ pub(super) fn shortcut(
 }
 
 pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
-    if s.navigation.page == Page::Guide && s.player.fullscreen {
-        return super::guide::view(s, cx);
-    }
-    if s.navigation.page == Page::Player && s.player.fullscreen {
+    if matches!(s.navigation.page, Page::Guide | Page::Player) && s.player.fullscreen {
         return fullscreen_player(s, cx.env().scale);
     }
     let mut content = col()

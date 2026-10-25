@@ -13,19 +13,10 @@ pub(crate) enum PlayerAction {
     CycleSubtitles,
     CycleAudio,
     ToggleFullscreen,
-    Stop,
 }
 
 impl State {
     pub(crate) fn player_action(&mut self, action: PlayerAction) {
-        if self.navigation.page == super::super::Page::Guide
-            && matches!(
-                action,
-                PlayerAction::TogglePause | PlayerAction::SeekRelative(_) | PlayerAction::SeekTo(_)
-            )
-        {
-            return;
-        }
         if !self.player.playing {
             return;
         }
@@ -47,10 +38,12 @@ impl State {
                 self.command(&["set", "mute", if self.player.muted { "yes" } else { "no" }]);
             }
             PlayerAction::SeekRelative(seconds) => {
+                self.player.sample.cache_s = None;
                 self.library.observed = None;
                 self.command(&["seek", &seconds.to_string(), "relative"]);
             }
             PlayerAction::SeekTo(target) => {
+                self.player.sample.cache_s = None;
                 self.library.observed = None;
                 self.player.sample.position_s = Some(target);
                 self.command(&["seek", &target.to_string(), "absolute"]);
@@ -69,7 +62,6 @@ impl State {
             PlayerAction::CycleSubtitles => self.command(&["cycle", "sid"]),
             PlayerAction::CycleAudio => self.command(&["cycle", "aid"]),
             PlayerAction::ToggleFullscreen => self.set_fullscreen(!self.player.fullscreen),
-            PlayerAction::Stop => self.stop(),
         }
     }
 
@@ -78,7 +70,11 @@ impl State {
             return;
         }
         match self.host.set_fullscreen(fullscreen || self.app_fullscreen) {
-            Ok(()) => self.player.fullscreen = fullscreen,
+            Ok(()) => {
+                self.player.fullscreen = fullscreen;
+                self.host.cover_bottom(0.0, self.player.interaction.scale);
+                self.player.interaction.reset();
+            }
             Err(error) => self.error = Some(error.to_string()),
         }
     }

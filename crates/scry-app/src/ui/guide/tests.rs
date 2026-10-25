@@ -265,20 +265,56 @@ fn preferred_quality_is_ranked_first_without_discarding_unlabelled_fallbacks() {
 }
 
 #[test]
-fn guide_rejects_player_seek_and_pause_actions_but_regular_player_keeps_them() {
+fn guide_and_regular_player_support_seek_and_pause() {
     use super::super::player::actions::PlayerAction;
     let mut state = state();
     state.player.playing = true;
     state.player.sample.position_s = Some(600.0);
     state.player_action(PlayerAction::SeekTo(0.0));
     state.player_action(PlayerAction::TogglePause);
-    assert_eq!(state.player.sample.position_s, Some(600.0));
-    assert!(!state.player.sample.paused);
+    assert_eq!(state.player.sample.position_s, Some(0.0));
+    assert!(state.player.sample.paused);
     state.navigation.page = Page::Player;
     state.player_action(PlayerAction::SeekTo(0.0));
     state.player_action(PlayerAction::TogglePause);
     assert_eq!(state.player.sample.position_s, Some(0.0));
-    assert!(state.player.sample.paused);
+    assert!(!state.player.sample.paused);
+}
+
+#[test]
+fn guide_fullscreen_uses_shared_player_controls_without_stop() {
+    let mut state = state();
+    state.player.playing = true;
+    state.player.fullscreen = true;
+    let mut rt = rune::Runtime::new(
+        state,
+        super::super::shell::view,
+        (880.0, 600.0),
+        rune::Env::default(),
+    );
+    rt.frame(0.0);
+    for key in [
+        "video",
+        "player-controls",
+        "pause",
+        "player-timeline",
+        "fullscreen",
+        "guide-channel-up",
+    ] {
+        assert!(rt.find(key).is_some(), "Missing {key}");
+    }
+    assert!(rt.find("stop").is_none());
+    assert!(rt.find("guide-grid").is_none());
+    rt.update(|s, _| s.player.playing = false);
+    rt.frame(0.0);
+    let (x, y) = rt.find("fullscreen").unwrap();
+    rt.pointer_down(x, y);
+    rt.pointer_up(x, y);
+    rt.frame(0.0);
+    assert!(
+        !rt.state.player.fullscreen,
+        "Unavailable channels must still allow fullscreen exit"
+    );
 }
 
 #[test]

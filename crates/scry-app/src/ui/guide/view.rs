@@ -1,3 +1,4 @@
+use super::super::player::keyboard_control;
 use super::super::{
     Page, State,
     design::tokens::{self, type_},
@@ -38,7 +39,7 @@ pub(super) fn title(slot: &Slot) -> String {
 
 pub(in crate::ui) fn view(s: &State, cx: &Cx<State>) -> El {
     if s.player.fullscreen {
-        return preview(s, cx.env().scale, true);
+        return super::super::player::player(s, cx.env().scale);
     }
     if s.guide.collections_open {
         return super::collections::view(s);
@@ -50,7 +51,7 @@ pub(in crate::ui) fn view(s: &State, cx: &Cx<State>) -> El {
             .min_h(236.0)
             .gap(16.0)
             .child(details(s, now))
-            .child(preview(s, cx.env().scale, false).w(340.0)),
+            .child(super::super::player::player(s, cx.env().scale).w(340.0)),
     );
     if let Some(error) = &s.guide.error {
         content = content.child(label(error.clone()).color(tokens::danger()));
@@ -287,84 +288,33 @@ fn cell_width(seconds: i64, width: f32) -> f32 {
     f32::from(u16::try_from(seconds.clamp(0, WINDOW)).unwrap_or_default()) / 7200.0 * width
 }
 
-fn preview(s: &State, scale: f32, fullscreen: bool) -> El {
-    let mut video = el()
-        .key("guide-video")
-        .w_full()
-        .grow(1.0)
-        .min_h(0.0)
-        .fill(tokens::video());
-    if s.player.playing {
-        video = video.on_layout(move |s: &mut State, rect| {
-            if s.navigation.page == super::super::Page::Guide
-                && !s.guide.collections_open
-                && s.player.playing
-            {
-                s.host.place(rect, scale);
-                if s.player.ready {
-                    s.host.show();
-                }
-            }
-        });
-    }
-    if !s.player.ready {
-        if let Some(image) = s
-            .guide_artwork()
-            .first()
-            .and_then(|url| s.artwork.as_ref()?.get(url))
-        {
-            video = video.child(
-                el().absolute(0.0, 0.0)
-                    .w_full()
-                    .h_full()
-                    .pixels_fit(&image, rune::SurfaceFit::Fit),
-            );
-        }
-        video = video.child(label(preview_status(s)).padding(12.0));
-    }
+pub(in crate::ui) fn player_actions(s: &State, compact: bool) -> El {
     let mut buttons = row().gap(6.0).center_y();
     for (key, name, direction) in [
         ("guide-channel-down", "CH −", -1),
         ("guide-channel-up", "CH +", 1),
     ] {
-        buttons = buttons.child(
+        buttons = buttons.child(keyboard_control(
             Button::new(key, name).on_press(move |s: &mut State| s.guide_step(direction, true)),
-        );
-    }
-    buttons = buttons.child(
-        Button::new(
-            "guide-fullscreen",
-            if fullscreen {
-                "Exit fullscreen"
-            } else {
-                "Fullscreen"
-            },
-        )
-        .enabled(s.player.playing || fullscreen)
-        .on_press(|s: &mut State| s.set_fullscreen(!s.player.fullscreen)),
-    );
-    if fullscreen {
-        buttons = buttons.child(Button::new("guide-mute", "Mute / unmute").on_press(
-            |s: &mut State| {
-                s.player_action(super::super::player::actions::PlayerAction::ToggleMute);
-            },
         ));
+    }
+    if compact {
+        buttons = buttons.child(
+            Button::new("guide-fullscreen", "Fullscreen")
+                .enabled(s.player.playing)
+                .on_press(|s: &mut State| s.set_fullscreen(!s.player.fullscreen)),
+        );
     }
     if let Some((id, _)) = &s.guide.tuned {
         let id = id.clone();
-        buttons = buttons.child(
+        buttons = buttons.child(keyboard_control(
             Button::new("guide-retry", "Retry")
                 .on_press(move |s: &mut State| s.tune_guide(id.clone())),
-        );
+        ));
     }
-    let mut preview = col()
-        .key("guide-preview")
-        .min_h(0.0)
-        .gap(6.0)
-        .child(video)
-        .child(buttons);
+    let mut preview = col().min_h(0.0).gap(6.0).child(buttons);
     preview = preview.children(torrent_retry(s));
-    if fullscreen && let Some(error) = &s.guide.error {
+    if !compact && let Some(error) = &s.guide.error {
         preview = preview.child(label(error.clone()));
     }
     if !s.guide.alternatives.is_empty() && !s.player.playing {
@@ -373,14 +323,10 @@ fn preview(s: &State, scale: f32, fullscreen: bool) -> El {
                 .on_press(State::play_guide_alternative),
         );
     }
-    if fullscreen {
-        preview.w_full().h_full()
-    } else {
-        preview
-    }
+    preview
 }
 
-fn preview_status(s: &State) -> &'static str {
+pub(in crate::ui) fn preview_status(s: &State) -> &'static str {
     if s.guide.error.is_some() || s.error.is_some() {
         "Channel unavailable · retry or choose another channel"
     } else if s.guide.resolving {

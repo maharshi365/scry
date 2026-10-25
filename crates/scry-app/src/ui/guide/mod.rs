@@ -14,7 +14,7 @@ use scry_library::{
     guide::{GuideAction, GuideMetadata, Slot, Snapshot, SourcePolicy},
 };
 use std::collections::HashMap;
-pub(super) use view::view;
+pub(super) use view::{player_actions, preview_status, view};
 
 pub(super) struct GuideUi {
     pub data: Snapshot,
@@ -392,6 +392,7 @@ impl State {
                 return;
             }
             let offset = slot.elapsed_seconds(now);
+            self.player.sample.cache_s = None;
             self.command(&["seek", &offset.to_string(), "absolute"]);
             self.library.observed = None;
         }

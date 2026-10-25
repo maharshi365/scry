@@ -15,6 +15,8 @@ impl State {
         self.player.playing = false;
         self.player.ready = false;
         self.player.seek_preview = None;
+        self.player.interaction.reset();
+        self.player.sample.cache_s = None;
         self.host.hide();
         self.send(Control::Stop(self.player.generation));
     }
@@ -97,6 +99,7 @@ impl State {
                 }
                 self.player.title = title;
                 self.player.sample = Sample::default();
+                self.player.interaction.reset();
                 self.player.seek_preview = None;
                 self.player.muted = false;
                 self.player.report = None;

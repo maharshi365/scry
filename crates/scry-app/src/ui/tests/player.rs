@@ -105,7 +105,6 @@ fn timeline_supports_click_and_drag_and_controls_fit_minimum_window() {
         "subtitles",
         "audio",
         "fullscreen",
-        "stop",
     ] {
         let [x, y, w, h] = rect(&rt, name);
         assert!(
@@ -113,6 +112,204 @@ fn timeline_supports_click_and_drag_and_controls_fit_minimum_window() {
             "{name} is outside the window"
         );
     }
+}
+
+#[test]
+fn player_does_not_offer_a_stop_button() {
+    let rt = player_runtime();
+    assert!(rt.find("stop").is_none());
+}
+
+#[test]
+fn video_double_click_enters_and_exits_fullscreen_without_pausing() {
+    let mut rt = player_runtime();
+    tap(&mut rt, "video");
+    tap(&mut rt, "video");
+    assert!(rt.state.player.fullscreen);
+    assert!(!rt.state.player.sample.paused);
+    tap(&mut rt, "video");
+    tap(&mut rt, "video");
+    assert!(!rt.state.player.fullscreen);
+    assert!(!rt.state.player.sample.paused);
+    assert!(
+        rt.state
+            .player
+            .interaction
+            .finish_click(std::time::Instant::now() + std::time::Duration::from_secs(1))
+            .is_none()
+    );
+}
+
+#[test]
+fn fullscreen_video_single_click_toggles_but_controls_do_not_trigger_video_gestures() {
+    let mut rt = player_runtime();
+    key(&mut rt, rune::Key::Text("f".into()));
+    for paused in [true, false] {
+        tap(&mut rt, "video");
+        assert_eq!(rt.state.player.sample.paused, !paused);
+        let action = rt
+            .state
+            .player
+            .interaction
+            .finish_click(std::time::Instant::now() + std::time::Duration::from_secs(1))
+            .unwrap();
+        rt.state.player_action(action);
+        assert_eq!(rt.state.player.sample.paused, paused);
+    }
+    tap(&mut rt, "mute");
+    tap(&mut rt, "player-volume");
+    tap(&mut rt, "player-timeline");
+    assert!(
+        rt.state
+            .player
+            .interaction
+            .finish_click(std::time::Instant::now() + std::time::Duration::from_secs(1))
+            .is_none()
+    );
+    assert!(!rt.state.player.sample.paused);
+    assert!(rt.state.player.fullscreen);
+}
+
+#[test]
+fn completed_video_click_requests_a_redraw_for_the_new_pause_state() {
+    let mut s = init();
+    s.navigation.page = Page::Player;
+    s.player.playing = true;
+    s.player.fullscreen = true;
+    s.player.interaction.click(
+        scry_app::platform::VideoClick {
+            at: std::time::Instant::now()
+                .checked_sub(std::time::Duration::from_secs(1))
+                .unwrap(),
+            position: [100.0, 100.0],
+        },
+        true,
+    );
+    assert!(s.poll_player_interaction(&mut Tx::default()));
+    assert!(s.player.sample.paused);
+}
+
+#[test]
+fn hiding_fullscreen_controls_does_not_resize_video_and_movement_restores_them() {
+    let mut rt = player_runtime();
+    key(&mut rt, rune::Key::Text("f".into()));
+    let before = rect(&rt, "video");
+    assert_eq!(before, [0.0, 0.0, 880.0, 600.0]);
+    rt.update(|s, tx| {
+        s.player
+            .interaction
+            .idle(std::time::Instant::now() + std::time::Duration::from_secs(4));
+        tx.instant();
+    });
+    rt.frame(0.0);
+    assert!(rt.find("player-controls").is_none());
+    assert_eq!(rect(&rt, "video"), before);
+    rt.pointer_move(100.0, 100.0);
+    rt.frame(0.0);
+    assert!(rt.find("player-controls").is_some());
+    assert_eq!(rect(&rt, "video"), before);
+}
+
+#[test]
+fn replacing_playback_keeps_pointer_geometry_when_fullscreen_layout_does_not_change() {
+    let mut rt = player_runtime();
+    key(&mut rt, rune::Key::Text("f".into()));
+    rt.frame(0.0);
+    let video = rt.state.player.interaction.video_rect;
+    let controls = rt.state.player.interaction.controls_rect;
+    assert!(video.is_some());
+    assert!(controls.is_some());
+    rt.update(|s, tx| {
+        s.stop();
+        s.player.playing = true;
+        s.set_fullscreen(true);
+        tx.instant();
+    });
+    rt.frame(0.0);
+    assert_eq!(rt.state.player.interaction.video_rect, video);
+    assert_eq!(rt.state.player.interaction.controls_rect, controls);
+    assert!(rt.find("player-controls").is_some());
+}
+
+#[test]
+fn buffered_highlight_tracks_cached_seconds_and_clears_on_seek() {
+    let mut rt = player_runtime();
+    rt.update(|s, tx| {
+        s.player.sample.cache_s = Some(40.0);
+        tx.instant();
+    });
+    rt.frame(0.0);
+    let [x, _, width, _] = rect(&rt, "player-timeline");
+    let [buffer_x, _, buffer_width, _] = rect(&rt, "player-timeline-buffered");
+    let rail = width - crate::ui::design::tokens::progress::THUMB_SIZE;
+    assert!(
+        (buffer_width - rail * 0.2).abs() < 1.0,
+        "buffer={buffer_width}, rail={rail}"
+    );
+    assert!(buffer_x > x + rail * 0.25);
+    rt.state
+        .player_action(crate::ui::player::actions::PlayerAction::SeekTo(100.0));
+    rt.update(|_, tx| tx.instant());
+    rt.frame(0.0);
+    assert_eq!(rect(&rt, "player-timeline-buffered")[2], 0.0);
+    for cached in [
+        None,
+        Some(0.0),
+        Some(-1.0),
+        Some(f64::NAN),
+        Some(f64::INFINITY),
+    ] {
+        rt.update(|s, tx| {
+            s.player.sample.cache_s = cached;
+            tx.instant();
+        });
+        rt.frame(0.0);
+        assert_eq!(rect(&rt, "player-timeline-buffered")[2], 0.0);
+    }
+    rt.update(|s, tx| {
+        s.player.sample.position_s = Some(190.0);
+        s.player.sample.cache_s = Some(100.0);
+        tx.instant();
+    });
+    rt.frame(0.0);
+    assert!((rect(&rt, "player-timeline-buffered")[2] - rail * 0.05).abs() < 1.0);
+    for duration in [None, Some(0.0), Some(f64::NAN), Some(f64::INFINITY)] {
+        rt.update(|s, tx| {
+            s.player.sample.duration_s = duration;
+            tx.instant();
+        });
+        rt.frame(0.0);
+        assert_eq!(rect(&rt, "player-timeline-buffered")[2], 0.0);
+    }
+    rt.update(|s, tx| {
+        s.player.sample.duration_s = Some(200.0);
+        s.player.seek_preview = Some(120.0);
+        tx.instant();
+    });
+    rt.frame(0.0);
+    assert_eq!(rect(&rt, "player-timeline-buffered")[2], 0.0);
+}
+
+#[test]
+fn keyboard_focused_controls_do_not_disappear_while_in_use() {
+    let mut rt = player_runtime();
+    key(&mut rt, rune::Key::Text("f".into()));
+    tap(&mut rt, "mute");
+    rt.physical_input(rune::PhysicalInput::Key {
+        key: rune::PhysicalKeyCode::Tab,
+        mods: rune::Mods::default(),
+        pressed: true,
+        repeat: false,
+    });
+    rt.frame(0.0);
+    assert!(rt.state.player.interaction.keyboard);
+    rt.update(|s, _| {
+        s.player
+            .interaction
+            .idle(std::time::Instant::now() + std::time::Duration::from_secs(4));
+    });
+    rt.frame(0.0);
+    assert!(rt.find("player-controls").is_some());
 }
 
 #[test]
@@ -202,7 +399,6 @@ fn player_actions_do_not_change_an_inactive_player() {
         PlayerAction::SetVolume(12),
         PlayerAction::ChangeVolume(5),
         PlayerAction::SeekTo(35.0),
-        PlayerAction::Stop,
     ] {
         state.player_action(action);
     }

@@ -35,9 +35,19 @@ pub(in crate::ui) fn bar(key: &str, value: f64) -> El {
 
 /// Visual slider rail. Callers supply labels, sizes, and drag behavior.
 pub(in crate::ui) fn slider(key: impl Into<String>, value: f64) -> El {
+    buffered_slider(key, value, None)
+}
+
+pub(in crate::ui) fn buffered_slider(
+    key: impl Into<String>,
+    value: f64,
+    buffered: Option<(f64, f64)>,
+) -> El {
+    let key = key.into();
     let fraction = fraction(value);
+    let buffered_end = buffered.map_or(fraction, |(_, end)| self::fraction(end).max(fraction));
     row()
-        .key(key)
+        .key(key.clone())
         .role("slider")
         .h(progress::SLIDER_HEIGHT)
         .center_y()
@@ -55,9 +65,18 @@ pub(in crate::ui) fn slider(key: impl Into<String>, value: f64) -> El {
                 .fill(tokens::theme().text),
         )
         .child(
+            el().key(format!("{key}-buffered"))
+                .w(0.0)
+                .min_w(0.0)
+                .grow(buffered_end - fraction)
+                .h(progress::RAIL_HEIGHT)
+                .fill(tokens::theme().text)
+                .opacity(0.22),
+        )
+        .child(
             el().w(0.0)
                 .min_w(0.0)
-                .grow(1.0 - fraction)
+                .grow(1.0 - buffered_end)
                 .h(progress::RAIL_HEIGHT)
                 .fill(tokens::edge()),
         )

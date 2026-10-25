@@ -1,5 +1,6 @@
 use super::VideoHost;
 pub(super) mod navigation;
+mod video_input;
 use anyhow::{Result, bail};
 use rune::raw_window_handle::RawWindowHandle;
 use scry_playback::PlaybackTarget;
@@ -55,8 +56,11 @@ pub struct Host(Arc<NativeHost>);
 #[derive(Default)]
 struct NativeHost {
     child: AtomicIsize,
+    input: AtomicIsize,
     window: Mutex<Option<rune::WindowHandle>>,
     restore: Mutex<Option<Windowed>>,
+    clicks: Mutex<std::collections::VecDeque<super::VideoClick>>,
+    clip: Mutex<Option<(i32, i32, i32)>>,
 }
 
 struct Windowed {
@@ -130,6 +134,8 @@ impl VideoHost for Host {
                     bail!("Cannot create embedded video host");
                 }
                 self.0.child.store(child as isize, Ordering::Release);
+                let input = video_input::create(raw.hwnd.get() as HWND, self.clone())?;
+                self.0.input.store(input as isize, Ordering::Release);
                 *self
                     .0
                     .window
@@ -167,6 +173,18 @@ impl VideoHost for Host {
                 (h * scale).round().max(1.) as i32,
                 SWP_NOZORDER | SWP_NOACTIVATE,
             );
+            let input = self.0.input.load(Ordering::Acquire) as HWND;
+            if !input.is_null() {
+                SetWindowPos(
+                    input,
+                    ptr::null_mut(),
+                    (x * scale).round() as i32,
+                    (y * scale).round() as i32,
+                    (w * scale).round().max(1.0) as i32,
+                    (h * scale).round().max(1.0) as i32,
+                    SWP_NOACTIVATE,
+                );
+            }
         }
     }
     fn hide(&self) {
@@ -176,8 +194,29 @@ impl VideoHost for Host {
             // its UI thread and does not transfer ownership of the window.
             unsafe {
                 ShowWindow(hwnd, SW_HIDE);
+                ShowWindow(self.0.input.load(Ordering::Acquire) as HWND, SW_HIDE);
             }
         }
+    }
+
+    fn cover_bottom(&self, height: f32, scale: f32) {
+        video_input::cover_bottom(self, height * scale);
+    }
+
+    fn video_clicks(&self) -> Vec<super::VideoClick> {
+        self.0
+            .clicks
+            .lock()
+            .map(|mut clicks| clicks.drain(..).collect())
+            .unwrap_or_default()
+    }
+
+    fn pointer_position(&self, scale: f32) -> super::VideoPointer {
+        video_input::pointer_position(self, scale)
+    }
+
+    fn double_click_interval(&self) -> std::time::Duration {
+        video_input::double_click_interval()
     }
 
     fn show(&self) {
@@ -187,6 +226,7 @@ impl VideoHost for Host {
             // its UI thread and does not transfer ownership of the window.
             unsafe {
                 ShowWindow(hwnd, SW_SHOW);
+                ShowWindow(self.0.input.load(Ordering::Acquire) as HWND, SW_SHOW);
             }
         }
     }

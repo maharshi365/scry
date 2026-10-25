@@ -99,11 +99,6 @@ pub(in crate::ui) static AUDIO: Icon = Icon {
     view: 24.0,
     body: include_str!("../../../assets/icons/rune/audio-lines.svg"),
 };
-pub(in crate::ui) static STOP: Icon = Icon {
-    name: "player-stop",
-    view: 24.0,
-    body: include_str!("../../../assets/icons/rune/square.svg"),
-};
 pub(in crate::ui) static FULLSCREEN: Icon = Icon {
     name: "player-fullscreen",
     view: 24.0,
@@ -199,7 +194,6 @@ mod tests {
             source!(MUTED, "volume-x"),
             source!(CAPTIONS, "captions"),
             source!(AUDIO, "audio-lines"),
-            source!(STOP, "square"),
             source!(FULLSCREEN, "maximize"),
             source!(EXIT_FULLSCREEN, "minimize"),
             source!(LEFT, "arrow-left"),

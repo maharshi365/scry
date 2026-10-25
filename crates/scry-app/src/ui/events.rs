@@ -50,7 +50,8 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
         }
     }
     s.refresh_artwork();
-    let mut changed = navigated
+    let mut changed = s.poll_player_interaction(tx)
+        | navigated
         | s.poll_library()
         | s.player_artwork
             .as_mut()
@@ -241,6 +242,7 @@ fn apply(s: &mut State, event: Event) {
             if s.navigation.page == Page::Guide && first_ready {
                 s.seek_guide_now();
             } else if let Some(position) = s.library.resume_position.take() {
+                s.player.sample.cache_s = None;
                 s.command(&["seek", &position.to_string(), "absolute"]);
                 s.library.observed = None;
             }
@@ -275,6 +277,7 @@ fn apply(s: &mut State, event: Event) {
             s.player.playing = false;
             s.player.ready = false;
             s.player.seek_preview = None;
+            s.player.sample.cache_s = None;
             s.host.hide();
             s.status = "Playback stopped".into();
             if error.is_some() {
