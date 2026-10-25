@@ -1,6 +1,7 @@
 //! Refresh tracked shows even when the active Library filter hides them.
-use super::{Media, MediaKey, State, series_status::episode_inventory};
+use super::{Media, MediaKey, State};
 use crate::library_worker::Command;
+use crate::media_metadata::episode_inventory;
 use scry_addons::Meta;
 use std::time::{Duration, Instant};
 

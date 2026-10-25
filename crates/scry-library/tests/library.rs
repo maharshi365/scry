@@ -8,7 +8,7 @@
 )]
 
 use diesel::{Connection, SqliteConnection, connection::SimpleConnection};
-use scry_library::{Library, Media, MediaKey, MediaKind, Page};
+use scry_library::{Library, Media, MediaKey, MediaKind, Page, Progress};
 
 fn movie(namespace: &str, id: &str) -> Media {
     Media {
@@ -16,6 +16,42 @@ fn movie(namespace: &str, id: &str) -> Media {
         title: format!("Title {id}"),
         parent: None,
     }
+}
+
+#[test]
+fn watchlist_mutations_resolve_parents_and_roll_back_metadata() -> anyhow::Result<()> {
+    for added in [None, Some(true)] {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("library.db");
+        let mut db = Library::open(&path)?;
+        let item = movie("test", "atomic");
+        let mut raw = SqliteConnection::establish(path.to_str().unwrap())?;
+        raw.batch_execute("CREATE TRIGGER fail_watchlist BEFORE INSERT ON watchlist BEGIN SELECT RAISE(ABORT, 'injected storage failure'); END")?;
+        assert!(db.update_media_watchlist(&item, added).is_err());
+        assert_eq!(db.get_media(&item.key)?, None);
+        raw.batch_execute("DROP TRIGGER fail_watchlist")?;
+
+        let show = Media {
+            key: MediaKey::new("test", MediaKind::Series, "show"),
+            title: "Show".into(),
+            parent: None,
+        };
+        db.upsert_media(&show)?;
+        let episode = Media {
+            key: MediaKey::new("test", MediaKind::Episode, "pilot"),
+            title: "Pilot".into(),
+            parent: Some(show.key.clone()),
+        };
+        db.update_media_watchlist(&episode, added)?;
+        assert_eq!(db.list_watchlist(Page::default())?, vec![show.clone()]);
+        assert_eq!(db.get_media(&episode.key)?, None);
+        db.update_media_watchlist(&episode, Some(false))?;
+        assert!(!db.is_in_watchlist(&show.key)?);
+        db.update_media_watchlist(&episode, None)?;
+        db.update_media_watchlist(&episode, None)?;
+        assert!(!db.is_in_watchlist(&show.key)?);
+    }
+    Ok(())
 }
 
 #[test]
@@ -221,6 +257,14 @@ fn progress_validation_and_pagination() -> anyhow::Result<()> {
         (0.0, -1.0),
     ] {
         assert!(db.save_progress(&item.key, position, duration).is_err());
+        assert!(
+            Progress {
+                position_seconds: position,
+                duration_seconds: duration
+            }
+            .fraction()
+            .is_none()
+        );
     }
     assert_eq!(db.load_progress(&item.key)?.unwrap().position_seconds, 0.0);
     db.save_progress(&item.key, 200.0, 100.0)?;

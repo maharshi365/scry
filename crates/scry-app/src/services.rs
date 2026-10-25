@@ -1,4 +1,9 @@
 //! Background work and the narrow, bounded boundary to the native UI.
+mod addon_storage;
+mod metadata;
+use addon_storage::load;
+#[cfg(test)]
+use addon_storage::save;
 use anyhow::{Context, Result, bail};
 use scry_addons::{Addon, Catalog, Client, Meta, Stream};
 use scry_playback::{
@@ -201,16 +206,15 @@ impl Services {
         self.runtime.spawn(async move {
             let result: Result<Vec<Addon>> = async {
                 let addon = client.install(&input).await?;
-                let mut current = config.lock().await;
-                let mut next = current.clone();
-                next.retain(|a| a.manifest.id != addon.manifest.id);
-                if next.len() >= 32 {
-                    bail!("Remove an add-on before installing more (limit: 32)");
-                }
-                next.push(addon);
-                persist(data, next.clone()).await?;
-                current.clone_from(&next);
-                Ok(next)
+                addon_storage::update(&config, data, |next| {
+                    next.retain(|a| a.manifest.id != addon.manifest.id);
+                    if next.len() >= 32 {
+                        bail!("Remove an add-on before installing more (limit: 32)");
+                    }
+                    next.push(addon);
+                    Ok(())
+                })
+                .await
             }
             .await;
             inbox
@@ -222,13 +226,11 @@ impl Services {
     pub fn remove(&self, id: String) {
         let (inbox, config, data) = (self.inbox.clone(), self.config.clone(), self.data.clone());
         self.runtime.spawn(async move {
-            let mut current = config.lock().await;
-            let mut next = current.clone();
-            next.retain(|a| a.manifest.id != id);
-            let result = persist(data, next.clone()).await.map(|()| {
-                current.clone_from(&next);
-                next
-            });
+            let result = addon_storage::update(&config, data, |next| {
+                next.retain(|a| a.manifest.id != id);
+                Ok(())
+            })
+            .await;
             inbox
                 .send(Event::Addons(result.map_err(|e| e.to_string())))
                 .await;
@@ -238,18 +240,14 @@ impl Services {
     pub fn set_addon_disabled(&self, id: String, disabled: bool) {
         let (inbox, config, data) = (self.inbox.clone(), self.config.clone(), self.data.clone());
         self.runtime.spawn(async move {
-            let mut current = config.lock().await;
-            let mut next = current.clone();
-            let result = async {
+            let result = addon_storage::update(&config, data, |next| {
                 let addon = next
                     .iter_mut()
                     .find(|a| a.manifest.id == id)
                     .context("Add-on is no longer installed")?;
                 addon.disabled = disabled;
-                persist(data, next.clone()).await?;
-                current.clone_from(&next);
-                Ok(next)
-            }
+                Ok(())
+            })
             .await;
             inbox
                 .send(Event::Addons(
@@ -262,7 +260,7 @@ impl Services {
     pub fn watch_metadata(
         &mut self,
         token: u64,
-        mut addons: Vec<Addon>,
+        addons: Vec<Addon>,
         media: scry_library::Media,
         watched: bool,
     ) -> Result<()> {
@@ -278,20 +276,16 @@ impl Services {
             } else {
                 "series"
             };
-            addons.sort_by_key(|addon| addon.manifest.id != media.key.namespace);
-            let mut result = Err("Cannot load release metadata for this watched action".into());
-            for addon in addons
-                .iter()
-                .filter(|addon| addon.supports("meta", kind, &media.key.id))
-            {
-                if let Ok(meta) = client.meta(addon, kind, &media.key.id).await
-                    && meta.id == media.key.id
-                    && meta.kind == kind
-                {
-                    result = Ok(Box::new(meta));
-                    break;
-                }
-            }
+            let result = metadata::fetch(
+                &client,
+                &addons,
+                &media.key.namespace,
+                kind,
+                &media.key.id,
+                |meta| Some(Box::new(meta)),
+            )
+            .await
+            .ok_or_else(|| "Cannot load release metadata for this watched action".into());
             inbox
                 .send(Event::WatchMetadata(token, media, watched, result))
                 .await;
@@ -518,6 +512,7 @@ impl Services {
             task.abort();
         }
         let (client, inbox) = (self.client.clone(), self.inbox.clone());
+        let addons = Arc::new(addons);
         self.calendar_task = Some(self.runtime.spawn(async move {
             let mut remaining = series.into_iter();
             let mut tasks = tokio::task::JoinSet::new();
@@ -528,23 +523,23 @@ impl Services {
                     let Some(media) = remaining.next() else {
                         break;
                     };
-                    let (client, mut addons) = (client.clone(), addons.clone());
+                    let (client, addons) = (client.clone(), addons.clone());
                     tasks.spawn(async move {
-                        addons.sort_by_key(|a| a.manifest.id != media.key.namespace);
                         let kind = if media.key.kind == scry_library::MediaKind::Movie {
                             "movie"
                         } else {
                             "series"
                         };
-                        for addon in addons
-                            .iter()
-                            .filter(|a| a.supports("meta", kind, &media.key.id))
-                        {
-                            if let Ok(meta) = client.meta(addon, kind, &media.key.id).await {
-                                return Some((media, meta));
-                            }
-                        }
-                        None
+                        let meta = metadata::fetch(
+                            &client,
+                            &addons,
+                            &media.key.namespace,
+                            kind,
+                            &media.key.id,
+                            Some,
+                        )
+                        .await?;
+                        Some((media, meta))
                     });
                 }
                 let Some(result) = tasks.join_next().await else {
@@ -570,6 +565,7 @@ impl Services {
             task.abort();
         }
         let (client, inbox) = (self.client.clone(), self.inbox.clone());
+        let addons = Arc::new(addons);
         self.library_poster_task = Some(self.runtime.spawn(async move {
             let mut remaining = media.into_iter().take(12);
             let mut tasks = tokio::task::JoinSet::new();
@@ -578,25 +574,23 @@ impl Services {
                     let Some(media) = remaining.next() else {
                         break;
                     };
-                    let (client, mut addons) = (client.clone(), addons.clone());
+                    let (client, addons) = (client.clone(), addons.clone());
                     tasks.spawn(async move {
-                        addons.sort_by_key(|a| a.manifest.id != media.key.namespace);
                         let kind = if media.key.kind == scry_library::MediaKind::Movie {
                             "movie"
                         } else {
                             "series"
                         };
-                        for addon in addons
-                            .iter()
-                            .filter(|a| a.supports("meta", kind, &media.key.id))
-                        {
-                            if let Ok(meta) = client.meta(addon, kind, &media.key.id).await
-                                && let Some(poster) = LibraryPoster::for_media(&media, &meta)
-                            {
-                                return (media.key, Some(poster));
-                            }
-                        }
-                        (media.key, None)
+                        let poster = metadata::fetch(
+                            &client,
+                            &addons,
+                            &media.key.namespace,
+                            kind,
+                            &media.key.id,
+                            |meta| LibraryPoster::for_media(&media, &meta),
+                        )
+                        .await;
+                        (media.key, poster)
                     });
                 }
                 let Some(result) = tasks.join_next().await else {
@@ -630,27 +624,25 @@ impl Services {
             task.abort();
         }
         let (client, inbox) = (self.client.clone(), self.inbox.clone());
+        let addons = Arc::new(addons);
         *slot = Some(self.runtime.spawn(async move {
             let mut remaining = keys.into_iter().take(12);
             let mut tasks = tokio::task::JoinSet::new();
             loop {
                 while tasks.len() < 4 {
                     let Some(key) = remaining.next() else { break };
-                    let (client, mut addons) = (client.clone(), addons.clone());
+                    let (client, addons) = (client.clone(), addons.clone());
                     tasks.spawn(async move {
-                        addons.sort_by_key(|addon| addon.manifest.id != key.namespace);
-                        for addon in addons
-                            .iter()
-                            .filter(|a| a.supports("meta", "series", &key.id))
-                        {
-                            if let Ok(meta) = client.meta(addon, "series", &key.id).await
-                                && meta.id == key.id
-                                && meta.kind == "series"
-                            {
-                                return (key, Some(meta));
-                            }
-                        }
-                        (key, None)
+                        let meta = metadata::fetch(
+                            &client,
+                            &addons,
+                            &key.namespace,
+                            "series",
+                            &key.id,
+                            Some,
+                        )
+                        .await;
+                        (key, meta)
                     });
                 }
                 let Some(result) = tasks.join_next().await else {
@@ -735,78 +727,6 @@ impl Drop for Services {
     fn drop(&mut self) {
         self.shutdown();
     }
-}
-
-fn database(data: &std::path::Path) -> Result<scry_library::Library> {
-    std::fs::create_dir_all(data)?;
-    scry_library::Library::open(data.join(scry_library::DATABASE_NAME))
-}
-
-// Local preferences share the stored manifest document, not the remote manifest.
-// The optional flag needs no database schema change or data migration.
-#[derive(serde::Serialize, serde::Deserialize)]
-struct StoredManifest {
-    #[serde(flatten)]
-    manifest: scry_addons::Manifest,
-    #[serde(default, rename = "_scry_disabled")]
-    disabled: bool,
-}
-
-fn load(data: &std::path::Path, initialize: bool) -> Result<Vec<Addon>> {
-    let records = database(data)?.load_addons()?;
-    if initialize && records.is_empty() {
-        let addons = vec![Addon {
-            manifest_url: KITSU.into(),
-            manifest: serde_json::from_str(include_str!("../assets/kitsu-manifest.json"))
-                .context("Cannot read the built-in Kitsu manifest")?,
-            disabled: false,
-        }];
-        save(data, &addons)?;
-        return Ok(addons);
-    }
-    if records.len() > 32 {
-        bail!("At most 32 installed add-ons are supported");
-    }
-    records
-        .into_iter()
-        .map(|record| {
-            let stored: StoredManifest = serde_json::from_str(&record.manifest_json)
-                .context("Cannot read stored add-on manifest")?;
-            if stored.manifest.id != record.id {
-                bail!("Stored add-on identity does not match its manifest");
-            }
-            Ok(Addon {
-                manifest_url: record.manifest_url,
-                manifest: stored.manifest,
-                disabled: stored.disabled,
-            })
-        })
-        .collect()
-}
-
-fn save(data: &std::path::Path, addons: &[Addon]) -> Result<()> {
-    let records = addons
-        .iter()
-        .map(|addon| {
-            Ok(scry_library::AddonRecord {
-                id: addon.manifest.id.clone(),
-                manifest_url: addon.manifest_url.clone(),
-                manifest_json: serde_json::to_string(&StoredManifest {
-                    manifest: addon.manifest.clone(),
-                    disabled: addon.disabled,
-                })?,
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
-    database(data)?
-        .replace_addons(&records)
-        .context("Cannot save add-ons configuration")
-}
-
-async fn persist(data: PathBuf, addons: Vec<Addon>) -> Result<()> {
-    tokio::task::spawn_blocking(move || save(&data, &addons))
-        .await
-        .context("Cannot save add-ons configuration")?
 }
 
 fn direct_url(stream: &Stream) -> Result<Option<String>> {

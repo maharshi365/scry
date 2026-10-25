@@ -31,6 +31,27 @@ pub struct Sample {
     pub cpu_time_s: Option<f64>,
 }
 
+impl Sample {
+    /// Actual playback advancement, excluding seeks and pause/buffer transitions.
+    #[must_use]
+    pub fn playback_advance_since(&self, previous: &Self) -> f64 {
+        if self.paused || previous.paused || self.buffering || previous.buffering {
+            return 0.0;
+        }
+        let (Some(before), Some(after)) = (previous.position_s, self.position_s) else {
+            return 0.0;
+        };
+        let delta = after - before;
+        let elapsed = (self.elapsed_s - previous.elapsed_s).max(0.0);
+        let speed = self.speed.unwrap_or(1.0).clamp(0.1, 10.0);
+        if delta.is_finite() && delta > 0.0 && delta <= elapsed * speed + 0.5 {
+            delta
+        } else {
+            0.0
+        }
+    }
+}
+
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct Summary {
     pub samples: u64,
@@ -82,7 +103,7 @@ impl Tracker {
                 if let (Some(before), Some(after)) = (previous.position_s, sample.position_s) {
                     let advance = after - before;
                     // Ignore seeks rather than treating them as playback progress.
-                    if advance > 0.01 && advance <= dt * 2.0 + 0.5 {
+                    if sample.playback_advance_since(previous) > 0.01 {
                         summary.playback_advanced_s += advance;
                         self.stall_s = 0.0;
                         self.in_stall = false;
@@ -248,5 +269,29 @@ mod tests {
             tracker.observe(&point);
         }
         assert_eq!(tracker.summary.stalls, 0);
+    }
+
+    #[test]
+    fn playback_advancement_respects_speed_and_buffering_transitions() {
+        for (speed, advance, buffering, expected) in [
+            (0.5, 1.5, false, 0.0),
+            (3.0, 3.0, false, 3.0),
+            (1.0, 10.0, false, 0.0),
+            (1.0, 1.0, true, 0.0),
+        ] {
+            let mut tracker = Tracker::default();
+            tracker.observe(&Sample {
+                buffering,
+                ..sample(0.0, 1.0)
+            });
+            tracker.observe(&Sample {
+                speed: Some(speed),
+                ..sample(1.0, 1.0 + advance)
+            });
+            assert_eq!(
+                tracker.summary.playback_advanced_s, expected,
+                "speed={speed}, buffering={buffering}"
+            );
+        }
     }
 }

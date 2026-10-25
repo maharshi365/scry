@@ -182,12 +182,7 @@ impl Library {
     pub fn add_to_watchlist(&mut self, key: &MediaKey) -> Result<()> {
         let connection = &mut *self.connection.borrow_mut();
         let id = media_id(connection, key)?;
-        diesel::insert_into(watchlist::table)
-            .values(watchlist::media_id.eq(id))
-            .on_conflict(watchlist::media_id)
-            .do_nothing()
-            .execute(connection)?;
-        Ok(())
+        crate::watchlist::set(connection, id, true)
     }
 
     /// # Errors
@@ -195,8 +190,7 @@ impl Library {
     pub fn remove_from_watchlist(&mut self, key: &MediaKey) -> Result<()> {
         let connection = &mut *self.connection.borrow_mut();
         let id = media_id(connection, key)?;
-        diesel::delete(watchlist::table.filter(watchlist::media_id.eq(id))).execute(connection)?;
-        Ok(())
+        crate::watchlist::set(connection, id, false)
     }
 
     /// # Errors
@@ -204,10 +198,7 @@ impl Library {
     pub fn is_in_watchlist(&self, key: &MediaKey) -> Result<bool> {
         let connection = &mut *self.connection.borrow_mut();
         let id = media_id(connection, key)?;
-        Ok(diesel::select(diesel::dsl::exists(
-            watchlist::table.filter(watchlist::media_id.eq(id)),
-        ))
-        .get_result(connection)?)
+        crate::watchlist::contains(connection, id)
     }
 
     /// # Errors

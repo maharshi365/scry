@@ -567,10 +567,14 @@ impl Client {
         struct Response {
             meta: Meta,
         }
-        Ok(self
+        let meta = self
             .json::<Response>(resource_url(&addon.manifest_url, "meta", kind, id, None)?)
             .await?
-            .meta)
+            .meta;
+        if meta.id != id || meta.kind != kind {
+            bail!("Add-on metadata identity does not match the request");
+        }
+        Ok(meta)
     }
 
     /// # Errors
@@ -598,7 +602,7 @@ impl Client {
 mod tests {
     use super::*;
 
-    async fn json_error(status: &str, body: &str) -> String {
+    async fn serve(status: &str, body: &str) -> (Url, tokio::task::JoinHandle<()>) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -615,15 +619,44 @@ mod tests {
             }
             socket.write_all(response.as_bytes()).await.unwrap();
         });
+        (
+            Url::parse(&format!("http://{address}/private-token/manifest.json")).unwrap(),
+            server,
+        )
+    }
+
+    async fn json_error(status: &str, body: &str) -> String {
+        let (url, server) = serve(status, body).await;
         let client = Client::new().unwrap();
-        let error = client
-            .json::<Vec<Meta>>(
-                Url::parse(&format!("http://{address}/private-token/manifest.json")).unwrap(),
-            )
-            .await
-            .unwrap_err();
+        let error = client.json::<Vec<Meta>>(url).await.unwrap_err();
         server.await.unwrap();
         format!("{error:#}")
+    }
+
+    #[tokio::test]
+    async fn metadata_requires_the_requested_identity() {
+        let client = Client::new().unwrap();
+        for (id, kind, valid) in [
+            ("film", "movie", true),
+            ("other", "movie", false),
+            ("film", "series", false),
+        ] {
+            let body = serde_json::json!({"meta":{"id":id,"type":kind,"name":"Film"}}).to_string();
+            let (url, server) = serve("200 OK", &body).await;
+            let addon: Addon = serde_json::from_value(serde_json::json!({
+                "manifest_url":url.as_str(), "manifest":{"id":"test","name":"Test"}
+            }))
+            .unwrap();
+            let result = client.meta(&addon, "movie", "film").await;
+            server.await.unwrap();
+            assert_eq!(result.is_ok(), valid, "{id}/{kind}");
+            if let Err(error) = result {
+                assert_eq!(
+                    error.to_string(),
+                    "Add-on metadata identity does not match the request"
+                );
+            }
+        }
     }
 
     #[tokio::test]

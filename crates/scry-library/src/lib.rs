@@ -9,6 +9,7 @@ mod playlists;
 mod schema;
 mod up_next;
 mod watch_status;
+mod watchlist;
 
 pub use app_storage::AddonRecord;
 pub use models::*;

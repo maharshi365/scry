@@ -237,7 +237,7 @@ impl State {
             let date = self
                 .detail
                 .as_ref()
-                .and_then(series_status::meta_release_timestamp);
+                .and_then(crate::media_metadata::meta_release_timestamp);
             self.library.generation += 1;
             self.db(Command::RegisterRelease(parent, date), true);
             return;

@@ -68,6 +68,24 @@ pub struct Progress {
     pub duration_seconds: f64,
 }
 
+impl Progress {
+    /// Validate a playback sample and clamp its resume position to the video.
+    #[must_use]
+    pub fn new(position_seconds: f64, duration_seconds: f64) -> Option<Self> {
+        (position_seconds.is_finite() && duration_seconds.is_finite() && duration_seconds > 0.0)
+            .then(|| Self {
+                position_seconds: position_seconds.clamp(0.0, duration_seconds),
+                duration_seconds,
+            })
+    }
+
+    #[must_use]
+    pub fn fraction(self) -> Option<f64> {
+        Self::new(self.position_seconds, self.duration_seconds)
+            .map(|sample| sample.position_seconds / sample.duration_seconds)
+    }
+}
+
 /// Episode-weighted completion, separate from an individual video's resume time.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SeriesProgress {

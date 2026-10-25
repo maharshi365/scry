@@ -188,7 +188,9 @@ pub(super) fn poster_status_overlay(
                 ),
         );
     }
-    let Some(progress) = progress.filter(|p| p.position_seconds > 0.0 && p.duration_seconds > 0.0)
+    let Some(fraction) = progress
+        .and_then(scry_library::Progress::fraction)
+        .filter(|fraction| *fraction > 0.0)
     else {
         return surface;
     };
@@ -198,10 +200,7 @@ pub(super) fn poster_status_overlay(
             .w_full()
             .h(tokens::progress::HEIGHT)
             .px(8.0)
-            .child(progress::bar(
-                &format!("{key}-progress"),
-                progress.position_seconds / progress.duration_seconds,
-            )),
+            .child(progress::bar(&format!("{key}-progress"), fraction)),
     )
 }
 

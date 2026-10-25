@@ -104,44 +104,27 @@ mod tests {
     }
 
     #[test]
-    fn movie_states_reject_oversized_batches_and_non_movie_keys() {
+    fn poster_states_reject_oversized_batches_and_wrong_kinds() {
         let mut library = Library::memory().unwrap();
-        for keys in [
-            vec![movie().key; 201],
-            vec![MediaKey::new("test", MediaKind::Series, "show")],
-            vec![MediaKey::new("test", MediaKind::Episode, "show:1:1")],
-        ] {
-            assert!(
-                apply(
-                    &mut library,
-                    Command::MovieStates {
+        for kind in [MediaKind::Movie, MediaKind::Series] {
+            let oversized = vec![MediaKey::new("test", kind, "poster"); 201];
+            let wrong_kinds = [MediaKind::Movie, MediaKind::Series, MediaKind::Episode]
+                .into_iter()
+                .filter(|other| *other != kind)
+                .map(|other| vec![MediaKey::new("test", other, "wrong")]);
+            for keys in std::iter::once(oversized).chain(wrong_kinds) {
+                let command = match kind {
+                    MediaKind::Movie => Command::MovieStates {
                         generation: 1,
-                        keys
-                    }
-                )
-                .is_err()
-            );
-        }
-    }
-
-    #[test]
-    fn series_states_reject_invalid_kinds_and_oversized_batches() {
-        let mut library = Library::memory().unwrap();
-        for keys in [
-            vec![MediaKey::new("test", MediaKind::Series, "show"); 201],
-            vec![movie().key],
-            vec![MediaKey::new("test", MediaKind::Episode, "episode")],
-        ] {
-            assert!(
-                apply(
-                    &mut library,
-                    Command::SeriesStates {
+                        keys,
+                    },
+                    _ => Command::SeriesStates {
                         generation: 1,
-                        keys
-                    }
-                )
-                .is_err()
-            );
+                        keys,
+                    },
+                };
+                assert!(apply(&mut library, command).is_err(), "{kind:?}");
+            }
         }
     }
 

@@ -50,7 +50,7 @@ impl State {
         self.season_menu_open = false;
         self.source_menu_open = false;
         let inventory = self.detail.as_ref().map_or_else(Vec::new, |meta| {
-            super::library_view::series_status::episode_inventory(&parent.key, meta)
+            crate::media_metadata::episode_inventory(&parent.key, meta)
         });
         self.context_menu = Some((
             point,

@@ -137,9 +137,7 @@ impl State {
                 continue;
             }
             if kind == "movie" {
-                if let Some(date) =
-                    super::library_view::series_status::meta_release_timestamp(&meta)
-                {
+                if let Some(date) = crate::media_metadata::meta_release_timestamp(&meta) {
                     release_times.insert((media.key.clone(), media.key.id.clone()), date);
                 }
                 if let Some(date) = meta.released.as_deref().and_then(release_date) {
@@ -160,7 +158,7 @@ impl State {
                 if let Some(date) = video
                     .released
                     .as_deref()
-                    .and_then(super::library_view::series_status::release_timestamp)
+                    .and_then(crate::media_metadata::release_timestamp)
                 {
                     release_times.insert((media.key.clone(), video.id.clone()), date);
                 }

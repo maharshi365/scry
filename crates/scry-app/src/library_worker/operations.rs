@@ -195,32 +195,10 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
             library.register_release(&item, released_at)?;
         }
         Command::ToggleWatchlist(item) => {
-            let item = match &item.parent {
-                Some(parent) => library
-                    .get_media(parent)?
-                    .ok_or_else(|| anyhow::anyhow!("missing series"))?,
-                None => item,
-            };
-            library.upsert_media(&item)?;
-            if library.is_in_watchlist(&item.key)? {
-                library.remove_from_watchlist(&item.key)?;
-            } else {
-                library.add_to_watchlist(&item.key)?;
-            }
+            library.update_media_watchlist(&item, None)?;
         }
         Command::SetWatchlist(item, added) => {
-            let item = match &item.parent {
-                Some(parent) => library
-                    .get_media(parent)?
-                    .ok_or_else(|| anyhow::anyhow!("missing series"))?,
-                None => item,
-            };
-            library.upsert_media(&item)?;
-            if added {
-                library.add_to_watchlist(&item.key)?;
-            } else {
-                library.remove_from_watchlist(&item.key)?;
-            }
+            library.update_media_watchlist(&item, Some(added))?;
         }
         Command::SetWatched(item, watched) => {
             library.set_media_watched(&item, None, None, watched)?;

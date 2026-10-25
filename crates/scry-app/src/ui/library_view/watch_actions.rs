@@ -1,9 +1,7 @@
 //! Watched actions capture release metadata before sending a database mutation.
-use super::{
-    Media, MediaKind, State,
-    series_status::{episode_inventory, meta_release_timestamp, release_timestamp},
-};
+use super::{Media, MediaKind, State};
 use crate::library_worker::Command;
+use crate::media_metadata::{episode_inventory, meta_release_timestamp, release_timestamp};
 use scry_addons::Meta;
 
 impl State {

@@ -143,16 +143,17 @@ fn record_sample(
     watched_delta: f64,
 ) -> Result<()> {
     ensure!(
-        key.kind != MediaKind::Series
-            && position.is_finite()
-            && duration.is_finite()
-            && duration > 0.0
-            && watched_delta.is_finite()
-            && watched_delta >= 0.0,
+        key.kind != MediaKind::Series && watched_delta.is_finite() && watched_delta >= 0.0,
         "invalid playback sample"
     );
+    let sample = Progress::new(position, duration).context("invalid playback sample")?;
     let id = media_id(connection, key)?;
-    save_progress(connection, id, position.clamp(0.0, duration), duration)?;
+    save_progress(
+        connection,
+        id,
+        sample.position_seconds,
+        sample.duration_seconds,
+    )?;
     let parent = media::table
         .find(id)
         .select(media::parent_id)
@@ -338,18 +339,21 @@ impl Library {
         duration_seconds: f64,
     ) -> Result<()> {
         ensure!(
-            key.kind != MediaKind::Series
-                && position_seconds.is_finite()
-                && duration_seconds.is_finite()
-                && duration_seconds > 0.0,
+            key.kind != MediaKind::Series,
             "progress must be finite with a positive duration"
         );
-        let position = position_seconds.clamp(0.0, duration_seconds);
+        let sample = Progress::new(position_seconds, duration_seconds)
+            .context("progress must be finite with a positive duration")?;
         self.connection
             .borrow_mut()
             .immediate_transaction(|connection| {
                 let id = media_id(connection, key)?;
-                save_progress(connection, id, position, duration_seconds)
+                save_progress(
+                    connection,
+                    id,
+                    sample.position_seconds,
+                    sample.duration_seconds,
+                )
             })
     }
 

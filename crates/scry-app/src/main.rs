@@ -2,6 +2,7 @@ mod artwork;
 mod artwork_cache;
 mod diagnostics;
 mod library_worker;
+mod media_metadata;
 mod search;
 mod services;
 mod ui;

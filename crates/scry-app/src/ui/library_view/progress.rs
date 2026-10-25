@@ -12,28 +12,15 @@ use std::{
 impl State {
     pub(in crate::ui) fn observe_library_progress(&mut self) {
         let sample = &self.player.sample;
-        if let Some(previous) = &self.library.observed
-            && !sample.paused
-            && !previous.paused
-            && !sample.buffering
-            && !previous.buffering
-            && let (Some(before), Some(after)) = (previous.position_s, sample.position_s)
-        {
-            let delta = after - before;
-            let elapsed = (sample.elapsed_s - previous.elapsed_s).max(0.0);
-            let speed = sample.speed.unwrap_or(1.0).clamp(0.1, 10.0);
-            if delta.is_finite() && delta > 0.0 && delta <= elapsed * speed + 0.5 {
-                self.library.watched_pending += delta;
-            }
+        if let Some(previous) = &self.library.observed {
+            self.library.watched_pending += sample.playback_advance_since(previous);
         }
         self.library.observed = Some(sample.clone());
         if let (Some(position), Some(duration)) =
             (self.player.sample.position_s, self.player.sample.duration_s)
-            && position.is_finite()
-            && duration.is_finite()
-            && duration > 0.0
+            && let Some(sample) = scry_library::Progress::new(position, duration)
         {
-            self.library.last_sample = Some((position.max(0.0).min(duration), duration));
+            self.library.last_sample = Some((sample.position_seconds, sample.duration_seconds));
         }
         if self.library.last_save.elapsed() >= Duration::from_secs(12) {
             self.save_library_progress();
