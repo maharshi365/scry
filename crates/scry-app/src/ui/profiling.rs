@@ -123,6 +123,7 @@ fn metadata_stress(s: &mut State) {
                 season: Some(1),
                 episode: Some(index),
                 released: None,
+                thumbnail: None,
             })
             .collect();
     }

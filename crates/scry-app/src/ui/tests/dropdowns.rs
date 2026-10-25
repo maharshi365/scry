@@ -37,16 +37,21 @@ fn dropdowns_overlay_without_moving_content_and_dismiss_without_navigation() {
             ("season-select", "season-menu"),
             ("source-select", "source-menu"),
         ] {
-            let before: Vec<_> = [
-                "topbar",
-                "season-select",
-                "episode-4",
-                "source-picker-header",
-                "stream-0",
-            ]
-            .into_iter()
-            .map(|key| (key, rect(&rt, key)))
-            .collect();
+            if trigger == "source-select" {
+                rt.update(|s, _| s.selected_video_id = Some("show:1:1".into()));
+                settle(&mut rt);
+            }
+            let keys = if trigger == "source-select" {
+                vec![
+                    "topbar",
+                    "show-episodes",
+                    "source-picker-header",
+                    "stream-0",
+                ]
+            } else {
+                vec!["topbar", "season-select", "episode-4"]
+            };
+            let before: Vec<_> = keys.into_iter().map(|key| (key, rect(&rt, key))).collect();
             tap(&mut rt, trigger);
             settle(&mut rt);
             let popup = rect(&rt, menu);
@@ -92,6 +97,7 @@ fn overlay_choices_keep_season_selection_and_provider_filtering_working() {
     assert_eq!(rt.state.active_season(), Some(2));
     assert!(!rt.state.season_menu_open);
     rt.update(|s, _| {
+        s.selected_video_id = Some("show:2:1".into());
         let source =
             serde_json::from_value(serde_json::json!({"url":"https://example.invalid/video"}))
                 .unwrap();

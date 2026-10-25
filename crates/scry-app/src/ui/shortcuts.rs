@@ -27,6 +27,7 @@ pub(super) enum KeyMatch {
     Up,
     Down,
     Escape,
+    Function(u8),
 }
 
 pub(super) enum Modifiers {
@@ -59,6 +60,7 @@ pub(super) fn resolve<A: Copy>(
         };
         let key_matches = match (&binding.key, &event.key) {
             (KeyMatch::Text(expected), Key::Text(actual)) => actual.eq_ignore_ascii_case(expected),
+            (KeyMatch::Function(expected), Key::Function(actual)) => expected == actual,
             (KeyMatch::Left, Key::Left)
             | (KeyMatch::Right, Key::Right)
             | (KeyMatch::Up, Key::Up)

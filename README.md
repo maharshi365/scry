@@ -53,6 +53,16 @@ volume slider to set the level. The CC and audio buttons cycle embedded tracks.
 
 Player shortcuts apply only during playback and do not intercept text input.
 
+**App fullscreen:** press **F11** or use the top-right fullscreen button on any
+page. This hides the top bar and the native window frame. Press F11 or Escape,
+or use the exit button, to leave. Player fullscreen remains separate.
+
+Catalog titles open a side preview with trailer, library, and watched actions.
+Choose **Show** to open the backdrop-based picker. Movies show sources on the
+right; TV shows show searchable season/episode lists. Choose an episode for its
+sources, then **Back to episodes** to return. Trailers open in your browser;
+the trailer button is disabled when the provider supplies no trailer.
+
 ## Your local library
 
 - The app starts on **Currently watching**. Open a title to select a source and resume its saved position.

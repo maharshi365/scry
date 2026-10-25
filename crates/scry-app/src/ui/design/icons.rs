@@ -1,5 +1,16 @@
 use rune::Icon;
 
+pub(in crate::ui) static TRAILER: Icon = Icon {
+    name: "trailer",
+    view: 24.0,
+    body: include_str!("../../../assets/icons/rune/clapperboard.svg"),
+};
+pub(in crate::ui) static EYE: Icon = Icon {
+    name: "watched",
+    view: 24.0,
+    body: include_str!("../../../assets/icons/rune/eye.svg"),
+};
+
 pub(in crate::ui) static LIBRARY: Icon = Icon {
     name: "library",
     view: 24.0,

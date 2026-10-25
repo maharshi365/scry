@@ -21,7 +21,7 @@ pub(in crate::ui) fn segment<S: 'static>(
         .selected(selected)
         .on_press(f)
         .min_w(96.0)
-        .h(36.0)
+        .h(control::HEIGHT)
         .px(16.0)
         .radius(6.0)
         .border(0.0, tokens::edge())

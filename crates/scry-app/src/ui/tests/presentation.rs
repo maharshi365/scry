@@ -164,6 +164,13 @@ fn episode_names_and_watched_badge_do_not_expose_tracking_mode() {
     });
     let mut rt = rune::Runtime::new(s, view, (1280.0, 820.0), rune::Env::default());
     rt.frame(0.0);
+    assert!(rt.elements().iter().any(|e| {
+        e.key.as_deref() == Some("source-episode")
+            && e.text
+                .as_deref()
+                .is_some_and(|text| text.contains("First Period"))
+    }));
+    tap(&mut rt, "show-episodes");
     assert!(rt.find("episode-watched-0").is_some());
     let elements = rt.elements();
     assert!(
@@ -175,12 +182,6 @@ fn episode_names_and_watched_badge_do_not_expose_tracking_mode() {
         e.text
             .as_deref()
             .is_none_or(|text| !text.contains("manual") && !text.contains("auto tracking"))
-    }));
-    assert!(elements.iter().any(|e| {
-        e.key.as_deref() == Some("source-episode")
-            && e.text
-                .as_deref()
-                .is_some_and(|text| text.contains("First Period"))
     }));
 }
 

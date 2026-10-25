@@ -49,6 +49,7 @@ pub(super) struct Route {
     metas: Arc<Vec<Meta>>,
     providers: Arc<Vec<Addon>>,
     detail: Option<Meta>,
+    detail_preview: bool,
     namespace: String,
     episode: Option<String>,
     pending_episode: Option<String>,
@@ -110,6 +111,7 @@ impl State {
             metas: self.metas.clone(),
             providers: self.providers.clone(),
             detail: self.detail.clone(),
+            detail_preview: self.detail_preview,
             namespace: self.detail_namespace.clone(),
             episode: self.selected_video_id.clone(),
             pending_episode: self.pending_episode.clone(),
@@ -171,10 +173,12 @@ impl State {
         self.metas = route.metas;
         self.providers = route.providers;
         self.detail = route.detail;
+        self.detail_preview = route.detail_preview;
         self.detail_namespace = route.namespace;
         self.selected_video_id = route.episode;
         self.pending_episode = route.pending_episode;
         self.episode_offset = route.episode_offset;
+        self.episode_search = TextEdit::new("");
         self.episode_season = route.episode_season;
         self.season_menu_open = false;
         self.navigation.route_key = route.key;

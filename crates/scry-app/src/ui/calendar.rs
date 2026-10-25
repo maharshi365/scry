@@ -254,11 +254,9 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
                 .child(refresh_button(s)),
         )
         .child(
-            row()
+            super::primitives::input_group::input_group()
                 .w_full()
-                .min_w(0.0)
                 .gap(8.0)
-                .center_y()
                 .child(icon_action(
                     "calendar-prev",
                     "Previous calendar period",

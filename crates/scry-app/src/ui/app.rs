@@ -5,8 +5,8 @@ use super::{
     library_view::LibraryUi,
     scenes::{
         scene_calendar, scene_calendar_day, scene_calendar_month, scene_calendar_refresh,
-        scene_detail, scene_detail_watched, scene_discover, scene_library, scene_library_empty,
-        scene_watching,
+        scene_detail, scene_detail_watched, scene_discover, scene_episodes, scene_library,
+        scene_library_empty, scene_movie, scene_preview, scene_source_wrap, scene_watching,
     },
     shell::view,
     shortcuts::{Focus, Registration, Scope, dispatch},
@@ -20,6 +20,10 @@ use std::{
 };
 
 const SHORTCUTS: &[Registration] = &[
+    Registration {
+        scope: Scope::Local,
+        handle: super::shell::shortcut,
+    },
     Registration {
         scope: Scope::Screen,
         handle: super::player::shortcuts::handle,
@@ -40,17 +44,22 @@ pub(super) fn on_key(s: &mut State, event: &rune::KeyEvent, tx: &mut rune::Tx) -
         s.addon_install_open = false;
         return true;
     }
-    let fullscreen = s.player.fullscreen;
+    let fullscreen = (s.player.fullscreen, s.app_fullscreen);
     let handled = dispatch(s, event, Focus::Screen, SHORTCUTS);
-    if s.player.fullscreen != fullscreen {
+    if (s.player.fullscreen, s.app_fullscreen) != fullscreen {
         tx.instant();
     }
     handled
 }
 
-pub(super) fn on_input_key(s: &mut State, event: &rune::KeyEvent, _: &mut rune::Tx) -> bool {
+pub(super) fn on_input_key(s: &mut State, event: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
     // Escape belongs to the editor, even when no feature handles it.
-    dispatch(s, event, Focus::TextInput, SHORTCUTS) || event.key == rune::Key::Escape
+    let fullscreen = s.app_fullscreen;
+    let handled = dispatch(s, event, Focus::TextInput, SHORTCUTS) || event.key == rune::Key::Escape;
+    if s.app_fullscreen != fullscreen {
+        tx.instant();
+    }
+    handled
 }
 
 impl State {
@@ -99,8 +108,11 @@ impl State {
             metas: Arc::default(),
             providers: Arc::default(),
             detail: None,
+            detail_preview: false,
+            app_fullscreen: false,
             selected_video_id: None,
             episode_offset: 0,
+            episode_search: TextEdit::new(""),
             episode_season: None,
             season_menu_open: false,
             streams: Vec::new(),
@@ -143,7 +155,9 @@ pub(super) fn headless() -> bool {
 
 fn setup(s: &mut State, wake: rune::Waker) {
     #[cfg(feature = "profiling")]
-    { s.profiling = super::profiling::Driver::start(wake.clone()); }
+    {
+        s.profiling = super::profiling::Driver::start(wake.clone());
+    }
     s.native_navigation.connect(wake.clone());
     if headless() {
         s.config_busy = false;
@@ -200,6 +214,10 @@ pub(super) fn run() -> anyhow::Result<()> {
             ("discover", scene_discover),
             ("detail", scene_detail),
             ("detail-watched", scene_detail_watched),
+            ("episodes", scene_episodes),
+            ("movie", scene_movie),
+            ("preview", scene_preview),
+            ("source-wrap", scene_source_wrap),
             ("library", scene_library),
             ("library-empty", scene_library_empty),
             ("watching", scene_watching),
@@ -234,6 +252,9 @@ pub(super) fn run() -> anyhow::Result<()> {
             }
         })
         .on_close(|s, tx| {
+            if s.app_fullscreen {
+                s.toggle_app_fullscreen();
+            }
             s.set_fullscreen(false);
             s.save_library_progress();
             let finish_library = s.take_library_shutdown();

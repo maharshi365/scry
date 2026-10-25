@@ -223,13 +223,20 @@ impl State {
         } else {
             self.open_detail(meta);
         }
+        self.detail_preview = true;
     }
 
     pub(super) fn open_detail_from(&mut self, meta: Meta) {
+        if self.navigation.page == Page::Detail {
+            self.detail_id += 1;
+            self.stream_id += 1;
+        }
         self.navigate(Page::Detail);
         self.detail = Some(meta.clone());
+        self.detail_preview = false;
         self.selected_video_id = None;
         self.episode_offset = 0;
+        self.episode_search = TextEdit::new("");
         self.episode_season = None;
         self.season_menu_open = false;
         self.source_menu_open = false;

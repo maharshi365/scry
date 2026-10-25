@@ -4,6 +4,10 @@ Player and navigation state belong to their feature modules. Rune still requires
 one root `State`. That root holds the feature state and connects services; it is
 not a process-global singleton.
 
+App fullscreen is owned by the shell and uses F11 on every page. Player fullscreen
+remains independent. The native window is fullscreen while either flag is set;
+stopping playback does not exit app fullscreen. App fullscreen hides the top bar.
+
 ```text
 crates/scry-app/src/ui/
 ├── app.rs                   # feature setup and shortcut registration

@@ -1,6 +1,39 @@
 use super::*;
 
 #[test]
+fn filename_sources_wrap_before_the_play_icon_without_redundant_captions() {
+    let release = "Carrie.1976.REMASTERED.1080p.BluRay.DTS-HD.x264-VeryLongReleaseGroup.mkv";
+    for width in [880.0, 1280.0] {
+        let mut s = init();
+        scene_detail(&mut s);
+        s.streams = vec![("Torrentio".into(), serde_json::from_value(serde_json::json!({
+            "name":"Torrentio\n1080p", "infoHash":"0123456789012345678901234567890123456789",
+            "title":format!("{release}\n15 peers · 1.53 GB\nRARBG")
+        })).unwrap()), ("Direct provider".into(), serde_json::from_value(serde_json::json!({
+            "name":"HTTPS", "url":"https://example.invalid/video", "title":"Direct release"
+        })).unwrap())];
+        let mut rt = rune::Runtime::new(s, view, (width, 820.0), rune::Env::default());
+        rt.frame(0.0);
+        let title = rect(&rt, "stream-release-0");
+        let play = rect(&rt, "stream-play-0");
+        assert!(
+            title[3] > 32.0,
+            "A filename must wrap within the text column: {title:?}"
+        );
+        assert!(title[0] + title[2] <= play[0] - 5.0);
+        assert!(
+            rt.elements().iter().all(|e| e
+                .text
+                .as_deref()
+                .is_none_or(|text| !text.contains("Provided by")
+                    && !text.contains("connects to peers")
+                    && text != "Direct stream"))
+        );
+        assert_eq!(rt.state.streams[0].1.title.lines().next(), Some(release));
+    }
+}
+
+#[test]
 fn stale_catalog_and_playback_messages_do_not_replace_current_state() {
     let (mut s, tx) = state_with_events();
     s.catalog_id = 2;

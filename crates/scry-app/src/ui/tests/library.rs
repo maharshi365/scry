@@ -399,7 +399,7 @@ fn rendered_detail_actions_persist_and_appear_in_the_library() {
             .as_ref()
             .is_some_and(|v| v.selected_state.as_ref().is_some_and(|v| v.watched.watched))
     });
-    tap(&mut rt, "nav-library");
+    rt.update(|s, _| s.navigate(Page::Library));
     settle_library(&mut rt, |s| {
         s.library.entries.as_ref().is_some_and(Vec::is_empty)
     });

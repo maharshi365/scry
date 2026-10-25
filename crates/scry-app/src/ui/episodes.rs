@@ -40,11 +40,18 @@ impl State {
         let Some(meta) = &self.detail else {
             return Vec::new();
         };
+        let query = self.episode_search.text.trim().to_lowercase();
         let mut indices: Vec<_> = meta
             .videos
             .iter()
             .enumerate()
-            .filter(|(_, video)| video.season == season)
+            .filter(|(_, video)| {
+                video.season == season
+                    && (query.is_empty()
+                        || format!("{} {}", video.episode.unwrap_or(0), video.title)
+                            .to_lowercase()
+                            .contains(&query))
+            })
             .map(|(index, _)| index)
             .collect();
         indices.sort_by_key(|index| meta.videos[*index].episode);
@@ -62,6 +69,7 @@ impl State {
         }
         self.episode_season = Some(season);
         self.episode_offset = 0;
+        self.episode_search = rune::TextEdit::new("");
         self.selected_video_id = None;
         self.stream_id += 1;
         self.streams.clear();
@@ -101,5 +109,17 @@ impl State {
         {
             self.find_streams(meta.kind.clone(), video.id.clone());
         }
+    }
+
+    pub(super) fn show_episodes(&mut self) {
+        self.selected_video_id = None;
+        self.stream_id += 1;
+        self.streams.clear();
+        self.stream_provider = None;
+        self.loading = false;
+        self.source_menu_open = false;
+        self.warnings.clear();
+        self.error = None;
+        self.refresh_library();
     }
 }

@@ -9,6 +9,7 @@ design/
 primitives/
   button.rs       variants, selection, disabled/busy states, focus
   input.rs        text field with caller-supplied edit and submit handlers
+  input_group.rs  aligned row for related inputs, selectors, and buttons
   text.rs         heading and secondary text
   surface.rs      cards, badges, empty states, scroll containers, anchored dropdowns
 controls.rs       thin bindings to the app's State and input shortcuts
@@ -70,6 +71,11 @@ For a normal action, use `controls::action`. For a selected filter or tab, use
 `controls::select_action`; do not append a checkmark to its text. For icon-only
 actions, use `controls::icon_action` with an explicit action name and an icon
 from `design::icons`.
+
+Use `input_group::input_group()` for related controls, such as search/submit,
+season navigation, and calendar navigation. Inputs, text buttons, and icon buttons
+share `control::HEIGHT` (38 logical pixels). Keep custom sizes for standalone
+navigation, poster actions, or compact groups; do not resize one item in a group.
 
 Use the `Button` builder when a control needs a variant or an inactive state:
 

@@ -77,9 +77,12 @@ pub struct State {
     metas: Arc<Vec<Meta>>,
     providers: Arc<Vec<Addon>>,
     detail: Option<Meta>,
+    detail_preview: bool,
+    app_fullscreen: bool,
     // Stable protocol ID (including season/episode suffix) for library integration.
     selected_video_id: Option<String>,
     episode_offset: usize,
+    episode_search: TextEdit,
     #[expect(
         clippy::option_option,
         reason = "None means no selection; Some(None) explicitly selects unnumbered episodes"

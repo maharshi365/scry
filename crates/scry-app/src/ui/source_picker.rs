@@ -7,7 +7,7 @@ use super::{
         tokens::{accent, edge, panel, theme, type_, warning},
     },
     primitives::{
-        surface::{badge, card, dropdown, scroll},
+        surface::{card, dropdown, scroll},
         text::label,
     },
 };
@@ -36,6 +36,19 @@ fn release_lines(stream: &Stream) -> Vec<&str> {
         .map(str::trim)
         .filter(|line| !line.is_empty())
         .collect()
+}
+
+// Filenames rarely contain spaces. Offer natural line breaks without changing
+// the provider's stream payload or adding visible characters to the release.
+fn wrap_filename(value: &str) -> String {
+    let mut display = String::with_capacity(value.len());
+    for character in value.chars() {
+        display.push(character);
+        if matches!(character, '.' | '_' | '-' | '/' | '\\') {
+            display.push('\u{200b}');
+        }
+    }
+    display
 }
 
 fn filter(
@@ -95,7 +108,7 @@ pub(super) fn provider_menu(s: &State, cx: &Cx<State>) -> Option<El> {
             "source-menu",
             "source-select",
             anchor[2],
-            f32::from(visible) * 38.0,
+            f32::from(visible) * (super::design::tokens::control::HEIGHT + 6.0),
             |s: &mut State| s.source_menu_open = false,
         )
         .child(filters),
@@ -204,10 +217,7 @@ pub(super) fn view(s: &State) -> El {
         } else if s.detail.as_ref().is_some_and(|meta| meta.kind == "series")
             && s.selected_video_id.is_none()
         {
-            (
-                "Select an episode",
-                "Choose an episode on the left to see its streams.",
-            )
+            ("Select an episode", "Choose an episode to see its streams.")
         } else if s.stream_provider.is_some() && !s.streams.is_empty() {
             (
                 "No sources from this add-on",
@@ -241,18 +251,11 @@ pub(super) fn view(s: &State) -> El {
         }
         let supported = stream.validate_playback().is_ok();
         let name = source_name(stream, addon);
-        let transport = if stream.url.is_some() {
-            "Direct stream"
-        } else if stream.info_hash.is_some() {
-            "Torrent · connects to peers"
-        } else {
-            "External source"
-        };
-        let mut details = col().w_full().min_w(0.0).gap(6.0);
+        let mut details = col().w_full().min_w(0.0).gap(6.0).clip_rounded(0.0);
         let lines = release_lines(stream);
         if let Some(release) = lines.first() {
             details = details.child(
-                text(*release)
+                text(wrap_filename(release))
                     .key(format!("stream-release-{index}"))
                     .w_full()
                     .wrap()
@@ -261,52 +264,44 @@ pub(super) fn view(s: &State) -> El {
             );
         }
         if lines.len() > 1 {
-            details =
-                details.child(label(lines[1..].join("\n")).key(format!("stream-details-{index}")));
-        }
-        if name != *addon {
-            details = details.child(label(format!("Provided by {addon}")).font(type_::CAPTION));
+            details = details.child(
+                label(lines[1..].join("\n"))
+                    .w_full()
+                    .key(format!("stream-details-{index}")),
+            );
         }
         if !supported {
             details = details.child(label(
                 "This source needs a playback method Scry does not support.",
             ));
         }
-        let transport_color = if stream.info_hash.is_some() {
-            warning()
-        } else {
-            accent()
-        };
         let mut card = card()
             .key(format!("stream-{index}"))
             .w_full()
             .min_w(0.0)
-            .padding(16.0)
+            .padding(12.0)
             .gap(10.0)
-            .radius(10.0)
-            .border(1.0, edge().alpha(0.7))
-            .fill(panel())
+            .radius(8.0)
+            .border(1.0, edge().alpha(0.3))
+            .fill(panel().alpha(0.4))
             .child(
                 row()
                     .w_full()
-                    .center_y()
+                    .min_w(0.0)
                     .gap(10.0)
                     .child(
-                        text(name.clone())
-                            .w(0.0)
-                            .grow(1.0)
-                            .min_w(0.0)
-                            .truncate()
-                            .font(type_::ITEM_TITLE)
-                            .color(t.text),
+                        col().w(86.0).min_w(86.0).clip_rounded(0.0).gap(6.0).child(
+                            text(name.clone())
+                                .wrap()
+                                .font(type_::ITEM_TITLE)
+                                .color(t.text),
+                        ),
                     )
-                    .child(badge(
-                        format!("stream-transport-{index}"),
-                        transport,
-                        transport_color,
-                    ))
+                    .child(details.w(0.0).grow(1.0))
                     .child(
-                        el().w(28.0)
+                        el().key(format!("stream-play-{index}"))
+                            .w(28.0)
+                            .min_w(28.0)
                             .h(28.0)
                             .radius(14.0)
                             .fill(if supported {
@@ -321,8 +316,7 @@ pub(super) fn view(s: &State) -> El {
                                 text("—").font(type_::CAPTION).color(t.text_secondary)
                             }),
                     ),
-            )
-            .child(details);
+            );
         if supported {
             let chosen = stream.clone();
             let title = s
@@ -361,6 +355,15 @@ pub(super) fn view(s: &State) -> El {
 )]
 mod tests {
     use super::*;
+
+    #[test]
+    fn filename_breaks_preserve_text_and_separate_release_tokens() {
+        let original = "Été.1976.REMASTERED.1080p.BluRay.DTS-HD_x264/Release.mkv";
+        let wrapped = wrap_filename(original);
+        assert!(wrapped.contains(".\u{200b}1976.\u{200b}REMASTERED"));
+        assert!(wrapped.contains("-\u{200b}HD_\u{200b}x264/\u{200b}"));
+        assert_eq!(wrapped.replace('\u{200b}', ""), original);
+    }
 
     #[test]
     fn presentation_preserves_quality_and_release_details_without_guessing() {

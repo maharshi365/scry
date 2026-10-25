@@ -14,10 +14,44 @@ use super::{
     player::player,
     primitives::{
         button::{Button, Variant},
+        input_group::input_group,
         text::label,
     },
 };
 use rune::{Cx, El, col, el, row, text};
+
+pub(super) fn shortcut(
+    s: &mut State,
+    event: &rune::KeyEvent,
+    focus: super::shortcuts::Focus,
+) -> bool {
+    use super::shortcuts::{Binding, KeyMatch, Modifiers, resolve};
+    let bindings = [
+        Binding {
+            key: KeyMatch::Function(11),
+            modifiers: Modifiers::Plain,
+            in_text: true,
+            action: true,
+        },
+        Binding {
+            key: KeyMatch::Escape,
+            modifiers: Modifiers::Plain,
+            in_text: false,
+            action: false,
+        },
+    ];
+    match resolve(&bindings, event, focus) {
+        Some(true) => {
+            s.toggle_app_fullscreen();
+            true
+        }
+        Some(false) if s.app_fullscreen && !s.player.fullscreen => {
+            s.toggle_app_fullscreen();
+            true
+        }
+        _ => false,
+    }
+}
 
 pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
     if s.navigation.page == Page::Player && s.player.fullscreen {
@@ -38,13 +72,23 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
         .min_h(0.0)
         .min_w(0.0)
         .gap(10.0)
-        .padding(20.0);
+        .padding(if s.navigation.page == Page::Detail {
+            0.0
+        } else {
+            20.0
+        });
     content = content.child(match s.navigation.page {
         Page::Discover => discover(s, cx),
         Page::Watching => library_view::watching(s, cx),
         Page::Calendar => super::calendar::view(s, cx),
         Page::Library => library_view::view(s, cx),
         Page::Addons => addons(s),
+        Page::Detail if s.detail_preview => row()
+            .grow(1.0)
+            .min_h(0.0)
+            .min_w(0.0)
+            .child(discover(s, cx).w(0.0).grow(1.0).padding(20.0))
+            .child(super::detail::preview(s)),
         Page::Detail => detail(s),
         Page::Player => player(s, cx.env().scale),
     });
@@ -75,6 +119,11 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
     if !matches!(s.navigation.page, Page::Detail | Page::Player) && !s.status.is_empty() {
         content = content.child(label(s.status.clone()).key("status"));
     }
+    let mut body = row().grow(1.0).min_w(0.0).min_h(0.0).w_full();
+    if s.navigation.page != Page::Detail {
+        body = body.child(sidebar(s));
+    }
+    body = body.child(content);
     let mut root = col()
         .key("scry")
         .w_full()
@@ -82,17 +131,11 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
         .fill(tokens::canvas())
         .on_secondary_press(|s: &mut State, p, _| {
             s.context_menu = Some((p, None));
-        })
-        .child(topbar(s))
-        .child(
-            row()
-                .grow(1.0)
-                .min_w(0.0)
-                .min_h(0.0)
-                .w_full()
-                .child(sidebar(s))
-                .child(content),
-        );
+        });
+    if !s.app_fullscreen {
+        root = root.child(topbar(s));
+    }
+    root = root.child(body);
     if s.navigation.page == Page::Detail {
         if let Some(menu) = super::detail::season_menu(s, cx) {
             root = root.child(menu);
@@ -163,7 +206,19 @@ fn sidebar(s: &State) -> El {
                 );
         }
     }
-    sidebar.child(el().grow(1.0))
+    sidebar = sidebar.child(el().grow(1.0));
+    if s.app_fullscreen {
+        sidebar = sidebar.child(
+            icon_action(
+                "app-exit-fullscreen",
+                "Exit app fullscreen (F11)",
+                &icons::EXIT_FULLSCREEN,
+                State::toggle_app_fullscreen,
+            )
+            .w_full(),
+        );
+    }
+    sidebar
 }
 
 fn nav_action(
@@ -237,14 +292,18 @@ fn topbar(s: &State) -> El {
             !s.navigation.forward.is_empty(),
             true,
         ))
-        .child(input(
-            "search",
-            &s.search,
-            "Search movies and series…",
-            |s| &mut s.search,
-            State::submit_search,
-        ))
-        .child(search)
+        .child(
+            input_group()
+                .grow(1.0)
+                .child(input(
+                    "search",
+                    &s.search,
+                    "Search movies and series…",
+                    |s| &mut s.search,
+                    State::submit_search,
+                ))
+                .child(search),
+        )
         .child(
             icon_action(
                 "page-refresh",
@@ -255,6 +314,12 @@ fn topbar(s: &State) -> El {
             .w(control::INPUT_HEIGHT)
             .h(control::INPUT_HEIGHT),
         )
+        .child(icon_action(
+            "app-fullscreen",
+            "App fullscreen (F11)",
+            &icons::FULLSCREEN,
+            State::toggle_app_fullscreen,
+        ))
 }
 
 fn history_button(key: &str, enabled: bool, forward: bool) -> El {

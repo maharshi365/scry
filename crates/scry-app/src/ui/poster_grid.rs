@@ -384,6 +384,12 @@ fn prefix(s: &State) -> &'static str {
 }
 
 fn card(s: &State, entry: &Entry, index: usize, prefix: &str) -> El {
+    let selected = s.navigation.page == Page::Detail
+        && s.detail_preview
+        && s.detail
+            .as_ref()
+            .zip(s.metas.get(index))
+            .is_some_and(|(detail, meta)| detail.id == meta.id && detail.kind == meta.kind);
     let key = if entry.media.is_some() {
         format!("{prefix}-open-{index}")
     } else {
@@ -396,13 +402,18 @@ fn card(s: &State, entry: &Entry, index: usize, prefix: &str) -> El {
         .role("button")
         .label(format!("Open {}", entry.title))
         .focusable(true)
+        .focus_selected(selected)
         .focus_ring(2.0, 2.0, accent())
         .w_full()
         .min_w(0.0)
         .gap(8.0)
         .padding(4.0)
         .radius(4.0)
-        .fill(panel())
+        .fill(if selected {
+            super::design::tokens::selected()
+        } else {
+            panel()
+        })
         .hover(theme().hover)
         .on_press(move |s: &mut State| {
             s.navigation.anchor = Some(key.clone());

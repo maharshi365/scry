@@ -60,7 +60,18 @@ pub struct MetaData {
     pub year: String,
     pub released: Option<String>,
     pub genres: Vec<String>,
+    pub runtime: String,
+    pub imdb_rating: String,
+    pub cast: Vec<String>,
+    pub director: Vec<String>,
+    pub trailer_streams: Vec<Trailer>,
     pub videos: Vec<Video>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct Trailer {
+    #[serde(rename = "ytId")]
+    pub yt_id: String,
 }
 
 impl std::ops::Deref for Meta {
@@ -106,6 +117,16 @@ impl<'de> Deserialize<'de> for Meta {
             released: Option<String>,
             #[serde(default, deserialize_with = "optional_genres")]
             genres: Vec<String>,
+            #[serde(default, deserialize_with = "optional_text")]
+            runtime: String,
+            #[serde(default, rename = "imdbRating", deserialize_with = "rating_text")]
+            imdb_rating: String,
+            #[serde(default, deserialize_with = "optional_genres")]
+            cast: Vec<String>,
+            #[serde(default, deserialize_with = "optional_genres")]
+            director: Vec<String>,
+            #[serde(default, rename = "trailerStreams")]
+            trailer_streams: Vec<Trailer>,
             #[serde(default)]
             videos: Vec<Video>,
         }
@@ -124,6 +145,11 @@ impl<'de> Deserialize<'de> for Meta {
                 fields.release
             },
             genres: fields.genres,
+            runtime: fields.runtime,
+            imdb_rating: fields.imdb_rating,
+            cast: fields.cast,
+            director: fields.director,
+            trailer_streams: fields.trailer_streams,
             released: fields.released,
             videos: fields.videos,
         })))
@@ -138,6 +164,7 @@ pub struct Video {
     pub season: Option<u32>,
     pub episode: Option<u32>,
     pub released: Option<String>,
+    pub thumbnail: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -150,6 +177,7 @@ struct VideoFields {
     season: Option<u32>,
     episode: Option<u32>,
     released: Option<String>,
+    thumbnail: Option<String>,
 }
 
 impl From<VideoFields> for Video {
@@ -164,6 +192,7 @@ impl From<VideoFields> for Video {
             season: fields.season,
             episode: fields.episode,
             released: fields.released,
+            thumbnail: fields.thumbnail,
         }
     }
 }
@@ -193,6 +222,22 @@ fn optional_text<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> std::result::Result<String, D::Error> {
     Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+fn rating_text<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<String, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Rating {
+        Text(String),
+        Number(f64),
+    }
+    Ok(match Option::<Rating>::deserialize(deserializer)? {
+        Some(Rating::Text(value)) => value,
+        Some(Rating::Number(value)) => value.to_string(),
+        None => String::new(),
+    })
 }
 
 fn release_info<'de, D: serde::Deserializer<'de>>(

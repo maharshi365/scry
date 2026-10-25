@@ -55,11 +55,11 @@ pub(in crate::ui) fn poster(index: usize) -> Color {
 }
 
 pub(in crate::ui) mod control {
-    pub const HEIGHT: f32 = 32.0;
+    pub const HEIGHT: f32 = 38.0;
     pub const ICON_SIZE: f32 = 22.0;
-    pub const ICON_TARGET: f32 = 36.0;
+    pub const ICON_TARGET: f32 = HEIGHT;
     pub const RADIUS: f32 = 4.0;
-    pub const INPUT_HEIGHT: f32 = 38.0;
+    pub const INPUT_HEIGHT: f32 = HEIGHT;
 }
 
 pub(in crate::ui) mod type_ {

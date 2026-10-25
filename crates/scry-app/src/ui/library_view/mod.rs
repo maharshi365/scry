@@ -498,17 +498,24 @@ pub(super) fn detail_actions(s: &State) -> El {
     body = body.child(
         row()
             .gap(8.0)
-            .child(action(
-                "library-watchlist",
-                if in_watchlist {
-                    "Remove from library"
-                } else {
-                    "Add to library"
-                },
-                move |s| {
+            .child(
+                Button::new(
+                    "library-watchlist",
+                    if in_watchlist {
+                        "Remove from library"
+                    } else {
+                        "Add to library"
+                    },
+                )
+                .selected(in_watchlist)
+                .icon(&super::design::icons::LIBRARY)
+                .on_press(move |s: &mut State| {
                     s.db(Command::ToggleWatchlist(a.clone()), true);
-                },
-            ))
+                })
+                .w(52.0)
+                .h(52.0)
+                .radius(26.0),
+            )
             .child(
                 Button::new(
                     "library-watched",
@@ -518,20 +525,24 @@ pub(super) fn detail_actions(s: &State) -> El {
                         "Mark watched"
                     },
                 )
+                .selected(watched)
+                .icon(&super::design::icons::EYE)
                 .enabled(watched || s.can_mark_released(&media))
                 .on_press(move |s: &mut State| {
                     s.mark_media_watched(b.clone(), !watched);
-                }),
-            ),
+                })
+                .w(52.0)
+                .h(52.0)
+                .radius(26.0),
+            )
+            .child(super::detail::quick_actions(s, s.detail_preview)),
     );
     if s.selected_video_id.is_some() && media.key.kind == MediaKind::Episode {
-        body = body.child(row().child(action("library-series", "Series actions", |s| {
-            s.selected_video_id = None;
-            s.stream_id += 1;
-            s.loading = false;
-            s.streams.clear();
-            s.refresh_library();
-        })));
+        body = body.child(row().child(action(
+            "library-series",
+            "Series actions",
+            State::show_episodes,
+        )));
     }
     body
 }

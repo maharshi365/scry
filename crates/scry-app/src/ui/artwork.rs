@@ -52,15 +52,29 @@ pub(super) fn player_artwork(s: &State) -> Vec<String> {
 
 pub(super) fn visible_artwork(s: &State) -> Vec<String> {
     let mut urls = Vec::new();
-    if matches!(
-        s.navigation.page,
-        Page::Discover | Page::Library | Page::Watching
-    ) {
-        return super::poster_grid::artwork_urls(s);
-    } else if s.navigation.page == Page::Detail
-        && let Some(url) = s.detail.as_ref().and_then(|meta| meta.poster.as_ref())
+    if (s.navigation.page == Page::Detail && s.detail_preview)
+        || matches!(
+            s.navigation.page,
+            Page::Discover | Page::Library | Page::Watching
+        )
     {
-        urls.push(url.clone());
+        return super::poster_grid::artwork_urls(s);
+    } else if s.navigation.page == Page::Detail {
+        if let Some(url) = s.detail.as_ref().and_then(|meta| meta.poster.as_ref()) {
+            urls.push(url.clone());
+        }
+        if let Some(meta) = &s.detail {
+            for index in s.visible_episode_indices() {
+                if let Some(url) = &meta.videos[index].thumbnail {
+                    if urls.len() >= 32 {
+                        break;
+                    }
+                    if !urls.contains(url) {
+                        urls.push(url.clone());
+                    }
+                }
+            }
+        }
     } else if s.navigation.page == Page::Calendar {
         let c = &s.calendar;
         if let Some(day) = c.expanded_day {

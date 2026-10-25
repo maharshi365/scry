@@ -69,12 +69,54 @@ pub(super) fn scene_detail_watched(s: &mut State) {
     });
 }
 
+pub(super) fn scene_episodes(s: &mut State) {
+    scene_detail(s);
+    s.selected_video_id = None;
+    s.streams.clear();
+}
+
+pub(super) fn scene_movie(s: &mut State) {
+    scene_detail(s);
+    if let Some(meta) = &mut s.detail {
+        meta.kind = "movie".into();
+        meta.videos.clear();
+    }
+    s.selected_video_id = Some("scene-series".into());
+}
+
+pub(super) fn scene_preview(s: &mut State) {
+    scene_discover(s);
+    s.open_result(0);
+    s.loading = false;
+    if let Some(meta) = &mut s.detail {
+        meta.genres = vec!["Drama".into(), "Mystery".into(), "Adventure".into()];
+        meta.cast = vec![
+            "Alex Morgan".into(),
+            "Sam Jordan".into(),
+            "Taylor Reed".into(),
+        ];
+        meta.director = vec!["Jamie Walker".into(), "Casey Lee".into()];
+    }
+}
+
+pub(super) fn scene_source_wrap(s: &mut State) {
+    scene_movie(s);
+    for (index, (_, stream)) in s.streams.iter_mut().enumerate() {
+        stream.name = "Torrentio\n1080p".into();
+        stream.title = format!(
+            "Carrie.1976.REMASTERED.1080p.BluRay.DTS-HD.x264-ReleaseGroup{index}.mkv\n15 peers · 1.53 GB\nRARBG"
+        );
+    }
+}
+
 fn detail(s: &mut State) -> serde_json::Result<()> {
     s.navigation.page = Page::Detail;
     s.config_busy = false;
     s.detail_namespace = "scene.catalog".into();
     s.detail = Some(serde_json::from_value(serde_json::json!({
         "id":"scene-series", "type":"series", "name":"The Observatory", "year":"2024–",
+        "runtime":"52 min", "imdbRating":"7.8", "genres":["Drama", "Mystery"],
+        "cast":["Alex Morgan", "Sam Jordan", "Taylor Reed"],
         "description":"At a remote mountain observatory, a small team follows a signal that could change everything. A thoughtful story of discovery, doubt, and the people we choose to trust.",
         "videos":(1..=250).map(|index| serde_json::json!({"id":format!("scene-series:1:{index}"),"season":1,"episode":index,"title":format!("Chapter {index}")})).collect::<Vec<_>>()
     }))?);

@@ -8,74 +8,263 @@ use super::{
         icons,
         tokens::{self, accent, edge, panel, theme, type_},
     },
-    formatting::excerpt,
     library_view,
     primitives::{
+        button::{Button, Variant},
+        input_group::input_group,
         surface::{dropdown, scroll},
-        text::{heading, label},
+        text::label,
     },
     source_picker,
 };
 use rune::{Cx, El, col, el, icon, row, text};
 
+const PREVIEW_WIDTH: f32 = 400.0;
+const PREVIEW_PADDING: f32 = 24.0;
+
 pub(super) fn detail(s: &State) -> El {
-    let mut header = col().gap(8.0).w_full();
-    let mut episode_panel = None;
-    if let Some(meta) = &s.detail {
-        let info = std::iter::once(meta.year.as_str())
-            .chain(meta.genres.iter().map(String::as_str))
-            .filter(|value| !value.is_empty())
-            .collect::<Vec<_>>()
-            .join(" · ");
-        header = header
-            .child(text(info).font(type_::SECTION).color(accent()))
-            .child(
-                heading(meta.name.clone()).on_secondary_press(|s: &mut State, p, _| {
-                    s.open_title_menu(p, s.library_media());
-                }),
-            )
-            .child(label(excerpt(&meta.description, 240)))
-            .child(library_view::detail_actions(s));
-        if meta.kind == "series" {
-            episode_panel = Some(episodes(s, meta));
-        }
-    }
-    let sources = source_picker::view(s);
-    let panels = if let Some(episodes) = episode_panel {
-        row()
-            .grow(1.0)
-            .min_h(0.0)
-            .min_w(0.0)
-            .gap(16.0)
-            .child(episodes)
-            .child(sources)
-    } else {
-        row().grow(1.0).min_h(0.0).min_w(0.0).child(sources)
-    };
-    let header = if let Some(meta) = s.detail.as_ref().filter(|meta| meta.poster.is_some()) {
-        row()
-            .gap(16.0)
-            .child(poster_overlay(
-                s,
-                poster(s, &meta.name, meta.poster.as_deref(), 0)
-                    .w(120.0)
-                    .h(180.0),
-                s.library_media().as_ref().map(State::poster_key),
-                "detail-poster",
-                180.0,
-            ))
-            .child(header.grow(1.0).min_w(0.0))
-    } else {
-        header
-    };
-    col()
+    let mut page = backdrop(s)
         .key("detail-page")
         .grow(1.0)
         .min_h(0.0)
-        .min_w(0.0)
-        .gap(16.0)
-        .child(header)
-        .child(panels)
+        .min_w(0.0);
+    let mut side = col()
+        .key("detail-selection")
+        .w(360.0)
+        .min_h(0.0)
+        .padding(20.0)
+        .gap(12.0)
+        .fill(panel().alpha(0.94));
+    if let Some(meta) = &s.detail {
+        if meta.kind == "series" && s.selected_video_id.is_none() {
+            side = side.child(episodes(s, meta));
+        } else {
+            if meta.kind == "series" {
+                side = side.child(action(
+                    "show-episodes",
+                    "Back to episodes",
+                    State::show_episodes,
+                ));
+            }
+            side = side.child(source_picker::view(s).w_full());
+        }
+    }
+    page = page.child(
+        row()
+            .w_full()
+            .h_full()
+            .min_h(0.0)
+            .child(hero(s, false).grow(1.0).w(0.0).min_w(0.0))
+            .child(side),
+    );
+    page
+}
+
+pub(super) fn preview(s: &State) -> El {
+    backdrop(s)
+        .key("title-preview")
+        .w(PREVIEW_WIDTH)
+        .h_full()
+        .child(hero(s, true).w_full().h_full())
+}
+
+fn backdrop(s: &State) -> El {
+    let mut surface = el().fill(tokens::canvas());
+    if let Some(image) = s
+        .detail
+        .as_ref()
+        .and_then(|meta| meta.background.as_ref())
+        .and_then(|url| s.player_artwork.as_ref()?.get(url))
+    {
+        surface = surface.child(
+            el().key("detail-background")
+                .absolute(0.0, 0.0)
+                .w_full()
+                .h_full()
+                .pixels_fit(&image, rune::SurfaceFit::Fill)
+                .opacity(0.38),
+        );
+    }
+    surface
+}
+
+fn hero(s: &State, compact: bool) -> El {
+    let mut navigation = input_group()
+        .w_full()
+        .child(icon_action(
+            "detail-back",
+            "Back to browsing",
+            &icons::LEFT,
+            |s| s.travel(false),
+        ))
+        .child(el().grow(1.0));
+    if s.app_fullscreen {
+        navigation = navigation.child(icon_action(
+            "app-exit-fullscreen",
+            "Exit app fullscreen (F11)",
+            &icons::EXIT_FULLSCREEN,
+            State::toggle_app_fullscreen,
+        ));
+    }
+    let mut info = col().w_full().gap(24.0).child(navigation);
+    if let Some(meta) = &s.detail {
+        let title = if let Some(image) = meta
+            .logo
+            .as_ref()
+            .and_then(|url| s.player_artwork.as_ref()?.get(url))
+        {
+            el().key("detail-logo")
+                .w_full()
+                .h(if compact { 100.0 } else { 140.0 })
+                .pixels_fit(&image, rune::SurfaceFit::Fit)
+        } else {
+            text(meta.name.clone())
+                .key("detail-title")
+                .wrap()
+                .font(type_::LOADING_TITLE)
+                .color(theme().text)
+        };
+        let title =
+            title.on_secondary_press(|s: &mut State, p, _| s.open_title_menu(p, s.library_media()));
+        if meta.poster.is_some() && meta.logo.is_none() {
+            info = info.child(
+                row()
+                    .gap(16.0)
+                    .center_y()
+                    .child(poster_overlay(
+                        s,
+                        poster(s, &meta.name, meta.poster.as_deref(), 0)
+                            .w(80.0)
+                            .h(120.0),
+                        s.library_media().as_ref().map(State::poster_key),
+                        "detail-poster",
+                        120.0,
+                    ))
+                    .child(title.w(0.0).grow(1.0).min_w(0.0)),
+            );
+        } else {
+            info = info.child(title);
+        }
+        let facts = [&meta.runtime, &meta.year, &meta.imdb_rating]
+            .into_iter()
+            .filter(|value| !value.is_empty())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("     ·     ");
+        info = info.child(text(facts).wrap().font(type_::SECTION).color(theme().text));
+        for (title, values) in [
+            ("GENRES", &meta.genres),
+            ("CAST", &meta.cast),
+            ("DIRECTORS", &meta.director),
+        ] {
+            if !values.is_empty() {
+                info = info.child(chips(title, values));
+            }
+        }
+        info = info.child(
+            col()
+                .gap(10.0)
+                .w_full()
+                .child(label("SUMMARY").font(type_::CAPTION))
+                .child(
+                    text(meta.description.clone())
+                        .w_full()
+                        .wrap()
+                        .font(type_::BODY)
+                        .color(theme().text),
+                ),
+        );
+    }
+    col()
+        .min_h(0.0)
+        .gap(20.0)
+        .padding(if compact { PREVIEW_PADDING } else { 32.0 })
+        .child(scroll("detail-info-scroll", info))
+        .child(library_view::detail_actions(s))
+}
+
+fn chips(title: &str, values: &[String]) -> El {
+    let mut section = col().w_full().gap(10.0);
+    if !values.is_empty() {
+        section = section.child(label(title).font(type_::CAPTION));
+        let mut line = row().w_full().gap(8.0).min_w(0.0).flex_wrap();
+        for value in values.iter().take(6) {
+            line = line.child(
+                el().padding(8.0)
+                    .max_w(PREVIEW_WIDTH - PREVIEW_PADDING * 2.0)
+                    .min_w(0.0)
+                    .radius(18.0)
+                    .fill(panel().alpha(0.8))
+                    .child(
+                        text(value.clone())
+                            .truncate()
+                            .font(type_::EMPHASIS)
+                            .color(theme().text),
+                    ),
+            );
+        }
+        section = section.child(line);
+    }
+    section
+}
+
+pub(super) fn quick_actions(s: &State, compact: bool) -> El {
+    let trailer = s
+        .detail
+        .as_ref()
+        .and_then(|meta| meta.trailer_streams.first());
+    let mut actions = input_group().h(52.0).gap(10.0).child(
+        Button::new("title-trailer", "Watch trailer in browser")
+            .enabled(trailer.is_some())
+            .icon(&icons::TRAILER)
+            .on_press(State::open_trailer)
+            .w(52.0)
+            .h(52.0)
+            .radius(26.0),
+    );
+    if compact {
+        actions = actions.child(
+            Button::new("title-play", "Show streams or episodes")
+                .variant(Variant::Primary)
+                .frame()
+                .h(52.0)
+                .radius(26.0)
+                .gap(10.0)
+                .grow(1.0)
+                .child(icon(&icons::PLAY, 22.0).color(accent()))
+                .child(text("Show").font(type_::LABEL).color(theme().text))
+                .on_press(|s: &mut State| {
+                    s.remember();
+                    s.detail_preview = false;
+                }),
+        );
+    }
+    actions
+}
+
+impl State {
+    fn open_trailer(&mut self) {
+        let Some(id) = self
+            .detail
+            .as_ref()
+            .and_then(|meta| meta.trailer_streams.first())
+            .map(|trailer| &trailer.yt_id)
+        else {
+            return;
+        };
+        if id.is_empty()
+            || !id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+        {
+            self.error = Some("The provider supplied an invalid trailer ID.".into());
+            return;
+        }
+        let url = format!("https://www.youtube.com/watch?v={id}");
+        if let Err(error) = scry_app::platform::open_browser(&url) {
+            self.error = Some(format!("Cannot open the trailer: {error}"));
+        }
+    }
 }
 
 #[expect(
@@ -86,6 +275,13 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
     let t = theme();
     let mut episodes = col().key("episodes").gap(8.0).w_full();
     let range = s.episode_range();
+    if range.is_empty() {
+        episodes = episodes.child(label(if s.episode_search.text.trim().is_empty() {
+            "No episodes in this season."
+        } else {
+            "No episodes match your search."
+        }));
+    }
     for index in s.visible_episode_indices() {
         let video = &meta.videos[index];
         let selected = s.selected_video_id.as_deref() == Some(video.id.as_str());
@@ -107,7 +303,7 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
             );
         }
         episodes = episodes.child(
-            col()
+            row()
                 .key(format!("episode-{index}"))
                 .role("button")
                 .focusable(true)
@@ -160,21 +356,41 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
                 } else {
                     panel()
                 })
-                .child(status)
+                .child(episode_thumbnail(s, video, index))
                 .child(
-                    text(if video.title.trim().is_empty() {
-                        "Title unavailable".to_owned()
-                    } else {
-                        video.title.trim().to_owned()
-                    })
-                    .key(format!("episode-title-{index}"))
-                    .wrap()
-                    .font(type_::ITEM)
-                    .color(if video.title.trim().is_empty() {
-                        t.text_secondary
-                    } else {
-                        t.text
-                    }),
+                    col()
+                        .w(0.0)
+                        .grow(1.0)
+                        .min_w(0.0)
+                        .gap(6.0)
+                        .child(status)
+                        .child(
+                            text(if video.title.trim().is_empty() {
+                                "Title unavailable".to_owned()
+                            } else {
+                                video.title.trim().to_owned()
+                            })
+                            .key(format!("episode-title-{index}"))
+                            .wrap()
+                            .font(type_::ITEM)
+                            .color(if video.title.trim().is_empty() {
+                                t.text_secondary
+                            } else {
+                                t.text
+                            }),
+                        )
+                        .child(
+                            label(
+                                video
+                                    .released
+                                    .as_deref()
+                                    .unwrap_or("Release date unavailable")
+                                    .split('T')
+                                    .next()
+                                    .unwrap_or_default(),
+                            )
+                            .font(type_::CAPTION),
+                        ),
                 ),
         );
     }
@@ -196,8 +412,8 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
         }));
     }
     col()
-        .w(280.0)
-        .min_w(240.0)
+        .w_full()
+        .grow(1.0)
         .min_h(0.0)
         .gap(8.0)
         .child(
@@ -206,6 +422,22 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
                 .color(t.text_secondary),
         )
         .child(season_selector(s))
+        .child(
+            super::controls::input_with_change(
+                "episode-search",
+                &s.episode_search,
+                "Search episodes…",
+                |s| &mut s.episode_search,
+                |_| {},
+                |s, _| {
+                    s.episode_offset = 0;
+                    s.register_library_detail();
+                    s.refresh_artwork();
+                },
+            )
+            .grow(0.0)
+            .w_full(),
+        )
         .child(scroll(
             format!(
                 "episodes-scroll-{}-{}-{:?}",
@@ -218,6 +450,26 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
         .child(pages)
 }
 
+fn episode_thumbnail(s: &State, video: &scry_addons::Video, index: usize) -> El {
+    let surface = el()
+        .key(format!("episode-thumbnail-{index}"))
+        .w(96.0)
+        .h(60.0)
+        .radius(6.0)
+        .fill(tokens::poster(index));
+    if let Some(image) = video
+        .thumbnail
+        .as_ref()
+        .and_then(|url| s.artwork.as_ref()?.get(url))
+    {
+        surface.pixels_fit(&image, rune::SurfaceFit::Fill)
+    } else {
+        surface
+            .center()
+            .child(icon(&icons::TV, 22.0).color(theme().text_secondary))
+    }
+}
+
 fn season_selector(s: &State) -> El {
     let seasons = s.seasons();
     let current = s.active_season();
@@ -225,14 +477,14 @@ fn season_selector(s: &State) -> El {
         .iter()
         .position(|season| *season == current)
         .unwrap_or(0);
-    let mut bar = row().w_full().gap(6.0);
+    let mut bar = input_group().w_full();
     if position > 0 {
         let previous = seasons[position - 1];
         bar = bar.child(
             icon_action("season-prev", "Previous season", &icons::LEFT, move |s| {
                 s.select_season(previous);
             })
-            .w(32.0),
+            .w(tokens::control::HEIGHT),
         );
     }
     bar = bar.child(
@@ -251,7 +503,7 @@ fn season_selector(s: &State) -> El {
             icon_action("season-next", "Next season", &icons::RIGHT, move |s| {
                 s.select_season(next);
             })
-            .w(32.0),
+            .w(tokens::control::HEIGHT),
         );
     }
     bar
@@ -287,7 +539,7 @@ pub(super) fn season_menu(s: &State, cx: &Cx<State>) -> Option<El> {
             "season-menu",
             "season-select",
             anchor[2].max(200.0),
-            f32::from(visible) * 36.0,
+            f32::from(visible) * (tokens::control::HEIGHT + 4.0),
             |s: &mut State| s.season_menu_open = false,
         )
         .child(choices),

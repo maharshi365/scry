@@ -69,8 +69,19 @@ impl State {
         if self.player.fullscreen == fullscreen {
             return;
         }
-        match self.host.set_fullscreen(fullscreen) {
+        match self.host.set_fullscreen(fullscreen || self.app_fullscreen) {
             Ok(()) => self.player.fullscreen = fullscreen,
+            Err(error) => self.error = Some(error.to_string()),
+        }
+    }
+
+    pub(in crate::ui) fn toggle_app_fullscreen(&mut self) {
+        let fullscreen = !self.app_fullscreen;
+        match self
+            .host
+            .set_fullscreen(fullscreen || self.player.fullscreen)
+        {
+            Ok(()) => self.app_fullscreen = fullscreen,
             Err(error) => self.error = Some(error.to_string()),
         }
     }
