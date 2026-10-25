@@ -29,7 +29,7 @@ fn next_items_use_saved_membership_release_dates_watched_flags_and_item_progress
             ),
             season: Some(1),
             episode: Some(index),
-            released_at: if index == 4 { 200 } else { 100 },
+            released_at: Some(if index == 4 { 200 } else { 100 }),
         })
         .collect();
     db.sync_episode_releases(&show.key, &releases)?;
@@ -72,7 +72,7 @@ fn next_items_cover_all_episode_pages_and_survive_reopening() -> anyhow::Result<
             ),
             season: Some(1),
             episode: Some(index),
-            released_at: 100,
+            released_at: Some(100),
         })
         .collect();
     {
@@ -109,7 +109,7 @@ fn invalid_release_inventories_leave_existing_metadata_and_progress_unchanged() 
         media: item(MediaKind::Episode, "episode", Some(show.key.clone())),
         season: Some(1),
         episode: Some(1),
-        released_at: 100,
+        released_at: Some(100),
     };
     db.sync_episode_releases(&show.key, std::slice::from_ref(&release))?;
     db.record_playback(&release.media.key, 25.0, 100.0, 0.0)?;

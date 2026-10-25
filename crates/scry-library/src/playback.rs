@@ -12,7 +12,9 @@ fn released(connection: &mut SqliteConnection, id: i64) -> Result<bool> {
     Ok(!diesel::select(diesel::dsl::exists(
         episode_releases::table.find(id).filter(
             episode_releases::released_at
-                .gt(diesel::dsl::sql::<diesel::sql_types::BigInt>("unixepoch()")),
+                .is_null()
+                .or(episode_releases::released_at
+                    .gt(diesel::dsl::sql::<diesel::sql_types::BigInt>("unixepoch()").nullable())),
         ),
     ))
     .get_result::<bool>(connection)?)
@@ -34,10 +36,11 @@ fn store_release(connection: &mut SqliteConnection, id: i64, date: Option<i64>) 
                 .find(id)
                 .filter(watched::is_watched.eq(true))
                 .filter(diesel::dsl::exists(
-                    episode_releases::table.find(id).filter(
-                        episode_releases::released_at
-                            .gt(diesel::dsl::sql::<diesel::sql_types::BigInt>("unixepoch()")),
-                    ),
+                    episode_releases::table
+                        .find(id)
+                        .filter(episode_releases::released_at.gt(
+                            diesel::dsl::sql::<diesel::sql_types::BigInt>("unixepoch()").nullable(),
+                        )),
                 )),
         )
         .set(watched::is_watched.eq(false))
@@ -68,11 +71,9 @@ fn set_watched(connection: &mut SqliteConnection, id: i64, value: bool) -> Resul
             query = query.filter(
                 media::media_id.eq_any(
                     episode_releases::table
-                        .filter(episode_releases::released_at.le(diesel::dsl::sql::<
-                            diesel::sql_types::BigInt,
-                        >(
-                            "unixepoch()"
-                        )))
+                        .filter(episode_releases::released_at.le(
+                            diesel::dsl::sql::<diesel::sql_types::BigInt>("unixepoch()").nullable(),
+                        ))
                         .select(episode_releases::media_id),
                 ),
             );
@@ -293,15 +294,17 @@ impl Library {
             .collect())
     }
 
-    /// Aggregate the complete released inventory, not the visible episode page.
+    /// Aggregate the full known inventory, not the visible episode page.
     /// Watched episodes contribute one; other episodes contribute actual playback / duration.
     /// Resume-based advancement is returned separately and does not establish watched status.
-    /// Future and undated episodes do not contribute to the denominator.
+    /// Future and undated episodes count toward the total, but not watched progress.
     /// # Errors
     /// Returns an error for invalid keys, a missing parent, or failed reads.
     pub fn series_progress(&self, parent: &MediaKey, now: i64) -> Result<SeriesProgress> {
         #[derive(QueryableByName)]
         struct Summary {
+            #[diesel(sql_type = diesel::sql_types::BigInt)]
+            total: i64,
             #[diesel(sql_type = diesel::sql_types::BigInt)]
             released: i64,
             #[diesel(sql_type = diesel::sql_types::BigInt)]
@@ -317,11 +320,13 @@ impl Library {
         );
         let connection = &mut *self.connection.borrow_mut();
         let parent_id = media_id(connection, parent)?;
-        let summary = diesel::sql_query("SELECT COUNT(*) AS released, COALESCE(SUM(CASE WHEN w.watched=1 THEN 1 ELSE 0 END),0) AS watched, COALESCE(SUM(CASE WHEN w.watched=1 THEN 1.0 ELSE MIN(COALESCE(v.watched_seconds/p.duration_seconds,0.0),1.0) END),0.0) AS completed, COALESCE(SUM(CASE WHEN w.watched=1 THEN 1.0 ELSE COALESCE(p.position_seconds/p.duration_seconds,0.0) END),0.0) AS resumed FROM media e JOIN episode_releases r ON r.media_id=e.media_id LEFT JOIN watched w ON w.media_id=e.media_id LEFT JOIN progress p ON p.media_id=e.media_id LEFT JOIN viewing v ON v.media_id=e.media_id WHERE e.parent_id=? AND r.released_at<=?")
+        let summary = diesel::sql_query("SELECT (SELECT COUNT(*) FROM media e JOIN episode_releases r ON r.media_id=e.media_id WHERE e.parent_id=?) AS total, COUNT(*) AS released, COALESCE(SUM(CASE WHEN w.watched=1 THEN 1 ELSE 0 END),0) AS watched, COALESCE(SUM(CASE WHEN w.watched=1 THEN 1.0 ELSE MIN(COALESCE(v.watched_seconds/p.duration_seconds,0.0),1.0) END),0.0) AS completed, COALESCE(SUM(CASE WHEN w.watched=1 THEN 1.0 ELSE COALESCE(p.position_seconds/p.duration_seconds,0.0) END),0.0) AS resumed FROM media e JOIN episode_releases r ON r.media_id=e.media_id LEFT JOIN watched w ON w.media_id=e.media_id LEFT JOIN progress p ON p.media_id=e.media_id LEFT JOIN viewing v ON v.media_id=e.media_id WHERE e.parent_id=? AND r.released_at<=?")
+            .bind::<diesel::sql_types::BigInt, _>(parent_id)
             .bind::<diesel::sql_types::BigInt, _>(parent_id)
             .bind::<diesel::sql_types::BigInt, _>(now)
             .get_result::<Summary>(connection)?;
         Ok(SeriesProgress {
+            total_episodes: u32::try_from(summary.total)?,
             released_episodes: u32::try_from(summary.released)?,
             watched_episodes: u32::try_from(summary.watched)?,
             completed_equivalents: summary.completed,
@@ -344,7 +349,7 @@ impl Library {
         );
         let summary = self.series_progress(parent, now)?;
         let watched =
-            summary.released_episodes > 0 && summary.watched_episodes == summary.released_episodes;
+            summary.total_episodes > 0 && summary.watched_episodes == summary.total_episodes;
         // Presentation-only normalized fraction. Episode resume seconds stay in `progress`.
         let progress = summary
             .fraction()

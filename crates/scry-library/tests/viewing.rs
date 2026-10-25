@@ -28,7 +28,7 @@ fn watched_titles_leave_to_watch_and_unwatched_saved_titles_return() -> anyhow::
                         title: "Pilot".into(),
                         parent: Some(item.key.clone()),
                     },
-                    released_at: 0,
+                    released_at: Some(0),
                     season: Some(1),
                     episode: Some(1),
                 }],

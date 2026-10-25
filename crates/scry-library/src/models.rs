@@ -71,6 +71,7 @@ pub struct Progress {
 /// Episode-weighted completion, separate from an individual video's resume time.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SeriesProgress {
+    pub total_episodes: u32,
     pub released_episodes: u32,
     pub watched_episodes: u32,
     pub completed_equivalents: f64,
@@ -81,16 +82,15 @@ pub struct SeriesProgress {
 impl SeriesProgress {
     #[must_use]
     pub fn fraction(self) -> Option<f64> {
-        (self.released_episodes > 0).then(|| {
-            (self.completed_equivalents / f64::from(self.released_episodes)).clamp(0.0, 1.0)
-        })
+        (self.total_episodes > 0)
+            .then(|| (self.completed_equivalents / f64::from(self.total_episodes)).clamp(0.0, 1.0))
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EpisodeRelease {
     pub media: Media,
-    pub released_at: i64,
+    pub released_at: Option<i64>,
     pub season: Option<u32>,
     pub episode: Option<u32>,
 }

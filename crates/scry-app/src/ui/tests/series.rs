@@ -150,7 +150,7 @@ fn tv_completion_waits_for_matching_metadata_and_reacts_to_new_releases() {
 }
 
 #[test]
-fn tv_posters_share_episode_progress_and_released_completion_across_routes() {
+fn tv_posters_share_episode_progress_and_require_the_full_inventory_across_routes() {
     for page in [Page::Discover, Page::Library, Page::Watching, Page::Detail] {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("library.sqlite3");
@@ -218,7 +218,11 @@ fn tv_posters_share_episode_progress_and_released_completion_across_routes() {
         };
         let track = rect(&rt, &format!("{poster}-progress-track"));
         let fill = rect(&rt, &format!("{poster}-progress-fill"));
-        let expected = if page == Page::Watching { 0.25 } else { 0.625 };
+        let expected = if page == Page::Watching {
+            0.25
+        } else {
+            1.25 / 3.0
+        };
         assert!((fill[2] / track[2] - expected).abs() < 0.01);
         assert!(rt.find(&format!("{poster}-watched")).is_none());
         rt.update(|s, _| {
@@ -232,6 +236,26 @@ fn tv_posters_share_episode_progress_and_released_completion_across_routes() {
             assert!(rt.find(poster).is_none());
             continue;
         }
+        settle_library(&mut rt, |s| {
+            s.library.series.states.iter().any(|state| {
+                state.key == parent.key
+                    && !state.watched
+                    && state.summary.is_some_and(|summary| {
+                        summary.total_episodes == 3 && summary.watched_episodes == 2
+                    })
+            })
+        });
+        assert!(rt.find(&format!("{poster}-watched")).is_none());
+        rt.update(|s, _| {
+            let mut meta = s.detail.clone().unwrap();
+            meta.videos[2].released = Some("2002-01-01".into());
+            s.detail = Some(meta);
+            s.remember_series_detail();
+            s.db(
+                crate::library_worker::Command::SetWatched(parent.clone(), true),
+                true,
+            );
+        });
         if page == Page::Library {
             settle_library(&mut rt, |s| {
                 s.library.entries.as_ref().is_some_and(Vec::is_empty)

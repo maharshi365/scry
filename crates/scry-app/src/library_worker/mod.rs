@@ -167,7 +167,7 @@ mod tests {
                 key: parent.key.clone(),
                 releases: vec![scry_library::EpisodeRelease {
                     media: episode,
-                    released_at: 0,
+                    released_at: Some(0),
                     season: Some(1),
                     episode: Some(1),
                 }],

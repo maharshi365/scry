@@ -40,7 +40,7 @@ fn show_mark_watched_updates_episode_icons_skips_future_and_needs_no_auto_track(
             snapshot
                 .selected_state
                 .as_ref()
-                .is_some_and(|state| state.watched.watched)
+                .is_some_and(|state| !state.watched.watched)
                 && snapshot
                     .episode_states
                     .iter()
@@ -52,6 +52,7 @@ fn show_mark_watched_updates_episode_icons_skips_future_and_needs_no_auto_track(
     assert!(rt.find("episode-watched-0").is_some());
     assert!(rt.find("episode-watched-1").is_some());
     assert!(rt.find("episode-watched-2").is_none());
+    assert!(rt.find("detail-poster-watched").is_none());
     let icon = rt
         .elements()
         .into_iter()
@@ -90,7 +91,13 @@ fn show_mark_watched_updates_episode_icons_skips_future_and_needs_no_auto_track(
             snapshot
                 .selected_state
                 .as_ref()
-                .is_some_and(|state| state.watched.watched)
+                .is_some_and(|state| !state.watched.watched)
+                && snapshot
+                    .episode_states
+                    .iter()
+                    .filter(|(_, state)| state.watched)
+                    .count()
+                    == 2
         })
     });
     assert!(
@@ -150,7 +157,7 @@ fn future_movie_watched_action_is_disabled_and_auto_track_is_absent() {
 }
 
 #[test]
-fn release_deadline_refreshes_cached_show_completion_without_provider_data() {
+fn release_deadline_refreshes_cached_show_inventory_without_provider_data() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("library.db");
     let show = Media {
@@ -165,7 +172,7 @@ fn release_deadline_refreshes_cached_show_completion_without_provider_data() {
                 title: format!("Episode {index}"),
                 parent: Some(show.key.clone()),
             },
-            released_at: if index == 1 { 0 } else { i64::MAX },
+            released_at: Some(if index == 1 { 0 } else { i64::MAX }),
             season: Some(1),
             episode: Some(index),
         })
@@ -187,14 +194,18 @@ fn release_deadline_refreshes_cached_show_completion_without_provider_data() {
     let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
     rt.poll = Some(poll);
     settle_library(&mut rt, |s| {
-        s.library
-            .series
-            .states
-            .iter()
-            .any(|state| state.key == show.key && state.watched)
+        s.library.series.states.iter().any(|state| {
+            state.key == show.key
+                && !state.watched
+                && state.summary.is_some_and(|summary| {
+                    summary.released_episodes == 1
+                        && summary.total_episodes == 2
+                        && summary.watched_episodes == 1
+                })
+        })
     });
     // Advance the stored release boundary without sending the UI a change event.
-    releases[1].released_at = 0;
+    releases[1].released_at = Some(0);
     Library::open(path)
         .unwrap()
         .sync_episode_releases(&show.key, &releases)

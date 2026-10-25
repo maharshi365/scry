@@ -54,7 +54,7 @@ pub(in crate::ui) fn episode_inventory(
     meta.videos
         .iter()
         .filter_map(|video| {
-            let released_at = video.released.as_deref().and_then(release_timestamp)?;
+            let released_at = video.released.as_deref().and_then(release_timestamp);
             if video.id.trim().is_empty() {
                 return None;
             }
@@ -100,7 +100,7 @@ impl State {
         Some(format!(
             "{} / {} episodes watched · {:.0}%",
             summary.watched_episodes,
-            summary.released_episodes,
+            summary.total_episodes,
             fraction * 100.0
         ))
     }
@@ -244,8 +244,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn inventory_includes_dated_future_releases_but_not_unknown_or_duplicate_releases()
-    -> anyhow::Result<()> {
+    fn inventory_includes_future_and_undated_episodes_without_duplicates() -> anyhow::Result<()> {
         let meta: Meta = serde_json::from_value(serde_json::json!({
             "id":"tt123", "type":"series", "name":"Show", "videos":[
                 {"id":"tt123:1:1", "season":1, "episode":1, "released":"2020-01-01"},
@@ -268,6 +267,8 @@ mod tests {
                 MediaKey::new("imdb", MediaKind::Episode, "tt123:2:1"),
                 MediaKey::new("imdb", MediaKind::Episode, "tt123:2:2"),
                 MediaKey::new("imdb", MediaKind::Episode, "tt123:3:1"),
+                MediaKey::new("imdb", MediaKind::Episode, "tt123:3:2"),
+                MediaKey::new("imdb", MediaKind::Episode, "tt123:3:3"),
             ]
         );
         Ok(())

@@ -56,7 +56,7 @@ Player shortcuts apply only during playback and do not intercept text input.
 ## Your local library
 
 - The app starts on **Currently watching**. Open a title to select a source and resume its saved position.
-- **What to watch next**, below Currently watching, lists unwatched movies and one next released, unwatched episode per saved show. Open the card to use the full season/episode picker. Cards show that video's resume progress. Show posters instead show aggregate progress and watched/released episode counts. The list uses 200-title pages and retains release metadata for offline use; future and undated episodes are omitted.
+- **What to watch next**, below Currently watching, lists unwatched movies and one next released, unwatched episode per saved show. Open the card to use the full season/episode picker. Cards show that video's resume progress. Show posters instead show aggregate progress and watched/total known episode counts. The list uses 200-title pages and retains release metadata for offline use; future and undated episodes are omitted from this list.
 - **Play next movie** and **Play next TV show** in the next-list header open the first matching item on the current page. A single supported source starts automatically; multiple sources stay in the source picker. The buttons are disabled when there is no matching item.
 - Open a title and choose **Add to library** to track it, or **Mark watched** to set its status. Right-click titles for quick actions; right-click the page to refresh provider data.
 - **Library** has **To watch** and **Watched** lists, with Movies selected by default and a TV series filter. There are no playlist controls.
@@ -66,8 +66,8 @@ Player shortcuts apply only during playback and do not intercept text input.
 - **Series actions** manages the whole show separately from individual episodes.
 - Right-click the season selector or a season in its list to mark all of that season's episodes watched or unwatched, including episodes beyond the visible page.
 - Season and source-provider dropdowns overlay the page without shifting content. Escape or an outside click closes them.
-- A show's watched badge means every known released episode is watched. **Mark show watched** marks its released episodes; **Mark show unwatched** resets its stored episodes. A newly released, unwatched episode clears the show's badge and moves a saved show back to **To watch**, including known releases while the app stays open.
-- Marking a known future movie or episode watched is a silent no-op. Season/show actions skip future episodes. Missing dates are not treated as proof of a future release.
+- A show's watched badge means every episode in its known inventory is released and watched. Future and undated episodes count toward overall progress, so watching four of eight known episodes means 50%, not complete. **Mark show watched** marks only its released episodes; **Mark show unwatched** resets its stored episodes. New inventory can move a saved show back to **To watch**. Totals depend on the episodes supplied by the provider.
+- Marking a known future movie or episode watched is a silent no-op. Season/show actions also skip undated episodes in the stored inventory. Movies without a known release date keep their existing behavior.
 
 The database is `scry-v2.sqlite3` in the OS-local Scry application-data folder
 (`%LOCALAPPDATA%\Scry\Scry\data` on Windows). It contains installed add-ons,
@@ -76,9 +76,9 @@ can contain credentials: the database is local and unencrypted, so do not share 
 Close the app before copying it for backup. Images, temporary media, and diagnostic
 reports remain external files. There is no cloud account or sync.
 
-Storage uses Diesel with one embedded schema and no migrations. This build starts
-fresh; old databases and add-on settings are not imported or deleted. Reinstall
-your add-ons and save titles again. See [library semantics](docs/library.md).
+Storage uses Diesel with an embedded schema. Existing `scry-v2.sqlite3` schema-one
+databases upgrade automatically, preserving watch history and add-ons. Older database
+formats are not imported or deleted. See [library semantics](docs/library.md).
 
 Episode browsing uses 100-item pages. Library lists use 200-item pages.
 **Calendar** has Week and Month views; each day has its own scrollable release

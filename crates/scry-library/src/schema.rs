@@ -73,7 +73,7 @@ diesel::table! {
 diesel::table! {
     episode_releases (media_id) {
         media_id -> BigInt,
-        released_at -> BigInt,
+        released_at -> Nullable<BigInt>,
         season -> Nullable<BigInt>,
         episode -> Nullable<BigInt>,
     }

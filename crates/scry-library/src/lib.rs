@@ -21,7 +21,7 @@ use diesel::{
 
 /// All persistent app state shares this database. Older pre-release stores are not imported.
 pub const DATABASE_NAME: &str = "scry-v2.sqlite3";
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 // SQLite's initial journal-mode switch can return BUSY without using the
 // busy timeout. Serialize our workers' startup, not their normal database work.
 static INITIALIZE: Mutex<()> = Mutex::new(());
@@ -76,7 +76,12 @@ impl Library {
                 .get_result::<Count>(connection)?;
                 ensure!(tables.count == 0, "unversioned app database is not empty");
                 connection.batch_execute(include_str!("schema.sql"))?;
-                connection.batch_execute("PRAGMA user_version=1;")?;
+                connection.batch_execute(include_str!("effective_watched.sql"))?;
+                connection.batch_execute("PRAGMA user_version=2;")?;
+            } else if version == 1 {
+                connection.batch_execute(include_str!("migrations/2.sql"))?;
+                connection.batch_execute(include_str!("effective_watched.sql"))?;
+                connection.batch_execute("PRAGMA user_version=2;")?;
             } else {
                 ensure!(
                     version == SCHEMA_VERSION,
@@ -124,7 +129,7 @@ impl Library {
             .load::<(String, i64, String, String)>(connection)?;
         schema::episode_releases::table
             .limit(0)
-            .load::<(i64, i64, Option<i64>, Option<i64>)>(connection)?;
+            .load::<(i64, Option<i64>, Option<i64>, Option<i64>)>(connection)?;
         schema::series_inventory::table
             .limit(0)
             .load::<(i64,)>(connection)?;

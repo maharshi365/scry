@@ -26,13 +26,13 @@ fn future_movies_and_episodes_are_silent_no_ops_including_bulk_actions() -> anyh
         &[
             EpisodeRelease {
                 media: released.clone(),
-                released_at: 0,
+                released_at: Some(0),
                 season: Some(1),
                 episode: Some(1),
             },
             EpisodeRelease {
                 media: future.clone(),
-                released_at: i64::MAX,
+                released_at: Some(i64::MAX),
                 season: Some(1),
                 episode: Some(2),
             },
@@ -48,8 +48,7 @@ fn future_movies_and_episodes_are_silent_no_ops_including_bulk_actions() -> anyh
 }
 
 #[test]
-fn show_actions_cascade_to_released_episodes_and_new_releases_clear_completion()
--> anyhow::Result<()> {
+fn show_actions_cascade_to_released_episodes_without_completing_the_show() -> anyhow::Result<()> {
     let mut db = Library::memory()?;
     let show = item(MediaKind::Series, "show", None);
     db.upsert_media(&show)?;
@@ -60,22 +59,23 @@ fn show_actions_cascade_to_released_episodes_and_new_releases_clear_completion()
                 &format!("episode-{index}"),
                 Some(show.key.clone()),
             ),
-            released_at: if index == 1 { 0 } else { i64::MAX },
+            released_at: Some(if index == 1 { 0 } else { i64::MAX }),
             season: Some(1),
             episode: Some(index),
         })
         .collect();
     db.sync_episode_releases(&show.key, &episodes)?;
     db.set_watched(&show.key, true)?;
-    assert!(db.watched_state(&show.key)?.watched);
+    assert!(!db.watched_state(&show.key)?.watched);
     assert!(db.watched_state(&episodes[0].media.key)?.watched);
     assert!(!db.watched_state(&episodes[1].media.key)?.watched);
     let mut released = episodes;
-    released[1].released_at = 0;
+    released[1].released_at = Some(0);
     db.sync_episode_releases(&show.key, &released)?;
     assert!(!db.watched_state(&show.key)?.watched);
     db.set_watched(&show.key, true)?;
     assert!(db.watched_state(&released[1].media.key)?.watched);
+    assert!(db.watched_state(&show.key)?.watched);
     db.set_watched(&show.key, false)?;
     assert!(!db.watched_state(&released[0].media.key)?.watched);
     assert!(!db.watched_state(&released[1].media.key)?.watched);
@@ -102,7 +102,7 @@ fn new_future_dates_clear_invalid_watched_flags_but_keep_resume_history() -> any
         &show.key,
         &[EpisodeRelease {
             media: episode.clone(),
-            released_at: i64::MAX,
+            released_at: Some(i64::MAX),
             season: Some(1),
             episode: Some(1),
         }],

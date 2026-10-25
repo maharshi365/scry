@@ -55,21 +55,8 @@ CREATE TABLE series_inventory (
 );
 CREATE TABLE episode_releases (
     media_id INTEGER PRIMARY KEY NOT NULL REFERENCES media(media_id) ON DELETE CASCADE,
-    released_at BIGINT NOT NULL,
+    released_at BIGINT,
     season BIGINT CHECK(season IS NULL OR season >= 0),
     episode BIGINT CHECK(episode IS NULL OR episode >= 0)
 );
 CREATE INDEX episode_releases_date ON episode_releases(released_at, media_id);
-
--- Show completion is a query, not a second copy of episode state. Time is read
--- locally so known releases become eligible even when providers are offline.
-CREATE VIEW effective_watched AS
-SELECT m.media_id,
-    CASE WHEN m.kind='series' THEN
-            EXISTS(SELECT 1 FROM media e JOIN episode_releases r ON r.media_id=e.media_id
-                WHERE e.parent_id=m.media_id AND r.released_at<=unixepoch())
-            AND NOT EXISTS(SELECT 1 FROM media e JOIN episode_releases r ON r.media_id=e.media_id
-                LEFT JOIN watched v ON v.media_id=e.media_id
-                WHERE e.parent_id=m.media_id AND r.released_at<=unixepoch() AND COALESCE(v.watched,0)=0)
-        ELSE COALESCE(w.watched,0) END AS watched
-FROM media m LEFT JOIN watched w ON w.media_id=m.media_id;

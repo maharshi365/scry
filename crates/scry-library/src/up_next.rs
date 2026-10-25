@@ -7,7 +7,7 @@ use anyhow::{Result, ensure};
 use diesel::{prelude::*, upsert::excluded};
 use std::collections::HashMap;
 
-type Inventory = HashMap<(String, String), (String, i64, Option<i64>, Option<i64>)>;
+type Inventory = HashMap<(String, String), (String, Option<i64>, Option<i64>, Option<i64>)>;
 
 fn inventory(releases: &[EpisodeRelease]) -> Inventory {
     releases
@@ -30,7 +30,7 @@ fn inventory(releases: &[EpisodeRelease]) -> Inventory {
 }
 
 impl Library {
-    /// Keep the provider's dated episode inventory without changing watched or resume state.
+    /// Keep the provider's full episode inventory without changing resume state.
     /// # Errors
     /// Returns an error for invalid episodes, missing parents, or failed writes. Changes are atomic.
     pub fn sync_episode_releases(
@@ -50,7 +50,7 @@ impl Library {
         Ok(episode_releases::table
             .filter(episode_releases::released_at.gt(now))
             .select(diesel::dsl::min(episode_releases::released_at))
-            .first(&mut *self.connection.borrow_mut())?)
+            .first::<Option<i64>>(&mut *self.connection.borrow_mut())?)
     }
 
     /// Unwatched saved movies and one next released, unwatched episode per saved show.
@@ -106,7 +106,14 @@ pub(crate) fn sync_episode_releases(
             episode_releases::season,
             episode_releases::episode,
         ))
-        .load::<(String, String, String, i64, Option<i64>, Option<i64>)>(connection)?;
+        .load::<(
+            String,
+            String,
+            String,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+        )>(connection)?;
     let existing: HashMap<_, _> = stored
         .into_iter()
         .map(|(namespace, external_id, title, date, season, episode)| {
@@ -158,7 +165,7 @@ pub(crate) fn sync_episode_releases(
         .filter(media::parent_id.eq(id))
         .filter(
             episode_releases::released_at
-                .gt(diesel::dsl::sql::<diesel::sql_types::BigInt>("unixepoch()")),
+                .gt(diesel::dsl::sql::<diesel::sql_types::BigInt>("unixepoch()").nullable()),
         )
         .select(media::media_id);
     diesel::update(

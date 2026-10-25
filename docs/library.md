@@ -4,25 +4,25 @@
 database worker; add-on configuration uses blocking tasks. No database calls run
 on the UI thread or a network executor thread.
 
-## Fresh build
+## Database versions
 
 The app now uses **`scry-v2.sqlite3`** in the OS-local application-data folder
-(`%LOCALAPPDATA%\Scry\Scry\data` on Windows). This is a new, empty store. Older
-databases and add-on settings are not imported. Existing files are left untouched.
-You must install your add-ons and save titles again.
+(`%LOCALAPPDATA%\Scry\Scry\data` on Windows). Earlier database formats are not
+imported. Schema-one versions of this store upgrade in place without losing
+watch history, saved titles, or add-ons.
 
-There is one embedded schema: `crates/scry-library/src/schema.sql`. There are no
-migration files, migration runner, or compatibility layer. `PRAGMA user_version`
-identifies the schema, but does not upgrade it. Startup creates the schema only
-in an empty database, inside an immediate transaction. A process-local startup
+The embedded schema is `crates/scry-library/src/schema.sql`, with the derived
+completion view in `effective_watched.sql`. `PRAGMA user_version` identifies the
+schema. Version two allows undated episode inventory and corrects show completion.
+Startup creates or upgrades the schema inside an immediate transaction; the
+version-one upgrade is in `src/migrations/2.sql`. A process-local startup
 gate also serializes the initial WAL switch, which can otherwise return BUSY
 without honoring the busy timeout. Concurrent workers cannot
 partly initialize it. Unknown versions, nonempty unversioned stores, missing
 mapped columns, and invalid foreign keys are rejected.
 
-For another pre-release schema reset, edit `schema.sql`, update the Diesel types
-in `schema.rs`, and use an empty database. Close the app before removing a local
-database, including its SQLite sidecars. Do not copy a live WAL database as if the
+Close the app before backing up a local database, including its SQLite sidecars.
+Do not copy a live WAL database as if the
 main file alone were a complete backup.
 
 Installed add-on manifests and URLs are stored in the same database as the
@@ -38,13 +38,15 @@ do not share it. Artwork pixels and temporary media remain external files.
 | `progress` | One video's resume position and known duration, in seconds |
 | `viewing` | Accumulated actual playback seconds, active resume entry, recency |
 | `watched` | Per-video watched state, set by playback or explicit actions |
-| `episode_releases` | Dated release metadata, including future episodes and movies (movie rows have no season/episode) |
+| `episode_releases` | Full known episode inventory, with nullable dates; also dated movies (movie rows have no season/episode) |
 | `series_inventory` | Whether a show's inventory has been synchronized, even if empty |
 | `effective_watched` | A SQL view; derives show completion from episode records |
 
 Show-level automatic watched flags are **not stored separately**. A show is
-automatically watched only when it has at least one known released episode and
-all known released episodes are watched. There is no independent show override.
+automatically watched only when its known inventory is nonempty and every episode
+is released and watched. Being caught up with released episodes is not completion.
+There is no independent show override. Totals depend on the provider's inventory;
+episodes omitted by the provider cannot be counted.
 Episode changes affect Library filtering and badges immediately;
 there is no reconciliation write or network round trip to make them agree.
 Known release dates are evaluated locally, so an already-known new release can
@@ -74,7 +76,8 @@ cannot accidentally allow a future episode through.
 - Marking a known future release watched is a successful no-op, not an error.
   A debug log records the skip without title names or identities. Bulk actions
   continue with eligible episodes. Known future dates also prevent playback
-  samples from setting watched status. Missing dates are not classified as future.
+  samples from setting watched status. Undated inventory episodes also cannot be
+  marked watched. Movies without known release metadata keep their existing behavior.
   If new metadata identifies a previously undated item as future, its watched
   flag is cleared without deleting its resume history.
 - Movie and show actions capture release metadata before mutating state; saved
@@ -93,19 +96,21 @@ cannot accidentally allow a future episode through.
 not the visible episode page:
 
 ```text
+total_episodes          = count of all known inventory episodes, including future/undated
 released_episodes       = count of episodes released by the requested time
 watched_episodes        = count of those episodes marked watched
 completed_equivalents   = watched episodes + sum(partial actual playback / duration)
 resume_equivalents      = watched episodes + sum(partial resume position / duration)
-show fraction           = completed_equivalents / released_episodes
+show fraction           = completed_equivalents / total_episodes
 ```
 
 Partial actual-playback fractions are capped at one. An empty inventory has no
-fraction. Future, undated, and withdrawn release entries do not inflate the
-denominator. Each episode has equal weight; this is not a runtime-weighted
+fraction. Future and undated episodes count toward the denominator, but not the
+watched numerator. Withdrawn entries are excluded. Each episode has equal weight;
+this is not a runtime-weighted
 estimate of a show's total duration, because providers often omit durations.
 
-Show posters use the aggregate fraction and show the watched/released episode
+Show posters use the aggregate fraction and show the watched/total known episode
 count. Currently-watching and next-episode cards use that specific video's
 resume progress. A 25%-played episode is not presented as a 25%-completed show.
 
