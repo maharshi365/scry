@@ -1,4 +1,6 @@
 //! Synchronous, local-only app storage. Run on a worker, never the UI thread.
+#![forbid(unsafe_code)]
+
 mod app_storage;
 mod media;
 mod models;

@@ -8,6 +8,10 @@ license.workspace = true
 [lints]
 workspace = true
 
+[package.metadata.cargo-machete]
+# Enables bundled SQLite for Diesel; no direct Rust API calls are needed.
+ignored = ["libsqlite3-sys"]
+
 [dependencies]
 anyhow.workspace = true
 diesel = { version = "2.3", default-features = false, features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }

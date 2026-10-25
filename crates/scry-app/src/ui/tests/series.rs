@@ -150,6 +150,10 @@ fn tv_completion_waits_for_matching_metadata_and_reacts_to_new_releases() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One regression scenario verifies consistent show progress and completion across all four routes"
+)]
 fn tv_posters_share_episode_progress_and_require_the_full_inventory_across_routes() {
     for page in [Page::Discover, Page::Library, Page::Watching, Page::Detail] {
         let dir = tempfile::tempdir().unwrap();

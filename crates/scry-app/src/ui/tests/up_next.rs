@@ -113,7 +113,7 @@ fn next_cards_use_each_items_progress_and_resume_the_exact_episode() {
     )];
     s.apply_up_next_entries(vec![
         (
-            first.clone(),
+            first,
             Some(Progress {
                 position_seconds: 25.0,
                 duration_seconds: 100.0,

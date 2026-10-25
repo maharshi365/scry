@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use anyhow::{Context, Result, bail};
 use axum::{
     Router,
@@ -36,8 +38,10 @@ impl Torrents {
     /// Returns an error if session storage, the torrent engine, or its local HTTP listener cannot start.
     pub async fn new(folder: PathBuf) -> Result<Self> {
         #[cfg(feature = "profiling")]
-        let peer = std::env::var("SCRY_PROFILE_TORRENT_PEER").ok()
-            .map(|value| value.parse::<std::net::SocketAddr>()).transpose()
+        let peer = std::env::var("SCRY_PROFILE_TORRENT_PEER")
+            .ok()
+            .map(|value| value.parse::<std::net::SocketAddr>())
+            .transpose()
             .context("Invalid profiling peer")?;
         #[cfg(feature = "profiling")]
         if peer.is_some_and(|peer| !peer.ip().is_loopback()) {

@@ -44,13 +44,15 @@ fn caught_up_is_not_complete_until_all_known_episodes_are_released_and_watched()
     db.upsert_media(&parent)?;
     db.add_to_watchlist(&parent.key)?;
     let mut episodes: Vec<_> = (1..=8)
-        .map(|index| EpisodeRelease {
-            media: episode(&parent, index),
-            released_at: Some(if index <= 4 { 0 } else { i64::MAX }),
-            season: Some(1),
-            episode: Some(index as u32),
+        .map(|index| {
+            Ok(EpisodeRelease {
+                media: episode(&parent, index),
+                released_at: Some(if index <= 4 { 0 } else { i64::MAX }),
+                season: Some(1),
+                episode: Some(u32::try_from(index)?),
+            })
         })
-        .collect();
+        .collect::<anyhow::Result<_>>()?;
     db.sync_episode_releases(&parent.key, &episodes)?;
     db.set_watched(&parent.key, true)?;
     assert_eq!(db.series_progress(&parent.key, 100)?.fraction(), Some(0.5));
@@ -99,7 +101,7 @@ fn undated_episodes_count_toward_completion_but_cannot_be_marked_or_offered() ->
     let unknown = episode(&parent, 2);
     let mut releases = vec![
         EpisodeRelease {
-            media: first.clone(),
+            media: first,
             released_at: Some(0),
             season: Some(1),
             episode: Some(1),

@@ -218,9 +218,16 @@ Implement `VideoHost` in `crates/scry-app/src/platform/macos.rs`, then select it
 
 ## Development
 
+Local checks and their rationale are documented in the
+[Rust quality and performance policy](docs/rust-quality.md).
+
 ```powershell
-cargo test --workspace --all-targets
-cargo clippy --workspace --all-targets -- -D warnings
+pwsh -File scripts/check.ps1
+pwsh -File scripts/check.ps1 -AllFeatures
+# Optional dependency checks (install once):
+cargo install cargo-audit --locked --version 0.22.2
+cargo install cargo-machete --locked --version 0.9.1
+pwsh -File scripts/check.ps1 -AllFeatures -Dependencies
 # Test standalone crates without building the app:
 cargo test -p scry-library
 cargo test -p scry-addons

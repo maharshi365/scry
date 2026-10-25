@@ -160,11 +160,18 @@ impl Artwork {
     #[cfg(feature = "profiling")]
     pub fn stats(&self) -> Option<serde_json::Value> {
         let state = self.shared.state.lock().ok()?;
-        let bytes: u64 = state.ready.0.iter().map(|(_, pixels)| {
-            let (width, height) = pixels.size();
-            u64::from(width) * u64::from(height) * 4
-        }).sum();
-        Some(serde_json::json!({"images": state.ready.0.len(), "pixel_bytes": bytes, "active": state.active.len()}))
+        let bytes: u64 = state
+            .ready
+            .0
+            .iter()
+            .map(|(_, pixels)| {
+                let (width, height) = pixels.size();
+                u64::from(width) * u64::from(height) * 4
+            })
+            .sum();
+        Some(
+            serde_json::json!({"images": state.ready.0.len(), "pixel_bytes": bytes, "active": state.active.len()}),
+        )
     }
     /// Two sleeping workers each run async HTTP on a current-thread runtime.
     /// Decode happens on those same workers, never on the UI thread. Thumbnails
@@ -381,7 +388,8 @@ fn valid_url(value: &str) -> bool {
     };
     let scheme_allowed = url.scheme() == "https";
     #[cfg(feature = "profiling")]
-    let scheme_allowed = scheme_allowed || (url.scheme() == "http" && url.host_str() == Some("127.0.0.1"));
+    let scheme_allowed =
+        scheme_allowed || (url.scheme() == "http" && url.host_str() == Some("127.0.0.1"));
     scheme_allowed
         && url.host_str().is_some()
         && url.username().is_empty()
@@ -479,7 +487,10 @@ mod tests {
     #[test]
     fn leaving_artwork_pages_releases_decoded_pixels_and_cancels_work() {
         for profile in [Profile::Poster, Profile::Player] {
-            let mut state = State { profile, ..State::default() };
+            let mut state = State {
+                profile,
+                ..State::default()
+            };
             let pixels = rune::Pixels::new();
             pixels.set(160, 240, vec![0; 160 * 240 * 4]);
             state.ready.insert(url(0), pixels, profile.capacity(), &[]);
@@ -488,10 +499,17 @@ mod tests {
             let (sender, receiver) = watch::channel(false);
             state.active.insert(url(1), sender);
             state.set_visible(&[]);
-            assert!(state.ready.0.is_empty(), "Hidden pages must not pin decoded images");
+            assert!(
+                state.ready.0.is_empty(),
+                "Hidden pages must not pin decoded images"
+            );
             assert!(*receiver.borrow(), "Hidden artwork work must be cancelled");
             state.set_visible(&[url(0)]);
-            assert_eq!(state.next(), Some(url(0)), "Returning must reload the thumbnail");
+            assert_eq!(
+                state.next(),
+                Some(url(0)),
+                "Returning must reload the thumbnail"
+            );
         }
     }
 

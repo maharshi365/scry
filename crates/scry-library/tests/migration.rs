@@ -1,12 +1,20 @@
+use anyhow::Context;
 use diesel::{connection::SimpleConnection, prelude::*};
 use scry_library::{EpisodeRelease, Library, Media, MediaKey, MediaKind, Page, Progress};
 
 #[test]
 fn version_one_upgrade_corrects_completion_and_preserves_watch_history() -> anyhow::Result<()> {
+    #[derive(QueryableByName)]
+    struct Flag {
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        watched: bool,
+    }
+
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("library.sqlite3");
     {
-        let mut connection = SqliteConnection::establish(path.to_str().unwrap())?;
+        let mut connection =
+            SqliteConnection::establish(path.to_str().context("test database path is not UTF-8")?)?;
         // Version one required dates and treated every released episode watched as complete.
         connection.batch_execute(
             &include_str!("../src/schema.sql")
@@ -32,11 +40,6 @@ fn version_one_upgrade_corrects_completion_and_preserves_watch_history() -> anyh
              INSERT INTO watchlist (media_id) VALUES (1);
              PRAGMA user_version=1;",
         )?;
-        #[derive(QueryableByName)]
-        struct Flag {
-            #[diesel(sql_type = diesel::sql_types::Bool)]
-            watched: bool,
-        }
         assert!(
             diesel::sql_query("SELECT watched FROM effective_watched WHERE media_id=1")
                 .get_result::<Flag>(&mut connection)?
@@ -56,9 +59,9 @@ fn version_one_upgrade_corrects_completion_and_preserves_watch_history() -> anyh
                 duration_seconds: 100.0
             })
         );
-        assert_eq!(
-            db.media_states(std::slice::from_ref(&first))?[0].watched_seconds,
-            75.0
+        assert!(
+            (db.media_states(std::slice::from_ref(&first))?[0].watched_seconds - 75.0).abs()
+                < f64::EPSILON
         );
         assert_eq!(db.series_progress(&show, 100)?.fraction(), Some(0.5));
         assert_eq!(

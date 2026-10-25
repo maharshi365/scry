@@ -337,10 +337,19 @@ fn metadata_snapshots_share_large_payloads_but_edits_preserve_previous_values() 
         "videos": (0..1000).map(|index| serde_json::json!({
             "id": format!("large-series:1:{index}"), "title": format!("Episode {index}")
         })).collect::<Vec<_>>()
-    })).unwrap();
+    }))
+    .unwrap();
     let mut snapshot = original.clone();
-    assert_eq!(original.videos.as_ptr(), snapshot.videos.as_ptr(), "History must not copy episode buffers");
-    assert_eq!(original.description.as_ptr(), snapshot.description.as_ptr(), "History must not copy descriptions");
+    assert_eq!(
+        original.videos.as_ptr(),
+        snapshot.videos.as_ptr(),
+        "History must not copy episode buffers"
+    );
+    assert_eq!(
+        original.description.as_ptr(),
+        snapshot.description.as_ptr(),
+        "History must not copy descriptions"
+    );
     snapshot.videos[0].title = "Edited".into();
     snapshot.name = "New title".into();
     assert_eq!(original.videos[0].title, "Episode 0");

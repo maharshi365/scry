@@ -976,6 +976,10 @@ async fn player_loop(
                     }
                 }
             }
+            #[expect(
+                clippy::unreachable,
+                reason = "Control::Command is handled above and always continues before lifecycle teardown"
+            )]
             Control::Command(_, _) => unreachable!(),
         }
     }

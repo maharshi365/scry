@@ -30,6 +30,8 @@ pub(super) fn open_browser(url: &str) -> Result<()> {
     let target: Vec<u16> = url.encode_utf16().chain(std::iter::once(0)).collect();
     // ShellExecute resolves the registered HTTP(S) handler. Starting Explorer
     // as a process can interpret the URL as a shell location instead.
+    // SAFETY: operation and target are live NUL-terminated UTF-16 strings.
+    // Optional arguments are null; the call does not retain the string pointers.
     let result = unsafe {
         windows_sys::Win32::UI::Shell::ShellExecuteW(
             ptr::null_mut(),
@@ -69,6 +71,7 @@ impl VideoHost for Host {
                 let RawWindowHandle::Win32(raw) = handle.as_raw() else {
                     bail!("Expected a Windows window");
                 };
+                // SAFETY: raw.hwnd is borrowed live on its owning UI thread.
                 // Resource 1 is generated from assets/skry.svg by build.rs. Shared
                 // handles live with the executable; the window does not own them.
                 unsafe {
@@ -105,6 +108,7 @@ impl VideoHost for Host {
                     }
                 }
                 let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
+                // SAFETY: class is NUL-terminated and the parent handle is borrowed live.
                 // The child belongs to the UI thread. libmpv renders into it, never owns it.
                 let child = unsafe {
                     CreateWindowExW(
@@ -151,6 +155,8 @@ impl VideoHost for Host {
         if hwnd.is_null() {
             return;
         }
+        // SAFETY: attach created this child on the UI thread, where placement runs.
+        // SetWindowPos receives no pointers to caller-owned memory.
         unsafe {
             SetWindowPos(
                 hwnd,
@@ -166,6 +172,8 @@ impl VideoHost for Host {
     fn hide(&self) {
         let hwnd = self.0.child.load(Ordering::Acquire) as HWND;
         if !hwnd.is_null() {
+            // SAFETY: this is the child handle created by attach; the call runs on
+            // its UI thread and does not transfer ownership of the window.
             unsafe {
                 ShowWindow(hwnd, SW_HIDE);
             }
@@ -175,6 +183,8 @@ impl VideoHost for Host {
     fn show(&self) {
         let hwnd = self.0.child.load(Ordering::Acquire) as HWND;
         if !hwnd.is_null() {
+            // SAFETY: this is the child handle created by attach; the call runs on
+            // its UI thread and does not transfer ownership of the window.
             unsafe {
                 ShowWindow(hwnd, SW_SHOW);
             }
@@ -203,7 +213,9 @@ impl VideoHost for Host {
                     .restore
                     .lock()
                     .map_err(|_| anyhow::anyhow!("Window lock failed"))?;
-                // All window mutations run on the UI thread, inside the live handle borrow.
+                // SAFETY: all window mutations run on the UI thread, inside the live
+                // handle borrow. The plain-data output structs are initialized and sized
+                // before Win32 writes them; saved placement stays owned by restore.
                 unsafe {
                     if fullscreen {
                         if restore.is_some() {

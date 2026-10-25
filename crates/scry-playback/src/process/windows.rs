@@ -3,6 +3,8 @@ pub fn memory() -> (Option<u64>, Option<u64>) {
         ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS_EX},
         Threading::GetCurrentProcess,
     };
+    // SAFETY: the counter structure is plain integer data, and its full size is
+    // passed with a writable pointer. The process pseudo-handle is always valid.
     unsafe {
         let mut counters: PROCESS_MEMORY_COUNTERS_EX = std::mem::zeroed();
         let Ok(size) = u32::try_from(std::mem::size_of_val(&counters)) else {
@@ -23,6 +25,8 @@ pub fn cpu_time_s() -> Option<f64> {
         Foundation::FILETIME,
         System::Threading::{GetCurrentProcess, GetProcessTimes},
     };
+    // SAFETY: FILETIME is plain integer data. All four output pointers are valid
+    // for the call, and GetCurrentProcess returns a valid pseudo-handle.
     unsafe {
         let mut created: FILETIME = std::mem::zeroed();
         let mut exited: FILETIME = std::mem::zeroed();

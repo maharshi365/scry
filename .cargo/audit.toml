@@ -1,0 +1,9 @@
+[advisories]
+# User-approved risk acceptance on 2026-10-24, not a vulnerability fix.
+# librqbit 8.1.1 -> librqbit-upnp 1.0.0 requires quick-xml 0.37;
+# both fixes require >=0.41.0. Remove these exceptions when upstream permits it.
+# Exposure has not been ruled out. See docs/rust-quality.md.
+ignore = [
+    "RUSTSEC-2026-0194", # Quadratic duplicate-attribute checks.
+    "RUSTSEC-2026-0195", # Unbounded namespace-declaration allocation.
+]

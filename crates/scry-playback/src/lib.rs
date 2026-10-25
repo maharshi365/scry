@@ -260,6 +260,8 @@ impl Player {
     #[must_use]
     pub fn property(&self, name: &str) -> Option<String> {
         let key = CString::new(name).ok()?;
+        // SAFETY: the player and library are live, and key is NUL-terminated.
+        // mpv returns an owned NUL-terminated string; copy it before mpv_free.
         unsafe {
             let value = (self.get)(self.handle, key.as_ptr());
             if value.is_null() {
@@ -407,6 +409,8 @@ impl PlaybackEngine for Player {
 
 impl Drop for Player {
     fn drop(&mut self) {
+        // SAFETY: handle was created by this library and is destroyed exactly once,
+        // before the library field is dropped and its function pointers become invalid.
         unsafe {
             (self.destroy)(self.handle);
         }

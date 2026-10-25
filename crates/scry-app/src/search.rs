@@ -20,7 +20,7 @@ pub struct Request {
 }
 
 pub fn query(input: &str) -> Result<String, &'static str> {
-    if input.chars().count() > 256 {
+    if input.chars().nth(256).is_some() {
         return Err("Search is limited to 256 characters");
     }
     Ok(input.split_whitespace().collect::<Vec<_>>().join(" "))
@@ -125,11 +125,11 @@ impl Results {
             .batches
             .values()
             .flatten()
-            .filter(|result| seen.insert((result.meta.kind.clone(), result.meta.id.clone())))
-            .map(|result| (normalize(&result.meta.name), result))
+            .filter(|result| seen.insert((result.meta.kind.as_str(), result.meta.id.as_str())))
+            .map(|result| (rank(&normalize(&result.meta.name), &query), result))
             .collect();
         // Stable ties preserve catalog and provider response order.
-        results.sort_by_key(|(title, _)| rank(title, &query));
+        results.sort_by_key(|(rank, _)| *rank);
         let results = results
             .into_iter()
             .take(RESULT_LIMIT)
@@ -265,6 +265,39 @@ mod tests {
             warnings,
             ["Add-on 1, catalog 2: search failed or timed out"]
         );
+    }
+
+    #[test]
+    fn equal_rank_results_keep_provider_order_after_deduplication() {
+        let requests = plan(vec![
+            addon("first", json!([searchable("movie")])),
+            addon("second", json!([searchable("movie")])),
+        ])
+        .unwrap();
+        let mut results = Results::default();
+        results.record(
+            1,
+            &requests[1],
+            Ok(vec![
+                meta("movie", "duplicate", "Query replacement"),
+                meta("movie", "second", "Query second"),
+            ]),
+        );
+        results.record(
+            0,
+            &requests[0],
+            Ok(vec![
+                meta("movie", "duplicate", "Query original"),
+                meta("movie", "first", "Query first"),
+            ]),
+        );
+        let (found, _) = results.snapshot("query");
+        assert_eq!(
+            found.iter().map(|r| r.meta.id.as_str()).collect::<Vec<_>>(),
+            ["duplicate", "first", "second"]
+        );
+        assert_eq!(found[0].meta.name, "Query original");
+        assert_eq!(found[0].addon.manifest.id, "first");
     }
 
     #[test]

@@ -31,33 +31,36 @@ impl DiskCache {
 
     pub fn load(&self, url: &str) -> Option<(u32, u32, Vec<u8>)> {
         let path = self.key(url);
-        let file = fs::OpenOptions::new()
+        let mut file = fs::OpenOptions::new()
             .read(true)
             .write(true)
             .open(&path)
             .or_else(|_| fs::File::open(path))
             .ok()?;
-        let modified = file.metadata().ok()?.modified().ok()?;
+        let metadata = file.metadata().ok()?;
+        let modified = metadata.modified().ok()?;
         if SystemTime::now().duration_since(modified).ok()? > LIFETIME {
             return None;
         }
-        let length = file.metadata().ok()?.len();
+        let length = metadata.len();
         if !(8..=(MAX_PIXELS + 8) as u64).contains(&length) {
             return None;
         }
-        let mut bytes = Vec::with_capacity(usize::try_from(length).ok()?);
+        let mut header = [0; 8];
+        file.read_exact(&mut header).ok()?;
+        let width = u32::from_le_bytes(header[..4].try_into().ok()?);
+        let height = u32::from_le_bytes(header[4..].try_into().ok()?);
+        let mut pixels = Vec::with_capacity(usize::try_from(length - 8).ok()?);
         (&file)
-            .take((MAX_PIXELS + 9) as u64)
-            .read_to_end(&mut bytes)
+            .take((MAX_PIXELS + 1) as u64)
+            .read_to_end(&mut pixels)
             .ok()?;
-        let width = u32::from_le_bytes(bytes.get(..4)?.try_into().ok()?);
-        let height = u32::from_le_bytes(bytes.get(4..8)?.try_into().ok()?);
-        if !valid(width, height, bytes.len().checked_sub(8)?) {
+        if !valid(width, height, pixels.len()) {
             return None;
         }
         // Keep frequently revisited thumbnails ahead of old entries for eviction.
         let _ = file.set_times(fs::FileTimes::new().set_accessed(SystemTime::now()));
-        Some((width, height, bytes.split_off(8)))
+        Some((width, height, pixels))
     }
 
     pub fn store(&self, url: &str, width: u32, height: u32, pixels: &[u8]) {
@@ -208,6 +211,28 @@ mod tests {
         assert!(!cache.key("d").exists());
         cache.prune().unwrap();
         assert!(!cache.key("a").exists());
+    }
+
+    #[test]
+    fn invalid_dimensions_and_mismatched_pixel_lengths_are_misses() {
+        let directory = tempfile::tempdir().unwrap();
+        let cache = DiskCache::new(directory.path().into());
+        for (width, height, length) in [
+            (0_u32, 1_u32, 4),
+            (161, 1, 644),
+            (1, 241, 964),
+            (2, 1, 4),
+            (1, 1, 8),
+        ] {
+            let mut bytes = width.to_le_bytes().to_vec();
+            bytes.extend_from_slice(&height.to_le_bytes());
+            bytes.resize(8 + length, 0);
+            fs::write(cache.key("invalid"), bytes).unwrap();
+            assert!(cache.load("invalid").is_none());
+        }
+        let pixels = vec![42; MAX_PIXELS];
+        cache.store("maximum", 160, 240, &pixels);
+        assert_eq!(cache.load("maximum"), Some((160, 240, pixels)));
     }
 
     #[test]

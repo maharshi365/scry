@@ -86,7 +86,7 @@ impl Options {
                     ensure!(baseline.is_none(), "Duplicate baseline option");
                     baseline = Some(PathBuf::from(value));
                 }
-                _ => unreachable!(),
+                _ => bail!("Unknown diagnostic option"),
             }
             i += 2;
         }
@@ -191,7 +191,7 @@ fn probe(options: &Options) -> Result<()> {
         let source = match (&options.mode, &fixture) {
             (Mode::Probe(source), _) => source.clone(),
             (_, Some(fixture)) => fixture.path.to_string_lossy().into_owned(),
-            _ => unreachable!(),
+            _ => bail!("Diagnostic mode has no playback source"),
         };
         let player = Player::open(PlaybackTarget::DecodeOnly)?;
         let started = Instant::now();

@@ -606,7 +606,7 @@ fn library_posters_are_bounded_visible_and_ignore_stale_or_unrelated_results() {
     s.apply_library_posters(
         1,
         vec![
-            (key.clone(), poster),
+            (key, poster),
             (MediaKey::new("other", MediaKind::Movie, "3"), None),
         ],
         true,

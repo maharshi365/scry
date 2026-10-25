@@ -61,6 +61,10 @@ struct State {
     stopping: bool,
 }
 
+#[expect(
+    clippy::unreachable,
+    reason = "Rune requires a fallback initializer, but this example always supplies State through App::init"
+)]
 fn init() -> State {
     unreachable!("The example supplies its state with App::init")
 }

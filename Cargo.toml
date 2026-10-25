@@ -27,8 +27,37 @@ rune = { git = "https://github.com/anomalyco/rune", rev = "e18cc657232a93af500b4
 uuid = { version = "1", features = ["v4"] }
 windows-sys = "0.59"
 
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"
+unfulfilled_lint_expectations = "deny"
+
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+redundant_clone = "warn"
+inefficient_to_string = "warn"
+# Keep suppressions explicit and remove them when they stop applying.
+allow_attributes_without_reason = "deny"
+# Panic paths not covered by unwrap/expect or the panic! lint.
+string_slice = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+unchecked_time_subtraction = "deny"
+# Async work must not be silently dropped or retain synchronous borrows.
+let_underscore_future = "deny"
+await_holding_lock = "deny"
+await_holding_refcell_ref = "deny"
+large_futures = "warn"
+unused_result_ok = "deny"
+# Native boundaries require a written safety argument, not just an unsafe block.
+undocumented_unsafe_blocks = "deny"
+unnecessary_safety_comment = "warn"
+mem_forget = "deny"
+debug_assert_with_mut_call = "deny"
+rc_mutex = "deny"
+exit = "deny"
+lossy_float_literal = "deny"
 disallowed_methods = "deny"
 unwrap_used = "deny"
 expect_used = "deny"

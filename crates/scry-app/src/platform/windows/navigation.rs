@@ -33,6 +33,8 @@ fn attach_hwnd(hwnd: HWND, input: NavigationInput) -> Result<()> {
     // SAFETY: runs on the window's UI thread. The subclass owns this allocation
     // until WM_NCDESTROY; failed installation drops it here instead.
     if unsafe { SetWindowSubclass(hwnd, Some(history_proc), SUBCLASS, data as usize) } == 0 {
+        // SAFETY: installation failed, so no callback owns data. It came from
+        // Box::into_raw immediately above and has not been freed.
         unsafe {
             drop(Box::from_raw(data));
         }
@@ -77,6 +79,7 @@ unsafe extern "system" fn history_proc(
         unsafe { &*(data as *const NavigationInput) }.push(direction);
         return 1;
     }
+    // SAFETY: forward the original parameters from this live subclass callback.
     unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
 }
 
@@ -90,7 +93,8 @@ mod tests {
     #[test]
     fn side_buttons_and_browser_commands_enqueue_history_once() -> Result<()> {
         let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
-        // A hidden test-owned window exercises actual subclass message delivery.
+        // SAFETY: class is NUL-terminated and STATIC is a built-in window class.
+        // All optional pointers are null. The test owns the returned window.
         let hwnd = unsafe {
             CreateWindowExW(
                 0,
@@ -110,6 +114,8 @@ mod tests {
         anyhow::ensure!(!hwnd.is_null(), "Cannot create input test window");
         let input = NavigationInput::default();
         attach_hwnd(hwnd, input.clone())?;
+        // SAFETY: hwnd is a live test-owned window on this thread. Messages carry
+        // only integer parameters, and DestroyWindow releases it exactly once.
         unsafe {
             SendMessageW(hwnd, WM_XBUTTONDOWN, 1 << 16, 0);
             SendMessageW(hwnd, WM_XBUTTONUP, 1 << 16, 0);
