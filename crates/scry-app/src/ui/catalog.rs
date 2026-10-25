@@ -27,6 +27,7 @@ impl State {
     pub(super) fn catalogs(&self) -> Vec<(Addon, Catalog)> {
         self.addons
             .iter()
+            .filter(|a| !a.disabled)
             .flat_map(|a| {
                 a.manifest
                     .catalogs

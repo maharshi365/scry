@@ -2,7 +2,7 @@
 use super::{
     Page, State,
     addons::addons,
-    controls::{icon_action, input, select_action},
+    controls::{icon_action, input},
     design::{
         icons,
         tokens::{self, type_},
@@ -116,20 +116,25 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
 fn sidebar(s: &State) -> El {
     let mut sidebar = col()
         .key("sidebar")
-        .w(180.0)
-        .min_w(180.0)
+        .w(240.0)
+        .min_w(240.0)
         .h_full()
-        .padding(14.0)
-        .gap(8.0)
+        .padding(18.0)
+        .gap(12.0)
         .fill(tokens::sidebar());
-    for (key, title, page) in [
-        ("nav-watching", "Currently watching", Page::Watching),
-        ("nav-library", "Library", Page::Library),
-        ("nav-calendar", "Calendar", Page::Calendar),
-        ("nav-addons", "Add-ons", Page::Addons),
+    for (key, title, page, glyph) in [
+        (
+            "nav-watching",
+            "Currently watching",
+            Page::Watching,
+            &icons::PLAY,
+        ),
+        ("nav-library", "Library", Page::Library, &icons::LIBRARY),
+        ("nav-calendar", "Calendar", Page::Calendar, &icons::CALENDAR),
+        ("nav-addons", "Add-ons", Page::Addons, &icons::ADDONS),
     ] {
         sidebar = sidebar.child(
-            select_action(key, title, s.navigation.page == page, move |s| {
+            nav_action(key, title, glyph, s.navigation.page == page, move |s| {
                 s.navigate(page);
             })
             .w_full(),
@@ -137,18 +142,20 @@ fn sidebar(s: &State) -> El {
         if page == Page::Watching {
             sidebar = sidebar
                 .child(
-                    select_action(
+                    nav_action(
                         "movies",
                         "Movies",
+                        &icons::MOVIE,
                         s.navigation.page == Page::Discover && s.kind == "movie",
                         |s| s.choose_kind("movie"),
                     )
                     .w_full(),
                 )
                 .child(
-                    select_action(
+                    nav_action(
                         "series",
                         "TV shows",
+                        &icons::TV,
                         s.navigation.page == Page::Discover && s.kind == "series",
                         |s| s.choose_kind("series"),
                     )
@@ -157,6 +164,28 @@ fn sidebar(s: &State) -> El {
         }
     }
     sidebar.child(el().grow(1.0))
+}
+
+fn nav_action(
+    key: &str,
+    title: &str,
+    glyph: &'static rune::Icon,
+    selected: bool,
+    f: impl Fn(&mut State) + 'static,
+) -> El {
+    Button::new(key, title)
+        .selected(selected)
+        .frame()
+        .h(52.0)
+        .px(14.0)
+        .gap(12.0)
+        .child(rune::icon(glyph, 22.0).color(tokens::accent()))
+        .child(
+            text(title.to_owned())
+                .font(type_::LABEL)
+                .color(tokens::theme().text),
+        )
+        .on_press(f)
 }
 
 fn topbar(s: &State) -> El {

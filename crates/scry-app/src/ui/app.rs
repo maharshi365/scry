@@ -78,7 +78,7 @@ impl State {
             calendar: super::calendar::CalendarUi::default(),
             context_menu: None,
             addon_install_open: false,
-            addon_installed_tab: false,
+            addon_install_complete: false,
             detail_namespace: String::new(),
             pending_episode: None,
             host,

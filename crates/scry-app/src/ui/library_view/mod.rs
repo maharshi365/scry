@@ -45,6 +45,7 @@ pub(super) struct LibraryUi {
     pub(in crate::ui) up_next_offset: u32,
     pub(in crate::ui) up_next_loaded: bool,
     pub(in crate::ui) up_next_has_more: bool,
+    pub(in crate::ui) quick_play: Option<u64>,
     pub(in crate::ui) movies: movie_status::MovieUi,
     pub(in crate::ui) series: series_status::SeriesUi,
     pub(in crate::ui) tracking: tracking::TrackingUi,
@@ -82,6 +83,7 @@ impl Default for LibraryUi {
             up_next_offset: 0,
             up_next_loaded: false,
             up_next_has_more: false,
+            quick_play: None,
             movies: movie_status::MovieUi::default(),
             series: series_status::SeriesUi::default(),
             tracking: tracking::TrackingUi::default(),
@@ -419,6 +421,46 @@ impl State {
             Err(_) => self.library.error = Some("Cannot open the saved title".into()),
         }
     }
+
+    pub(in crate::ui) fn play_next_saved(&mut self, kind: MediaKind) {
+        let Some(media) = self
+            .library
+            .up_next
+            .iter()
+            .map(|(media, _)| media)
+            .find(|media| media.key.kind == kind)
+            .cloned()
+        else {
+            return;
+        };
+        self.open_library_media(&media);
+        self.library.quick_play = Some(self.detail_id);
+    }
+}
+
+pub(super) fn up_next_header(s: &State) -> El {
+    let mut header = row()
+        .key("up-next-heading")
+        .w_full()
+        .gap(10.0)
+        .center_y()
+        .child(heading("What to watch next").grow(1.0));
+    for (key, title, kind) in [
+        ("play-next-movie", "Play next movie", MediaKind::Movie),
+        ("play-next-show", "Play next TV show", MediaKind::Episode),
+    ] {
+        header = header.child(
+            Button::new(key, title)
+                .enabled(
+                    s.library
+                        .up_next
+                        .iter()
+                        .any(|(media, _)| media.key.kind == kind),
+                )
+                .on_press(move |s: &mut State| s.play_next_saved(kind)),
+        );
+    }
+    header
 }
 
 pub(super) fn detail_actions(s: &State) -> El {

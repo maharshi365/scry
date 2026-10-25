@@ -18,18 +18,14 @@ fn icon_only_actions_have_action_names_not_glyph_labels() {
 }
 
 #[test]
-fn addon_tabs_report_selection_and_busy_install_cannot_activate() {
+fn unified_addons_page_and_busy_install_spinner() {
     let mut s = init();
     s.navigation.page = Page::Addons;
     let mut rt = rune::Runtime::new(s, view, (1000.0, 800.0), rune::Env::default());
     rt.frame(0.0);
-    tap(&mut rt, "addons-installed-tab");
-    let selected = rt
-        .elements()
-        .into_iter()
-        .find(|e| e.key.as_deref() == Some("addons-installed-tab"))
-        .unwrap();
-    assert_eq!(selected.label.as_deref(), Some("Installed · 0, selected"));
+    assert!(rt.find("addons-installed-tab").is_none());
+    assert!(rt.find("supported-addon-0").is_some());
+    assert!(rt.find("supported-addon-1").is_some());
     rt.update(|s, _| {
         s.addon_install_open = true;
         s.config_busy = true;
@@ -44,7 +40,93 @@ fn addon_tabs_report_selection_and_busy_install_cannot_activate() {
         !install.focusable,
         "busy installation must not offer an active control"
     );
-    assert_eq!(install.label.as_deref(), Some("Working…, busy"));
+    assert_eq!(install.label.as_deref(), Some("Install, busy"));
+    assert!(rt.find("addon-install-spinner").is_some());
+    assert!(
+        !rt.elements()
+            .iter()
+            .any(|e| e.text.as_deref() == Some("Working…"))
+    );
+}
+
+#[test]
+fn installed_addons_share_the_available_list_without_duplicate_cards() {
+    let mut s = init();
+    s.config_busy = false;
+    s.navigation.page = Page::Addons;
+    s.addons = vec![
+        serde_json::from_value(serde_json::json!({
+            "manifest_url": crate::services::CINEMETA,
+        "manifest": {"id":"com.linvo.cinemeta", "name":"Cinemeta", "catalogs":[{"id":"top", "type":"movie"}]}
+        }))
+        .unwrap(),
+    ];
+    let mut rt = rune::Runtime::new(s, view, (1000.0, 800.0), rune::Env::default());
+    rt.frame(0.0);
+    assert!(rt.find("installed-addon-0").is_some());
+    assert!(rt.find("supported-addon-0").is_none());
+    assert!(rt.find("supported-addon-1").is_some());
+    let toggle = rt
+        .elements()
+        .into_iter()
+        .find(|e| e.key.as_deref() == Some("toggle-addon-0"))
+        .unwrap();
+    assert_eq!(toggle.label.as_deref(), Some("Disable"));
+    assert_eq!(rt.state.catalogs().len(), 1);
+    rt.update(|s, _| s.addons[0].disabled = true);
+    rt.frame(0.0);
+    let toggle = rt
+        .elements()
+        .into_iter()
+        .find(|e| e.key.as_deref() == Some("toggle-addon-0"))
+        .unwrap();
+    assert_eq!(toggle.label.as_deref(), Some("Enable"));
+    assert!(rt.state.catalogs().is_empty());
+}
+
+#[test]
+fn install_completion_replaces_the_spinner_with_a_checkmark() {
+    let (mut s, tx) = state_with_events();
+    s.navigation.page = Page::Addons;
+    s.addon_install_open = true;
+    s.config_busy = true;
+    let mut rt = rune::Runtime::new(s, view, (1000.0, 800.0), rune::Env::default());
+    rt.poll = Some(poll);
+    rt.frame(0.0);
+    assert!(rt.find("addon-install-spinner").is_some());
+    tx.try_send(Event::Addons(Ok(vec![]))).unwrap();
+    rt.frame(1.0 / 60.0);
+    assert!(rt.find("addon-install-spinner").is_none());
+    assert!(rt.find("addon-install-success").is_some());
+    tap(&mut rt, "addon-install-done");
+    assert!(!rt.state.addon_install_open);
+}
+
+#[test]
+fn failed_install_stops_the_spinner_and_restores_retry() {
+    let (mut s, tx) = state_with_events();
+    s.addon_install_open = true;
+    s.config_busy = true;
+    let mut rt = rune::Runtime::new(s, view, (1000.0, 800.0), rune::Env::default());
+    rt.poll = Some(poll);
+    rt.frame(0.0);
+    tx.try_send(Event::Addons(Err("Cannot fetch manifest".into())))
+        .unwrap();
+    rt.frame(1.0 / 60.0);
+    assert!(rt.find("addon-install-spinner").is_none());
+    assert!(rt.state.addon_install_open);
+    assert!(
+        rt.elements()
+            .iter()
+            .any(|e| e.text.as_deref() == Some("Cannot fetch manifest"))
+    );
+    assert!(
+        rt.elements()
+            .iter()
+            .find(|e| e.key.as_deref() == Some("install-addon"))
+            .unwrap()
+            .focusable
+    );
 }
 
 #[test]

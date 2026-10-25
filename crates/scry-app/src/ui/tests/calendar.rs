@@ -156,7 +156,9 @@ fn calendar_switches_modes_and_scrolls_a_busy_day_without_moving_its_neighbour()
 
 #[test]
 fn startup_and_addon_install_have_no_discover_or_playlist_controls() {
-    let mut rt = rune::Runtime::new(init(), view, (1280.0, 820.0), rune::Env::default());
+    let mut s = init();
+    s.config_busy = false;
+    let mut rt = rune::Runtime::new(s, view, (1280.0, 820.0), rune::Env::default());
     rt.frame(0.0);
     assert_eq!(rt.state.navigation.page, Page::Watching);
     assert!(rt.find("nav-discover").is_none());

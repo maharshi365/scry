@@ -3783,6 +3783,7 @@ dependencies = [
  "scry-library",
  "scry-playback",
  "scry-torrents",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",

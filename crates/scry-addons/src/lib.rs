@@ -7,6 +7,8 @@ use url::Url;
 pub struct Addon {
     pub manifest_url: String,
     pub manifest: Manifest,
+    #[serde(default)]
+    pub disabled: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -368,6 +370,9 @@ pub fn resource_url(
 impl Addon {
     #[must_use]
     pub fn supports(&self, resource: &str, kind: &str, id: &str) -> bool {
+        if self.disabled {
+            return false;
+        }
         if resource == "catalog" {
             return self
                 .manifest
@@ -475,6 +480,7 @@ impl Client {
             bail!("Add-on manifest has no ID or name");
         }
         Ok(Addon {
+            disabled: false,
             manifest_url: url.to_string(),
             manifest,
         })

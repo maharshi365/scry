@@ -23,6 +23,7 @@ scry-library = { path = "../scry-library" }
 scry-playback = { path = "../scry-playback" }
 scry-torrents = { path = "../scry-torrents" }
 rune.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "time", "sync", "macros", "io-util"] }

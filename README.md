@@ -17,7 +17,7 @@ cargo run --release
 
 The setup script downloads a pinned x64 libmpv build and verifies its SHA-256 checksum. It changes only `runtime/`. You can instead set `Scry_MPV_LIBRARY` to a trusted libmpv library. For a packaged build, put `libmpv-2.dll` beside `scry.exe`.
 
-In **Add-ons → Supported**, choose Cinemeta or Torrentio to open the install dialog. Use **Add by URL** for another provider or your configured Torrentio manifest. Installed providers have a separate list. A configured manifest can include private credentials in its path. Do not share it or commit local settings.
+In **Add-ons**, browse available and installed providers in one list. Choose Cinemeta or Torrentio to open the install dialog, or use **Add by URL** for another provider or your configured Torrentio manifest. A circular spinner shows an install in progress, followed by a success checkmark or an error you can retry. Disable installed providers without losing their configuration, enable them again, or remove them. A configured manifest can include private credentials in its path. Do not share it or commit local settings.
 
 ### Add-on support
 
@@ -57,6 +57,7 @@ Player shortcuts apply only during playback and do not intercept text input.
 
 - The app starts on **Currently watching**. Open a title to select a source and resume its saved position.
 - **What to watch next**, below Currently watching, lists unwatched movies and one next released, unwatched episode per saved show. Open the card to use the full season/episode picker. Cards show that video's resume progress. Show posters instead show aggregate progress and watched/released episode counts. The list uses 200-title pages and retains release metadata for offline use; future and undated episodes are omitted.
+- **Play next movie** and **Play next TV show** in the next-list header open the first matching item on the current page. A single supported source starts automatically; multiple sources stay in the source picker. The buttons are disabled when there is no matching item.
 - Open a title and choose **Add to library** to track it, or **Mark watched** to set its status. Right-click titles for quick actions; right-click the page to refresh provider data.
 - **Library** has **To watch** and **Watched** lists, with Movies selected by default and a TV series filter. There are no playlist controls.
 - Progress saves every 12 seconds and on Stop/close. More than 70% of the duration accumulated as playback marks the item watched; seeking does not count.

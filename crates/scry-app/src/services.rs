@@ -232,6 +232,30 @@ impl Services {
         });
     }
 
+    pub fn set_addon_disabled(&self, id: String, disabled: bool) {
+        let (inbox, config, data) = (self.inbox.clone(), self.config.clone(), self.data.clone());
+        self.runtime.spawn(async move {
+            let mut current = config.lock().await;
+            let mut next = current.clone();
+            let result = async {
+                let addon = next
+                    .iter_mut()
+                    .find(|a| a.manifest.id == id)
+                    .context("Add-on is no longer installed")?;
+                addon.disabled = disabled;
+                persist(data, next.clone()).await?;
+                current.clone_from(&next);
+                Ok(next)
+            }
+            .await;
+            inbox
+                .send(Event::Addons(
+                    result.map_err(|e: anyhow::Error| e.to_string()),
+                ))
+                .await;
+        });
+    }
+
     pub fn watch_metadata(
         &mut self,
         token: u64,
@@ -718,6 +742,16 @@ fn database(data: &std::path::Path) -> Result<scry_library::Library> {
     scry_library::Library::open(data.join(scry_library::DATABASE_NAME))
 }
 
+// Local preferences share the stored manifest document, not the remote manifest.
+// The optional flag needs no database schema change or data migration.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StoredManifest {
+    #[serde(flatten)]
+    manifest: scry_addons::Manifest,
+    #[serde(default, rename = "_scry_disabled")]
+    disabled: bool,
+}
+
 fn load(data: &std::path::Path) -> Result<Vec<Addon>> {
     let records = database(data)?.load_addons()?;
     if records.len() > 32 {
@@ -726,14 +760,15 @@ fn load(data: &std::path::Path) -> Result<Vec<Addon>> {
     records
         .into_iter()
         .map(|record| {
-            let manifest: scry_addons::Manifest = serde_json::from_str(&record.manifest_json)
+            let stored: StoredManifest = serde_json::from_str(&record.manifest_json)
                 .context("Cannot read stored add-on manifest")?;
-            if manifest.id != record.id {
+            if stored.manifest.id != record.id {
                 bail!("Stored add-on identity does not match its manifest");
             }
             Ok(Addon {
                 manifest_url: record.manifest_url,
-                manifest,
+                manifest: stored.manifest,
+                disabled: stored.disabled,
             })
         })
         .collect()
@@ -746,7 +781,10 @@ fn save(data: &std::path::Path, addons: &[Addon]) -> Result<()> {
             Ok(scry_library::AddonRecord {
                 id: addon.manifest.id.clone(),
                 manifest_url: addon.manifest_url.clone(),
-                manifest_json: serde_json::to_string(&addon.manifest)?,
+                manifest_json: serde_json::to_string(&StoredManifest {
+                    manifest: addon.manifest.clone(),
+                    disabled: addon.disabled,
+                })?,
             })
         })
         .collect::<Result<Vec<_>>>()?;
@@ -992,6 +1030,25 @@ mod tests {
             missing.poster = url;
             assert!(LibraryPoster::for_media(&media, &missing).is_none());
         }
+    }
+
+    #[test]
+    fn disabled_addon_keeps_its_manifest_and_url_across_restarts() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut addon: Addon = serde_json::from_value(serde_json::json!({
+            "manifest_url":"https://example.com/private-token/manifest.json",
+            "manifest":{"id":"example", "name":"Example"}
+        }))
+        .unwrap();
+        addon.disabled = true;
+        save(directory.path(), &[addon.clone()]).unwrap();
+        let loaded = load(directory.path()).unwrap();
+        assert!(loaded[0].disabled);
+        assert_eq!(loaded[0].manifest_url, addon.manifest_url);
+        assert_eq!(loaded[0].manifest.name, "Example");
+        addon.disabled = false;
+        save(directory.path(), &[addon]).unwrap();
+        assert!(!load(directory.path()).unwrap()[0].disabled);
     }
 
     #[test]

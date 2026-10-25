@@ -157,6 +157,16 @@ fn addon_with_empty_filters() -> Addon {
 }
 
 #[test]
+fn disabled_addon_does_not_supply_resources() {
+    let mut provider = addon(json!(["stream", "meta", "catalog"]));
+    assert!(provider.supports("stream", "movie", "tt123"));
+    provider.disabled = true;
+    assert!(!provider.supports("stream", "movie", "tt123"));
+    assert!(!provider.supports("meta", "movie", "tt123"));
+    assert!(!provider.supports("catalog", "series", "featured"));
+}
+
+#[test]
 fn catalogs_match_declared_type_and_id_not_content_prefixes() {
     let addon = addon(json!(["catalog"]));
     assert!(addon.supports("catalog", "series", "featured"));

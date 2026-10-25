@@ -32,6 +32,9 @@ pub fn plan(addons: Vec<Addon>) -> Result<Vec<Request>, &'static str> {
     }
     let mut requests = Vec::new();
     for (addon_index, addon) in addons.into_iter().enumerate() {
+        if addon.disabled {
+            continue;
+        }
         for (catalog_index, catalog) in addon.manifest.catalogs.iter().enumerate() {
             if matches!(catalog.kind.as_str(), "movie" | "series")
                 && catalog.extra.iter().any(|extra| extra.name == "search")
@@ -160,6 +163,19 @@ mod tests {
 
     fn meta(kind: &str, id: &str, name: &str) -> Meta {
         serde_json::from_value(json!({"id":id, "type":kind, "name":name})).unwrap()
+    }
+
+    #[test]
+    fn disabled_providers_are_not_searched() {
+        let mut disabled = addon("disabled", json!([searchable("movie")]));
+        disabled.disabled = true;
+        let requests = plan(vec![
+            disabled,
+            addon("enabled", json!([searchable("movie")])),
+        ])
+        .unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].addon.manifest.id, "enabled");
     }
 
     #[test]

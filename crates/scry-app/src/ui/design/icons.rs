@@ -1,5 +1,37 @@
 use rune::Icon;
 
+pub(in crate::ui) static LIBRARY: Icon = Icon {
+    name: "library",
+    view: 24.0,
+    body: include_str!("../../../assets/icons/rune/library.svg"),
+};
+pub(in crate::ui) static CALENDAR: Icon = Icon {
+    name: "calendar",
+    view: 24.0,
+    body: include_str!("../../../assets/icons/rune/calendar.svg"),
+};
+pub(in crate::ui) static ADDONS: Icon = Icon {
+    name: "addons",
+    view: 24.0,
+    body: include_str!("../../../assets/icons/rune/addons.svg"),
+};
+pub(in crate::ui) static MOVIE: Icon = Icon {
+    name: "movie",
+    view: 24.0,
+    body: include_str!("../../../assets/icons/rune/movie.svg"),
+};
+pub(in crate::ui) static TV: Icon = Icon {
+    name: "tv",
+    view: 24.0,
+    body: include_str!("../../../assets/icons/rune/tv.svg"),
+};
+
+pub(in crate::ui) static SPINNER: Icon = Icon {
+    name: "loader-circle",
+    view: 24.0,
+    body: include_str!("../../../assets/icons/rune/loader-circle.svg"),
+};
+
 pub(in crate::ui) static DOWNLOAD: Icon = Icon {
     name: "download",
     view: 24.0,

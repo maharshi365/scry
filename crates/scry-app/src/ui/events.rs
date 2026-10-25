@@ -126,18 +126,21 @@ fn apply(s: &mut State, event: Event) {
             s.config_busy = false;
             match result {
                 Ok(addons) => {
+                    if s.addon_install_open {
+                        s.status = "Add-on installed successfully".into();
+                        s.addon_install_complete = true;
+                    }
                     s.retry_library_posters();
                     s.library.posters.cache.clear();
                     s.addons = addons;
                     s.request_series_tracking(true);
-                    s.addon_install_open = false;
                     if s.navigation.page == Page::Calendar {
                         s.fetch_calendar();
                     }
                     if s.catalog.as_ref().is_none_or(|(a, _)| {
-                        !s.addons
-                            .iter()
-                            .any(|current| current.manifest.id == a.manifest.id)
+                        !s.addons.iter().any(|current| {
+                            !current.disabled && current.manifest.id == a.manifest.id
+                        })
                     }) {
                         s.catalog = s.catalogs().into_iter().next();
                         if s.navigation.page == Page::Discover {
@@ -182,6 +185,22 @@ fn apply(s: &mut State, event: Event) {
             } else {
                 format!("{} streams", s.streams.len())
             };
+            if done && s.library.quick_play == Some(s.detail_id) {
+                s.library.quick_play = None;
+                let playable: Vec<_> = s
+                    .streams
+                    .iter()
+                    .filter(|(_, stream)| stream.validate_playback().is_ok())
+                    .collect();
+                if playable.len() == 1 {
+                    let stream = playable[0].1.clone();
+                    let title = s
+                        .detail
+                        .as_ref()
+                        .map_or_else(String::new, |meta| meta.name.clone());
+                    s.play(stream, title);
+                }
+            }
         }
         Event::Playing(id, path) if id == s.player.generation => {
             s.player.report = Some(path);

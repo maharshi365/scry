@@ -6,10 +6,7 @@ use super::{
         poster_status_overlay,
     },
     design::tokens::{accent, panel, theme, type_},
-    primitives::{
-        surface::scroll,
-        text::{heading, label},
-    },
+    primitives::{surface::scroll, text::label},
 };
 use rune::{Cx, El, col, text};
 use scry_library::{Media, MediaKey, MediaKind};
@@ -226,11 +223,7 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> El {
         } else if split > 0 {
             cards = append_rows(cards, s, &saved, 0..split, columns, 0, prefix);
         }
-        cards = cards.child(
-            heading("What to watch next")
-                .key("up-next-heading")
-                .pb(POSTER_GAP),
-        );
+        cards = cards.child(super::library_view::up_next_header(s).pb(POSTER_GAP));
         if s.library.up_next.is_empty() {
             cards = cards.child(
                 label(if !s.library.up_next_loaded && s.library.worker.is_some() {

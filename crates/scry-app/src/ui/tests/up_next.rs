@@ -16,6 +16,88 @@ fn settle_grid(rt: &mut rune::Runtime<State>) {
 }
 
 #[test]
+fn quick_play_buttons_choose_the_first_matching_saved_video() {
+    let show = MediaKey::new("test", MediaKind::Series, "show");
+    for (button, expected, episode) in [
+        ("play-next-movie", "movie", None),
+        ("play-next-show", "show", Some("show:1:2")),
+    ] {
+        let mut s = init();
+        s.apply_up_next_entries(vec![
+            (
+                media(MediaKind::Episode, "show:1:2", Some(show.clone())),
+                None,
+            ),
+            (media(MediaKind::Movie, "movie", None), None),
+            (media(MediaKind::Movie, "later-movie", None), None),
+        ]);
+        let mut rt = rune::Runtime::new(s, view, (1000.0, 820.0), rune::Env::default());
+        rt.frame(0.0);
+        let header = rect(&rt, "up-next-heading");
+        let action = rect(&rt, button);
+        assert!(action[0] > header[0]);
+        assert!(action[1] >= header[1] && action[1] + action[3] <= header[1] + header[3]);
+        tap(&mut rt, button);
+        assert_eq!(rt.state.detail.as_ref().unwrap().id, expected);
+        assert_eq!(rt.state.pending_episode.as_deref(), episode);
+        assert_eq!(rt.state.library.quick_play, Some(rt.state.detail_id));
+    }
+}
+
+#[test]
+fn quick_play_buttons_are_disabled_without_matching_items() {
+    let mut rt = rune::Runtime::new(init(), view, (1000.0, 820.0), rune::Env::default());
+    rt.frame(0.0);
+    for key in ["play-next-movie", "play-next-show"] {
+        assert!(
+            !rt.elements()
+                .iter()
+                .find(|e| e.key.as_deref() == Some(key))
+                .unwrap()
+                .focusable
+        );
+        tap(&mut rt, key);
+        assert_eq!(rt.state.navigation.page, Page::Watching);
+    }
+}
+
+#[test]
+fn quick_play_starts_a_single_source_but_keeps_multiple_sources_in_the_picker() {
+    for count in [1, 2] {
+        let (mut s, tx) = state_with_events();
+        s.navigation.page = Page::Detail;
+        s.detail = Some(
+            serde_json::from_value(
+                serde_json::json!({"id":"movie", "type":"movie", "name":"Movie"}),
+            )
+            .unwrap(),
+        );
+        s.detail_namespace = "test".into();
+        s.selected_video_id = Some("movie".into());
+        s.library.quick_play = Some(s.detail_id);
+        let stream: Stream =
+            serde_json::from_value(serde_json::json!({"url":"https://example.com/video.mp4"}))
+                .unwrap();
+        tx.try_send(Event::Streams(
+            s.stream_id,
+            vec![("Provider".into(), stream); count],
+            vec![],
+            true,
+        ))
+        .unwrap();
+        poll(&mut s, 0.0, &mut Tx::default());
+        assert!(s.library.quick_play.is_none());
+        if count == 1 {
+            assert_eq!(s.library.playing.as_ref().unwrap().key.id, "movie");
+        } else {
+            assert!(s.library.playing.is_none());
+            assert_eq!(s.navigation.page, Page::Detail);
+            assert_eq!(s.streams.len(), 2);
+        }
+    }
+}
+
+#[test]
 fn next_cards_use_each_items_progress_and_resume_the_exact_episode() {
     let show = MediaKey::new("test", MediaKind::Series, "show");
     let first = media(MediaKind::Episode, "show:1:1", Some(show.clone()));

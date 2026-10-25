@@ -56,7 +56,7 @@ pub struct State {
     calendar: calendar::CalendarUi,
     context_menu: Option<(rune::PointerPress, Option<context_menu::Target>)>,
     addon_install_open: bool,
-    addon_installed_tab: bool,
+    addon_install_complete: bool,
     detail_namespace: String,
     pending_episode: Option<String>,
     host: Host,
