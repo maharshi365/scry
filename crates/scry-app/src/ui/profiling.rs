@@ -84,6 +84,10 @@ pub(super) fn poll(s: &mut State, tx: &mut Tx) -> bool {
             "metadata_stress" => metadata_stress(s),
             "library" => s.navigate(Page::Library),
             "calendar" => s.navigate(Page::Calendar),
+            "guide" => {
+                s.player.volume = 0;
+                s.navigate(Page::Guide);
+            }
             "addons" => s.navigate(Page::Addons),
             _ => s.error = Some("Unknown profiling action".into()),
         }
@@ -95,6 +99,9 @@ pub(super) fn poll(s: &mut State, tx: &mut Tx) -> bool {
         "fullscreen": s.player.fullscreen,
         "sample": s.player.sample,
         "error": s.error,
+        "guide_tuned": s.guide.tuned.is_some(),
+        "guide_resolving": s.guide.resolving,
+        "guide_error": s.guide.error,
         "catalog_len": s.metas.len(),
         "detail_episodes": s.detail.as_ref().map_or(0, |meta| meta.videos.len()),
         "geometry_rows": s.poster_rects.len(),

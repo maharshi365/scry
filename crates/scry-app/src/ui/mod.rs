@@ -12,6 +12,7 @@ mod discover;
 mod episodes;
 mod events;
 mod formatting;
+mod guide;
 mod library_view;
 mod navigation;
 mod player;
@@ -56,6 +57,7 @@ pub struct State {
     library: LibraryUi,
     calendar: calendar::CalendarUi,
     stats: stats::StatsUi,
+    guide: guide::GuideUi,
     context_menu: Option<(rune::PointerPress, Option<context_menu::Target>)>,
     addon_install_open: bool,
     addon_install_complete: bool,

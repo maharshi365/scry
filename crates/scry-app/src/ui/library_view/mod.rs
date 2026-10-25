@@ -304,6 +304,10 @@ impl State {
         }
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "The bounded completion match keeps each feature's generation check beside its database event"
+    )]
     pub(super) fn poll_library(&mut self) -> bool {
         let events: Vec<_> = self
             .library
@@ -315,6 +319,8 @@ impl State {
         let mut refresh = false;
         for event in events {
             match event {
+                DbEvent::Guide { generation, data } => self.apply_guide(generation, data),
+                DbEvent::GuideError { generation } => self.guide_failed(generation),
                 DbEvent::NerdStats { generation, data } => self.apply_stats(generation, data),
                 DbEvent::StatsError { generation } => self.stats_failed(generation),
                 DbEvent::Achievements(result) => self.apply_achievements(result),
@@ -374,7 +380,8 @@ impl State {
                         self.fetch_calendar();
                     }
                 }
-                DbEvent::RuntimesStored
+                DbEvent::GuideMetadataStored
+                | DbEvent::RuntimesStored
                 | DbEvent::UpNext { .. }
                 | DbEvent::Browse { .. }
                 | DbEvent::Overview { .. }

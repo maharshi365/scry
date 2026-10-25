@@ -8,6 +8,7 @@ use std::sync::Arc;
 pub(super) enum Page {
     Watching,
     Calendar,
+    Guide,
     Discover,
     Library,
     Addons,
@@ -73,9 +74,10 @@ impl State {
             return;
         }
         self.remember();
-        if self.navigation.page == Page::Player {
+        if matches!(self.navigation.page, Page::Player | Page::Guide) {
             self.stop();
         }
+        self.leave_guide();
         self.navigation.page = page;
         self.context_menu = None;
         self.addon_install_open = false;
@@ -88,6 +90,9 @@ impl State {
         self.status.clear();
         if page == Page::Stats {
             self.refresh_stats();
+        }
+        if page == Page::Guide {
+            self.refresh_guide();
         }
         if page == Page::Discover && self.catalog.is_some() && self.metas.is_empty() {
             self.fetch_catalog();
@@ -159,9 +164,10 @@ impl State {
         } else {
             self.navigation.forward.push(current);
         }
-        if self.navigation.page == Page::Player {
+        if matches!(self.navigation.page, Page::Player | Page::Guide) {
             self.stop();
         }
+        self.leave_guide();
         self.catalog_id += 1;
         self.detail_id += 1;
         self.stream_id += 1;
@@ -196,6 +202,7 @@ impl State {
         self.source_menu_open = false;
         self.loading = false;
         match self.navigation.page {
+            Page::Guide => self.refresh_guide(),
             Page::Stats => self.refresh_stats(),
             Page::Discover if route.loading => self.fetch_catalog(),
             Page::Detail => {

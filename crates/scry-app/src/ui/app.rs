@@ -21,6 +21,10 @@ use std::{
 
 const SHORTCUTS: &[Registration] = &[
     Registration {
+        scope: Scope::Screen,
+        handle: super::guide::shortcut,
+    },
+    Registration {
         scope: Scope::Local,
         handle: super::shell::shortcut,
     },
@@ -86,6 +90,7 @@ impl State {
             library: LibraryUi::default(),
             calendar: super::calendar::CalendarUi::default(),
             stats: super::stats::StatsUi::default(),
+            guide: super::guide::GuideUi::default(),
             context_menu: None,
             addon_install_open: false,
             addon_install_complete: false,

@@ -52,6 +52,9 @@ pub(super) fn player_artwork(s: &State) -> Vec<String> {
 
 pub(super) fn visible_artwork(s: &State) -> Vec<String> {
     let mut urls = Vec::new();
+    if s.navigation.page == Page::Guide {
+        return s.guide_artwork();
+    }
     if s.navigation.page == Page::Addons {
         return super::addons::artwork_urls(s);
     } else if (s.navigation.page == Page::Detail && s.detail_preview)

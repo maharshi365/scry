@@ -3,6 +3,7 @@
 
 mod achievements;
 mod app_storage;
+pub mod guide;
 mod media;
 mod models;
 mod playback;
@@ -32,7 +33,7 @@ use diesel::{
 
 /// All persistent app state shares this database. Older pre-release stores are not imported.
 pub const DATABASE_NAME: &str = "scry-v2.sqlite3";
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 // SQLite's initial journal-mode switch can return BUSY without using the
 // busy timeout. Serialize our workers' startup, not their normal database work.
 static INITIALIZE: Mutex<()> = Mutex::new(());
@@ -97,7 +98,7 @@ impl Library {
                 connection.batch_execute("DROP VIEW effective_watched;")?;
                 watch_status::install_view(connection)?;
                 connection.batch_execute("PRAGMA user_version=4;")?;
-            } else if version != 4 {
+            } else if version != 4 && version != 5 {
                 ensure!(
                     version == SCHEMA_VERSION,
                     "unsupported app database schema; reset the local database"
@@ -106,6 +107,10 @@ impl Library {
             if version < 5 {
                 connection.batch_execute(include_str!("stats_schema.sql"))?;
                 connection.batch_execute("PRAGMA user_version=5;")?;
+            }
+            if version < 6 {
+                connection.batch_execute(include_str!("guide_schema.sql"))?;
+                connection.batch_execute("PRAGMA user_version=6;")?;
             }
             Self::validate(connection)?;
             Ok(())
@@ -156,6 +161,7 @@ impl Library {
             .limit(0)
             .load::<(i64, bool)>(connection)?;
         stats::validate(connection)?;
+        guide::validate(connection)?;
         ensure!(
             diesel::sql_query("PRAGMA foreign_key_check")
                 .load::<ForeignKeyViolation>(connection)?

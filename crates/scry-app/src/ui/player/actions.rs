@@ -18,6 +18,14 @@ pub(crate) enum PlayerAction {
 
 impl State {
     pub(crate) fn player_action(&mut self, action: PlayerAction) {
+        if self.navigation.page == super::super::Page::Guide
+            && matches!(
+                action,
+                PlayerAction::TogglePause | PlayerAction::SeekRelative(_) | PlayerAction::SeekTo(_)
+            )
+        {
+            return;
+        }
         if !self.player.playing {
             return;
         }

@@ -3,6 +3,15 @@ use scry_library::{Media, MediaKey, MediaKind, Progress, WatchedState};
 
 #[derive(Clone, Debug)]
 pub enum Command {
+    Guide {
+        generation: u64,
+        action: scry_library::guide::GuideAction,
+    },
+    GuideMetadata(
+        Media,
+        scry_library::guide::GuideMetadata,
+        Vec<scry_library::EpisodeRelease>,
+    ),
     Runtimes(Vec<(MediaKey, f64)>),
     NerdStats {
         generation: u64,
@@ -102,6 +111,14 @@ pub struct Snapshot {
 
 #[derive(Debug)]
 pub enum Event {
+    Guide {
+        generation: u64,
+        data: scry_library::guide::Snapshot,
+    },
+    GuideError {
+        generation: u64,
+    },
+    GuideMetadataStored,
     RuntimesStored,
     NerdStats {
         generation: u64,

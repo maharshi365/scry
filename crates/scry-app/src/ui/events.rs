@@ -59,6 +59,7 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
             .as_mut()
             .is_some_and(crate::artwork::Artwork::poll);
     changed |= s.poll_achievement_toast(tx);
+    changed |= s.poll_guide(tx);
     if let Some(release) = s.library.next_release_at {
         let now = chrono::Utc::now().timestamp();
         if release <= now {
@@ -120,6 +121,7 @@ fn request_library_updates(s: &mut State) -> bool {
 )]
 fn apply(s: &mut State, event: Event) {
     match event {
+        Event::GuideDetails(generation, found) => s.apply_guide_details(generation, found),
         Event::WatchMetadata(token, media, watched, result) => {
             s.apply_watch_metadata(token, media, watched, result);
         }
@@ -191,6 +193,12 @@ fn apply(s: &mut State, event: Event) {
             }
         }
         Event::Streams(id, streams, warnings, done)
+            if id == s.stream_id && s.navigation.page == Page::Guide =>
+        {
+            s.apply_guide_streams(streams, done);
+            let _ = warnings;
+        }
+        Event::Streams(id, streams, warnings, done)
             if id == s.stream_id && s.navigation.page == Page::Detail =>
         {
             s.loading = !done;
@@ -228,12 +236,17 @@ fn apply(s: &mut State, event: Event) {
             s.command(&["set", "volume", &volume]);
         }
         Event::Ready(id) if id == s.player.generation && s.player.playing => {
+            let first_ready = !s.player.ready;
             s.player.ready = true;
-            if let Some(position) = s.library.resume_position.take() {
+            if s.navigation.page == Page::Guide && first_ready {
+                s.seek_guide_now();
+            } else if let Some(position) = s.library.resume_position.take() {
                 s.command(&["seek", &position.to_string(), "absolute"]);
                 s.library.observed = None;
             }
-            if s.navigation.page == Page::Player {
+            if s.navigation.page == Page::Player
+                || (s.navigation.page == Page::Guide && !s.guide.settings)
+            {
                 s.host.show();
             }
             s.status.clear();
@@ -253,7 +266,9 @@ fn apply(s: &mut State, event: Event) {
             s.observe_library_progress();
         }
         Event::Stopped(id, error) if id == s.player.generation => {
-            s.set_fullscreen(false);
+            if s.navigation.page != Page::Guide {
+                s.set_fullscreen(false);
+            }
             s.finish_library_progress(error.is_none());
             s.library.playing = None;
             s.refresh_library();
@@ -264,6 +279,7 @@ fn apply(s: &mut State, event: Event) {
             s.status = "Playback stopped".into();
             if error.is_some() {
                 s.error = error;
+                s.guide_join_failed();
             }
         }
         Event::PlayerWarning(id, error) if id == s.player.generation => s.error = Some(error),

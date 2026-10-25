@@ -142,6 +142,7 @@ impl State {
     }
 
     pub(in crate::ui) fn register_known_runtimes(&mut self, key: &MediaKey, meta: &Meta) {
+        self.register_guide_metadata(key, meta);
         self.library
             .tracking
             .pending_runtimes

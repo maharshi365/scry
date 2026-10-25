@@ -54,6 +54,9 @@ pub(super) fn shortcut(
 }
 
 pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
+    if s.navigation.page == Page::Guide && s.player.fullscreen {
+        return super::guide::view(s, cx);
+    }
     if s.navigation.page == Page::Player && s.player.fullscreen {
         return fullscreen_player(s, cx.env().scale);
     }
@@ -72,6 +75,7 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
         Page::Discover => discover(s, cx),
         Page::Watching => library_view::watching(s, cx),
         Page::Calendar => super::calendar::view(s, cx),
+        Page::Guide => super::guide::view(s, cx),
         Page::Library => library_view::view(s, cx),
         Page::Addons => addons(s),
         Page::Stats => super::stats::view(s),
@@ -179,6 +183,7 @@ fn sidebar(s: &State) -> El {
             &icons::PLAY,
         ),
         ("nav-library", "Library", Page::Library, &icons::LIBRARY),
+        ("nav-guide", "Guide", Page::Guide, &icons::TV),
         ("nav-calendar", "Calendar", Page::Calendar, &icons::CALENDAR),
         ("nav-stats", "Stats for Nerds", Page::Stats, &icons::CHART),
         ("nav-addons", "Add-ons", Page::Addons, &icons::ADDONS),

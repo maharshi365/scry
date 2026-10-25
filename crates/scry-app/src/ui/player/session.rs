@@ -78,7 +78,9 @@ impl State {
         match self.host.target() {
             Ok(target) => {
                 self.host.hide();
-                self.remember();
+                if self.navigation.page != Page::Guide {
+                    self.remember();
+                }
                 self.player.generation += 1;
                 self.player.playing = true;
                 self.player.ready = false;
@@ -90,7 +92,9 @@ impl State {
                 });
                 self.player.background = meta.and_then(|meta| meta.background.clone());
                 self.player.logo = meta.and_then(|meta| meta.logo.clone());
-                self.navigation.page = Page::Player;
+                if self.navigation.page != Page::Guide {
+                    self.navigation.page = Page::Player;
+                }
                 self.player.title = title;
                 self.player.sample = Sample::default();
                 self.player.seek_preview = None;

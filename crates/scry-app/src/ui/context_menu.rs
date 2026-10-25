@@ -77,6 +77,7 @@ impl State {
         self.retry_series_details();
         self.request_series_tracking(true);
         match self.navigation.page {
+            Page::Guide => self.refresh_guide(),
             Page::Stats => self.refresh_stats(),
             Page::Discover => self.fetch_catalog(),
             Page::Calendar => self.refresh_calendar(),
@@ -145,6 +146,19 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> Option<El> {
         );
     if let Some(Target::Title(media)) = item {
         menu = menu.child(label(media.title.clone()));
+        if matches!(media.key.kind, MediaKind::Movie | MediaKind::Series) {
+            let media = media.clone();
+            menu = menu.child(menu_item(
+                "context-collection",
+                "Add to a Guide collection…",
+                move |s: &mut State| {
+                    s.context_menu = None;
+                    s.guide.adding = Some(media.clone());
+                    s.guide.settings = true;
+                    s.navigate(Page::Guide);
+                },
+            ));
+        }
         for (key, title, choice) in [
             ("later", "Add to library", 0),
             ("remove", "Remove from library", 1),

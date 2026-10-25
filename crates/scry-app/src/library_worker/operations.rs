@@ -9,6 +9,24 @@ use scry_library::{Library, MAX_PAGE_SIZE, MediaKind, Page};
 )]
 pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
     match command {
+        Command::Guide { generation, action } => {
+            return Ok(
+                match library.guide_update(action, chrono::Utc::now().timestamp()) {
+                    Ok(data) => Event::Guide { generation, data },
+                    Err(_) => Event::GuideError { generation },
+                },
+            );
+        }
+        Command::GuideMetadata(media, metadata, inventory) => {
+            if media.key.kind == MediaKind::Movie {
+                library.register_release(&media, metadata.released_at)?;
+            }
+            library.set_guide_metadata(&media, &metadata)?;
+            if media.key.kind == MediaKind::Series && !inventory.is_empty() {
+                library.sync_episode_releases(&media.key, &inventory)?;
+            }
+            return Ok(Event::GuideMetadataStored);
+        }
         Command::Runtimes(values) => {
             library.set_known_runtimes(&values)?;
             return Ok(Event::RuntimesStored);

@@ -77,9 +77,10 @@ impl State {
 
     pub(super) fn choose_kind(&mut self, kind: &str) {
         self.remember();
-        if self.navigation.page == Page::Player {
+        if matches!(self.navigation.page, Page::Player | Page::Guide) {
             self.stop();
         }
+        self.leave_guide();
         self.navigation.page = Page::Discover;
         self.kind = kind.into();
         self.catalog = self.catalogs().into_iter().next();
@@ -123,9 +124,10 @@ impl State {
 
     pub(super) fn submit_search(&mut self) {
         self.remember();
-        if self.navigation.page == Page::Player {
+        if matches!(self.navigation.page, Page::Player | Page::Guide) {
             self.stop();
         }
+        self.leave_guide();
         self.navigation.page = Page::Discover;
         self.detail_id += 1;
         self.stream_id += 1;

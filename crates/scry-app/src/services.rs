@@ -55,6 +55,7 @@ impl LibraryPoster {
 
 #[derive(Debug)]
 pub enum Event {
+    GuideDetails(u64, Vec<(scry_library::Media, Meta)>),
     WatchMetadata(u64, scry_library::Media, bool, Result<Box<Meta>, String>),
     SeriesTrackingDetails(u64, Vec<(scry_library::MediaKey, Option<Meta>)>, bool),
     SeriesDetails(u64, Vec<(scry_library::MediaKey, Option<Meta>)>, bool),
@@ -98,6 +99,7 @@ impl Inbox {
 #[derive(Clone)]
 pub enum Source {
     Stream(Stream),
+    Channel(Stream, i64),
     Local(PathBuf),
 }
 
@@ -122,6 +124,7 @@ pub struct Services {
     library_poster_task: Option<tokio::task::JoinHandle<()>>,
     series_detail_task: Option<tokio::task::JoinHandle<()>>,
     series_tracking_task: Option<tokio::task::JoinHandle<()>>,
+    guide_task: Option<tokio::task::JoinHandle<()>>,
     watch_tasks: Vec<tokio::task::JoinHandle<()>>,
     control: Option<watch::Sender<Option<Control>>>,
     commands: Option<mpsc::Sender<(u64, Vec<String>)>>,
@@ -129,6 +132,11 @@ pub struct Services {
 }
 
 impl Services {
+    pub fn cancel_streams(&mut self) {
+        if let Some(task) = self.stream_task.take() {
+            task.abort();
+        }
+    }
     pub fn data_dir(&self) -> &std::path::Path {
         &self.data
     }
@@ -170,6 +178,7 @@ impl Services {
             library_poster_task: None,
             series_detail_task: None,
             series_tracking_task: None,
+            guide_task: None,
             watch_tasks: Vec::new(),
             control: Some(control),
             commands: Some(commands),
@@ -552,6 +561,55 @@ impl Services {
         });
     }
 
+    pub fn guide_details(
+        &mut self,
+        generation: u64,
+        addons: Vec<Addon>,
+        titles: Vec<scry_library::Media>,
+    ) {
+        if let Some(task) = self.guide_task.take() {
+            task.abort();
+        }
+        let (client, inbox) = (self.client.clone(), self.inbox.clone());
+        self.guide_task = Some(self.runtime.spawn(async move {
+            let mut titles = titles.into_iter().take(12);
+            let mut tasks = tokio::task::JoinSet::new();
+            let mut found = Vec::new();
+            loop {
+                while tasks.len() < 4 {
+                    let Some(media) = titles.next() else {
+                        break;
+                    };
+                    let (client, addons) = (client.clone(), addons.clone());
+                    tasks.spawn(async move {
+                        let kind = if media.key.kind == scry_library::MediaKind::Movie {
+                            "movie"
+                        } else {
+                            "series"
+                        };
+                        let meta = metadata::fetch(
+                            &client,
+                            &addons,
+                            &media.key.namespace,
+                            kind,
+                            &media.key.id,
+                            Some,
+                        )
+                        .await;
+                        (media, meta)
+                    });
+                }
+                let Some(result) = tasks.join_next().await else {
+                    break;
+                };
+                if let Ok((media, Some(meta))) = result {
+                    found.push((media, meta));
+                }
+            }
+            inbox.send(Event::GuideDetails(generation, found)).await;
+        }));
+    }
+
     pub fn invalidate_cache(&self) {
         self.client.invalidate_cache();
     }
@@ -754,6 +812,7 @@ impl Services {
             &mut self.library_poster_task,
             &mut self.series_detail_task,
             &mut self.series_tracking_task,
+            &mut self.guide_task,
         ] {
             if let Some(task) = task.take() {
                 task.abort();
@@ -897,6 +956,10 @@ async fn player_loop(
                 report = Some(active);
                 let result: Result<Box<dyn PlaybackEngine>> = {
                     let prepare = async {
+                        let scheduled_start = match &source {
+                            Source::Channel(_, starts_at) => Some(*starts_at),
+                            _ => None,
+                        };
                         let url = match source {
                             Source::Local(path) => {
                                 let path = std::fs::canonicalize(path)
@@ -908,7 +971,7 @@ async fn player_loop(
                                     .map_err(|()| anyhow::anyhow!("Invalid local video path"))?
                                     .to_string()
                             }
-                            Source::Stream(stream) => {
+                            Source::Stream(stream) | Source::Channel(stream, _) => {
                                 if let Some(url) = direct_url(&stream)? {
                                     url
                                 } else {
@@ -926,6 +989,13 @@ async fn player_loop(
                             }
                         };
                         let engine: Box<dyn PlaybackEngine> = Box::new(Player::open(target)?);
+                        if let Some(starts_at) = scheduled_start {
+                            let offset = chrono::Utc::now()
+                                .timestamp()
+                                .saturating_sub(starts_at)
+                                .max(0);
+                            engine.command(&["set", "start", &offset.to_string()])?;
+                        }
                         engine.load(&url)?;
                         Ok(engine)
                     };
