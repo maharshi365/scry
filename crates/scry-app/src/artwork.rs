@@ -7,6 +7,8 @@
 //! Keep returned image handles only in the current view, not another cache.
 //! A separate 32 MiB disposable disk cache keeps thumbnails for up to seven days.
 //! The player profile instead keeps two images up to 1280 × 720 in RAM only.
+//! Each profile also has a 16 MiB compressed HTTP body cache. Poster sources have
+//! a separate 16 MiB disk budget; HTTP freshness is checked before thumbnail reuse.
 //!
 //! This is NOT a total renderer memory bound: Rune's `ImageAtlas` uses shelf
 //! pages. It reclaims empty pages, but live images can prevent fragmented pages
@@ -21,7 +23,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::sync::watch;
 
@@ -101,9 +103,24 @@ struct State {
     profile: Profile,
     visible: Vec<String>,
     ready: Cache<rune::Pixels>,
-    failed: Cache<()>,
+    failed: Cache<Retry>,
     active: HashMap<String, watch::Sender<bool>>,
     stop: bool,
+}
+
+struct Retry {
+    attempts: u32,
+    after: Instant,
+}
+
+impl Retry {
+    fn new(attempts: u32) -> Self {
+        let delay = Duration::from_secs(5 * 2u64.saturating_pow(attempts.min(6)));
+        Self {
+            attempts,
+            after: Instant::now() + delay,
+        }
+    }
 }
 
 impl State {
@@ -112,7 +129,10 @@ impl State {
             .iter()
             .find(|url| {
                 self.ready.get(url).is_none()
-                    && self.failed.get(url).is_none()
+                    && self
+                        .failed
+                        .get(url)
+                        .is_none_or(|retry| retry.after <= Instant::now())
                     && !self.active.contains_key(*url)
             })
             .cloned()
@@ -150,6 +170,7 @@ struct Shared {
     state: Mutex<State>,
     available: Condvar,
     changed: AtomicBool,
+    source: Option<scry_addons::http_cache::HttpCache>,
 }
 
 pub struct Artwork {
@@ -173,8 +194,8 @@ impl Artwork {
             serde_json::json!({"images": state.ready.0.len(), "pixel_bytes": bytes, "active": state.active.len()}),
         )
     }
-    /// Two sleeping workers each run async HTTP on a current-thread runtime.
-    /// Decode happens on those same workers, never on the UI thread. Thumbnails
+    /// Two sleeping decode workers share one continuously driven HTTP runtime.
+    /// Decode happens on those workers, never on the UI thread. Thumbnails
     /// are already display-sized; use Pixels directly rather than queueing
     /// another worker to build a mip chain that these poster sizes never sample.
     pub fn start(wake: &rune::Waker) -> Result<Self> {
@@ -200,6 +221,12 @@ impl Artwork {
                 profile,
                 ..State::default()
             }),
+            source: Some(scry_addons::http_cache::HttpCache::new(
+                client,
+                scry_app::project_dir(true)
+                    .filter(|_| matches!(profile, Profile::Poster))
+                    .map(|dir| dir.join("artwork-http")),
+            )),
             ..Shared::default()
         });
         let artwork = Self { shared };
@@ -210,19 +237,26 @@ impl Artwork {
                     dirs.join("artwork"),
                 )))
             });
-        for index in 0..WORKERS {
-            let runtime = tokio::runtime::Builder::new_current_thread()
+        // Shared HTTP flights must keep making progress while a decode worker
+        // sleeps or abandons its viewport. Per-worker current-thread runtimes
+        // would strand an owned flight that another worker is waiting for.
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .thread_name("scry-image-http")
                 .enable_all()
                 .max_blocking_threads(1)
                 .build()
-                .map_err(|_| anyhow!("Cannot create the artwork runtime"))?;
+                .map_err(|_| anyhow!("Cannot create the artwork runtime"))?,
+        );
+        for index in 0..WORKERS {
+            let runtime = runtime.clone();
             let state = artwork.shared.clone();
-            let client = client.clone();
             let wake = wake.clone();
             let disk = disk.clone();
             thread::Builder::new()
                 .name(format!("scry-artwork-{index}"))
-                .spawn(move || worker(&state, &client, &wake, &runtime, disk.as_deref()))
+                .spawn(move || worker(&state, &wake, &runtime, disk.as_deref()))
                 .map_err(|_| anyhow!("Cannot start the artwork worker"))?;
         }
         Ok(artwork)
@@ -266,6 +300,17 @@ impl Artwork {
     pub fn poll(&mut self) -> bool {
         self.shared.changed.swap(false, Ordering::AcqRel)
     }
+
+    pub fn retry_failures(&mut self) {
+        if let Some(source) = &self.shared.source {
+            source.invalidate();
+        }
+        if let Ok(mut state) = self.shared.state.lock() {
+            state.failed.0.clear();
+            state.ready.0.clear();
+        }
+        self.shared.available.notify_all();
+    }
 }
 
 impl Drop for Artwork {
@@ -289,7 +334,6 @@ impl Drop for Artwork {
 
 fn worker(
     shared: &Shared,
-    client: &reqwest::Client,
     wake: &rune::Waker,
     runtime: &tokio::runtime::Runtime,
     disk: Option<&Mutex<crate::artwork_cache::DiskCache>>,
@@ -313,38 +357,42 @@ fn worker(
                     state.active.insert(url.clone(), sender);
                     break (url, receiver);
                 }
-                let Ok(ready) = shared.available.wait(state) else {
+                let delay = state
+                    .visible
+                    .iter()
+                    .filter_map(|url| state.failed.get(url))
+                    .map(|retry| retry.after.saturating_duration_since(Instant::now()))
+                    .min()
+                    .unwrap_or(Duration::from_hours(24));
+                let Ok((ready, _)) = shared
+                    .available
+                    .wait_timeout(state, delay.max(Duration::from_millis(50)))
+                else {
                     return;
                 };
                 state = ready;
             }
         };
-        let cached = disk.as_ref().and_then(|disk| disk.lock().ok()?.load(&url));
-        let decoded = cached.map_or_else(
-            || {
-                runtime
-                    .block_on(async {
-                        tokio::select! {
-                            biased;
-                            _ = cancel.changed() => Err(()),
-                            result = download(client, &url) => result,
-                        }
-                    })
-                    .and_then(|bytes| {
-                        if *cancel.borrow() {
-                            return Err(());
-                        }
-                        let (width, height, pixels) = thumbnail(&bytes, profile)?;
-                        if let Some(disk) = &disk
-                            && let Ok(disk) = disk.lock()
-                        {
-                            disk.store(&url, width, height, &pixels);
-                        }
-                        Ok((width, height, pixels))
-                    })
-            },
-            Ok,
-        );
+        let decoded = runtime
+            .block_on(async {
+                tokio::select! {
+                    biased;
+                    _ = cancel.changed() => Err(()),
+                    result = download(shared.source.as_ref(), &url) => result,
+                }
+            })
+            .and_then(|response| {
+                if *cancel.borrow() {
+                    return Err(());
+                }
+                let decoded = source_thumbnail(&response, &url, profile, disk);
+                if decoded.is_err()
+                    && let Some(source) = &shared.source
+                {
+                    runtime.block_on(source.reject_image(&url, MAX_DOWNLOAD));
+                }
+                decoded
+            });
         let result = decoded.and_then(|(width, height, pixels)| {
             if *cancel.borrow() {
                 return Err(());
@@ -365,9 +413,14 @@ fn worker(
                 visible,
                 ..
             } = &mut *state;
-            match result {
-                Ok(image) => ready.insert(url, image, profile.capacity(), visible),
-                Err(()) => failed.insert(url, (), FAILURE_CAPACITY, visible),
+            if let Ok(image) = result {
+                failed.0.retain(|(key, _)| key != &url);
+                ready.insert(url, image, profile.capacity(), visible);
+            } else {
+                let attempts = failed
+                    .get(&url)
+                    .map_or(0, |retry| retry.attempts.saturating_add(1));
+                failed.insert(url, Retry::new(attempts), FAILURE_CAPACITY, visible);
             }
         }
         drop(state);
@@ -377,6 +430,30 @@ fn worker(
         }
         shared.available.notify_all();
     }
+}
+
+fn source_thumbnail(
+    response: &scry_addons::http_cache::Response,
+    url: &str,
+    profile: Profile,
+    disk: Option<&Mutex<crate::artwork_cache::DiskCache>>,
+) -> std::result::Result<(u32, u32, Vec<u8>), ()> {
+    // Validate HTTP freshness before using derived pixels. A changed source gets
+    // a different thumbnail key even when its URL is stable.
+    let key = format!("{url}:{}", blake3::hash(&response.bytes).to_hex());
+    if response.storable
+        && let Some(cached) = disk.and_then(|disk| disk.lock().ok()?.load(&key))
+    {
+        return Ok(cached);
+    }
+    let (width, height, pixels) = thumbnail(&response.bytes, profile)?;
+    if response.storable
+        && let Some(disk) = disk
+        && let Ok(disk) = disk.lock()
+    {
+        disk.store(&key, width, height, &pixels);
+    }
+    Ok((width, height, pixels))
 }
 
 fn valid_url(value: &str) -> bool {
@@ -396,28 +473,15 @@ fn valid_url(value: &str) -> bool {
         && url.password().is_none()
 }
 
-async fn download(client: &reqwest::Client, url: &str) -> std::result::Result<Vec<u8>, ()> {
-    let mut response = client.get(url).send().await.map_err(|_| ())?;
-    if !response.status().is_success()
-        || response
-            .content_length()
-            .is_some_and(|size| size > MAX_DOWNLOAD as u64)
-    {
-        return Err(());
-    }
-    let mut bytes = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|_| ())? {
-        append_chunk(&mut bytes, &chunk)?;
-    }
-    Ok(bytes)
-}
-
-fn append_chunk(bytes: &mut Vec<u8>, chunk: &[u8]) -> std::result::Result<(), ()> {
-    if chunk.len() > MAX_DOWNLOAD.saturating_sub(bytes.len()) {
-        return Err(());
-    }
-    bytes.extend_from_slice(chunk);
-    Ok(())
+async fn download(
+    client: Option<&scry_addons::http_cache::HttpCache>,
+    url: &str,
+) -> std::result::Result<scry_addons::http_cache::Response, ()> {
+    client
+        .ok_or(())?
+        .get_cancellable(url::Url::parse(url).map_err(|_| ())?, MAX_DOWNLOAD)
+        .await
+        .map_err(|_| ())
 }
 
 fn thumbnail(bytes: &[u8], profile: Profile) -> std::result::Result<(u32, u32, Vec<u8>), ()> {
@@ -555,13 +619,45 @@ mod tests {
     fn failures_suppress_requests_and_history_is_bounded() {
         let mut state = State::default();
         state.set_visible(&[url(0)]);
-        state.failed.insert(url(0), (), FAILURE_CAPACITY, &[]);
+        state
+            .failed
+            .insert(url(0), Retry::new(0), FAILURE_CAPACITY, &[]);
         assert_eq!(state.next(), None);
         for index in 1..=FAILURE_CAPACITY {
-            state.failed.insert(url(index), (), FAILURE_CAPACITY, &[]);
+            state
+                .failed
+                .insert(url(index), Retry::new(0), FAILURE_CAPACITY, &[]);
         }
         assert_eq!(state.failed.0.len(), FAILURE_CAPACITY);
         assert_eq!(state.next(), Some(url(0)));
+    }
+
+    #[test]
+    fn expired_failures_retry_and_refresh_releases_suppressed_artwork() {
+        let mut state = State::default();
+        state.set_visible(&[url(0)]);
+        state.failed.insert(
+            url(0),
+            Retry {
+                attempts: 2,
+                after: Instant::now(),
+            },
+            FAILURE_CAPACITY,
+            &[],
+        );
+        assert_eq!(state.next(), Some(url(0)));
+        state
+            .failed
+            .insert(url(0), Retry::new(2), FAILURE_CAPACITY, &[]);
+        assert!(state.next().is_none());
+        let mut artwork = Artwork {
+            shared: Arc::new(Shared {
+                state: Mutex::new(state),
+                ..Shared::default()
+            }),
+        };
+        artwork.retry_failures();
+        assert_eq!(artwork.shared.state.lock().unwrap().next(), Some(url(0)));
     }
 
     #[test]
@@ -588,6 +684,40 @@ mod tests {
     }
 
     #[test]
+    fn thumbnails_follow_changed_content_and_no_store_does_not_persist_pixels() {
+        let directory = tempfile::tempdir().unwrap();
+        let disk = Mutex::new(crate::artwork_cache::DiskCache::new(
+            directory.path().into(),
+        ));
+        let mut previous = None;
+        for (color, storable) in [(12, true), (24, true), (36, false)] {
+            let source = image::RgbaImage::from_pixel(2, 1, image::Rgba([color, 0, 0, 255]));
+            let mut encoded = Cursor::new(Vec::new());
+            source
+                .write_to(&mut encoded, image::ImageFormat::Png)
+                .unwrap();
+            let response = scry_addons::http_cache::Response {
+                bytes: Arc::new(encoded.into_inner()),
+                storable,
+            };
+            let expected = thumbnail(&response.bytes, Profile::Poster).unwrap();
+            let (_, _, pixels) = source_thumbnail(
+                &response,
+                "https://example.com/stable.jpg",
+                Profile::Poster,
+                Some(&disk),
+            )
+            .unwrap();
+            assert_eq!(pixels, expected.2);
+            if let Some(previous) = previous {
+                assert_ne!(pixels, previous);
+            }
+            previous = Some(pixels);
+        }
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 2);
+    }
+
+    #[test]
     fn player_artwork_keeps_backdrop_resolution_and_logo_transparency() {
         let source = image::RgbaImage::from_pixel(1920, 1080, image::Rgba([12, 24, 36, 128]));
         let mut encoded = Cursor::new(Vec::new());
@@ -606,13 +736,24 @@ mod tests {
         assert_eq!(state.visible, [url(0), url(1)]);
     }
 
-    #[test]
-    fn download_limit_applies_without_content_length() {
-        let mut bytes = vec![0; MAX_DOWNLOAD - 2];
-        assert!(append_chunk(&mut bytes, &[1, 2]).is_ok());
-        assert!(append_chunk(&mut bytes, &[3]).is_err());
-        assert_eq!(bytes.len(), MAX_DOWNLOAD);
-        assert_eq!(&bytes[MAX_DOWNLOAD - 2..], &[1, 2]);
+    #[tokio::test]
+    async fn download_limit_applies_without_content_length() {
+        use tokio::io::AsyncWriteExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut response = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".to_vec();
+            response.resize(response.len() + MAX_DOWNLOAD + 1, 42);
+            let _ = socket.write_all(&response).await;
+        });
+        let client = scry_addons::http_cache::HttpCache::new(reqwest::Client::new(), None);
+        assert!(
+            download(Some(&client), &format!("http://{address}/oversized"))
+                .await
+                .is_err()
+        );
+        server.await.unwrap();
     }
 
     #[test]

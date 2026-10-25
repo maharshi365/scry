@@ -65,6 +65,15 @@ impl State {
 
     pub(super) fn refresh_page(&mut self) {
         self.context_menu = None;
+        if let Some(services) = &self.services {
+            services.invalidate_cache();
+        }
+        if let Some(artwork) = &mut self.artwork {
+            artwork.retry_failures();
+        }
+        if let Some(artwork) = &mut self.player_artwork {
+            artwork.retry_failures();
+        }
         self.retry_series_details();
         self.request_series_tracking(true);
         match self.navigation.page {

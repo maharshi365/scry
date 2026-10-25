@@ -98,6 +98,9 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
     s.request_library_posters();
     s.request_series_states();
     s.request_series_tracking(false);
+    if let Some(delay) = s.metadata_retry_after() {
+        tx.wake_after(delay);
+    }
     #[cfg(feature = "profiling")]
     {
         changed |= super::profiling::poll(s, tx);
@@ -139,15 +142,23 @@ fn apply(s: &mut State, event: Event) {
                     if s.navigation.page == Page::Calendar {
                         s.fetch_calendar();
                     }
-                    if s.catalog.as_ref().is_none_or(|(a, _)| {
-                        !s.addons.iter().any(|current| {
-                            !current.disabled && current.manifest.id == a.manifest.id
+                    let catalogs = s.catalogs();
+                    s.catalog = s
+                        .catalog
+                        .as_ref()
+                        .and_then(|(addon, catalog)| {
+                            catalogs
+                                .iter()
+                                .find(|(a, c)| {
+                                    a.manifest.id == addon.manifest.id
+                                        && c.id == catalog.id
+                                        && c.kind == catalog.kind
+                                })
+                                .cloned()
                         })
-                    }) {
-                        s.catalog = s.catalogs().into_iter().next();
-                        if s.navigation.page == Page::Discover {
-                            s.fetch_catalog();
-                        }
+                        .or_else(|| catalogs.into_iter().next());
+                    if s.navigation.page == Page::Discover {
+                        s.fetch_catalog();
                     }
                 }
                 Err(error) => s.error = Some(error),

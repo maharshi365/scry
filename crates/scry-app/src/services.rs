@@ -156,7 +156,9 @@ impl Services {
             })?;
         let services = Self {
             runtime,
-            client: Client::new()?,
+            client: Client::with_cache_dir(
+                scry_app::project_dir(true).map(|dir| dir.join("metadata-http")),
+            )?,
             inbox,
             config: Arc::new(Mutex::new(Vec::new())),
             data,
@@ -298,11 +300,31 @@ impl Services {
             task.abort();
         }
         let (client, inbox) = (self.client.clone(), self.inbox.clone());
+        let config = self.config.clone();
         self.catalog_task = Some(self.runtime.spawn(async move {
-            let result = client
-                .catalog_page(&addon, &catalog, offset)
+            // History can hold older manifest snapshots. Resolve current capability
+            // before fetching, including removal, disable, and pagination changes.
+            let current = config
+                .lock()
                 .await
-                .map_err(|e| e.to_string());
+                .iter()
+                .find(|current| !current.disabled && current.manifest_url == addon.manifest_url)
+                .and_then(|addon| {
+                    addon
+                        .manifest
+                        .catalogs
+                        .iter()
+                        .find(|current| current.id == catalog.id && current.kind == catalog.kind)
+                        .map(|catalog| (addon.clone(), catalog.clone()))
+                });
+            let result = if let Some((addon, catalog)) = current {
+                client
+                    .catalog_page(&addon, &catalog, offset)
+                    .await
+                    .map_err(|e| e.to_string())
+            } else {
+                Err("This catalog is no longer available from the installed add-ons".into())
+            };
             inbox.send(Event::Catalog(generation, offset, result)).await;
         }));
     }
@@ -363,6 +385,7 @@ impl Services {
             let mut tasks = tokio::task::JoinSet::new();
             let mut results = crate::search::Results::default();
             let mut interrupted = false;
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(25);
             loop {
                 while tasks.len() < crate::search::CONCURRENCY {
                     let Some((index, request)) = requests.next() else {
@@ -377,7 +400,14 @@ impl Services {
                         (index, request, result)
                     });
                 }
-                let Some(result) = tasks.join_next().await else {
+                let result = tokio::select! {
+                    result = tasks.join_next() => result,
+                    () = tokio::time::sleep_until(deadline) => {
+                        interrupted = true;
+                        break;
+                    }
+                };
+                let Some(result) = result else {
                     break;
                 };
                 match result {
@@ -402,48 +432,34 @@ impl Services {
         }));
     }
 
-    pub fn detail(
-        &mut self,
-        generation: u64,
-        mut addons: Vec<Addon>,
-        meta: Meta,
-        namespace: String,
-    ) {
+    pub fn detail(&mut self, generation: u64, addons: Vec<Addon>, meta: Meta, namespace: String) {
         if let Some(task) = self.detail_task.take() {
             task.abort();
         }
         let (client, inbox) = (self.client.clone(), self.inbox.clone());
-        addons.sort_by_key(|addon| addon.manifest.id != namespace);
         self.detail_task = Some(self.runtime.spawn(async move {
-            let mut errors = Vec::new();
-            for addon in addons
-                .iter()
-                .filter(|a| a.supports("meta", &meta.kind, &meta.id))
-            {
-                match client.meta(addon, &meta.kind, &meta.id).await {
-                    Ok(detail) => {
-                        inbox
-                            .send(Event::Detail(
-                                generation,
-                                Ok((detail, addon.manifest.id.clone())),
-                            ))
-                            .await;
-                        return;
+            let found = metadata::fetch_from(
+                &client,
+                &addons,
+                &namespace,
+                &meta.kind,
+                &meta.id,
+                |addon, detail| {
+                    (detail.kind == "movie" || !detail.videos.is_empty())
+                        .then(|| (detail, addon.manifest.id.clone()))
+                },
+            )
+            .await;
+            let result = found.map_or_else(
+                || {
+                    if meta.kind == "movie" {
+                        Ok((meta, namespace))
+                    } else {
+                        Err("Cannot load episode details from the installed add-ons".into())
                     }
-                    Err(_) => {
-                        errors.push(format!("{}: detail request failed", addon.manifest.name));
-                    }
-                }
-            }
-            let result = if meta.kind == "movie" {
-                Ok((meta, namespace))
-            } else {
-                Err(if errors.is_empty() {
-                    "No installed add-on provides episode details".into()
-                } else {
-                    errors.join(" · ")
-                })
-            };
+                },
+                Ok,
+            );
             inbox.send(Event::Detail(generation, result)).await;
         }));
     }
@@ -467,7 +483,16 @@ impl Services {
             }
             let mut streams = Vec::new();
             let mut errors = Vec::new();
-            while let Some(result) = tasks.join_next().await {
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(25);
+            loop {
+                let result = tokio::select! {
+                    result = tasks.join_next() => result,
+                    () = tokio::time::sleep_until(deadline) => {
+                        errors.push("Some stream add-ons did not finish before the deadline".into());
+                        break;
+                    }
+                };
+                let Some(result) = result else { break; };
                 match result {
                     Ok((name, Ok(found))) => {
                         let remaining = 300usize.saturating_sub(streams.len());
@@ -499,7 +524,36 @@ impl Services {
     }
 
     pub fn reload_addons(&self) {
-        self.load();
+        let (client, inbox, config, data) = (
+            self.client.clone(),
+            self.inbox.clone(),
+            self.config.clone(),
+            self.data.clone(),
+        );
+        client.invalidate_cache();
+        self.runtime.spawn(async move {
+            let previous = config.lock().await.clone();
+            let refreshed = addon_storage::refresh(&client, previous).await;
+            let result = addon_storage::update(&config, data, |next| {
+                for addon in next {
+                    if let Some(fresh) = refreshed
+                        .iter()
+                        .find(|fresh| fresh.manifest_url == addon.manifest_url)
+                    {
+                        addon.manifest = fresh.manifest.clone();
+                    }
+                }
+                Ok(())
+            })
+            .await;
+            inbox
+                .send(Event::Addons(result.map_err(|e| e.to_string())))
+                .await;
+        });
+    }
+
+    pub fn invalidate_cache(&self) {
+        self.client.invalidate_cache();
     }
 
     pub fn calendar(
@@ -511,7 +565,7 @@ impl Services {
         if let Some(task) = self.calendar_task.take() {
             task.abort();
         }
-        let (client, inbox) = (self.client.clone(), self.inbox.clone());
+        let (client, inbox) = (self.client.background(), self.inbox.clone());
         let addons = Arc::new(addons);
         self.calendar_task = Some(self.runtime.spawn(async move {
             let mut remaining = series.into_iter();
@@ -564,7 +618,7 @@ impl Services {
         if let Some(task) = self.library_poster_task.take() {
             task.abort();
         }
-        let (client, inbox) = (self.client.clone(), self.inbox.clone());
+        let (client, inbox) = (self.client.background(), self.inbox.clone());
         let addons = Arc::new(addons);
         self.library_poster_task = Some(self.runtime.spawn(async move {
             let mut remaining = media.into_iter().take(12);
@@ -623,7 +677,7 @@ impl Services {
         if let Some(task) = slot.take() {
             task.abort();
         }
-        let (client, inbox) = (self.client.clone(), self.inbox.clone());
+        let (client, inbox) = (self.client.background(), self.inbox.clone());
         let addons = Arc::new(addons);
         *slot = Some(self.runtime.spawn(async move {
             let mut remaining = keys.into_iter().take(12);

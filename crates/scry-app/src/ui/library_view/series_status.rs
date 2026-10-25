@@ -38,10 +38,14 @@ impl State {
 
     pub(in crate::ui) fn request_series_states(&mut self) {
         let keys = super::super::poster_grid::series_keys(self);
-        self.library
-            .series
-            .details
-            .retain(|_, (_, fetched)| fetched.elapsed() < Duration::from_mins(10));
+        self.library.series.details.retain(|_, (meta, fetched)| {
+            fetched.elapsed()
+                < if meta.is_some() {
+                    Duration::from_mins(10)
+                } else {
+                    Duration::from_secs(30)
+                }
+        });
         while self.library.series.details.len() > 32 {
             let oldest = self
                 .library

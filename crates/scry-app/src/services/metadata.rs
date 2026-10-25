@@ -1,5 +1,10 @@
 //! Provider preference and fallback for background library metadata requests.
 use scry_addons::{Addon, Client, Meta};
+use std::{collections::BTreeMap, time::Duration};
+
+const PROVIDERS: usize = 4;
+const DEADLINE: Duration = Duration::from_secs(12);
+const OWNER_GRACE: Duration = Duration::from_millis(300);
 
 pub(super) async fn fetch<T>(
     client: &Client,
@@ -9,20 +14,70 @@ pub(super) async fn fetch<T>(
     id: &str,
     project: impl Fn(Meta) -> Option<T>,
 ) -> Option<T> {
-    // Borrow providers in preference order instead of cloning/sorting every manifest.
-    for addon in addons
+    fetch_from(client, addons, namespace, kind, id, |_, meta| project(meta)).await
+}
+
+pub(super) async fn fetch_from<T>(
+    client: &Client,
+    addons: &[Addon],
+    namespace: &str,
+    kind: &str,
+    id: &str,
+    project: impl Fn(&Addon, Meta) -> Option<T>,
+) -> Option<T> {
+    let providers = addons
         .iter()
         .filter(|a| a.manifest.id == namespace)
         .chain(addons.iter().filter(|a| a.manifest.id != namespace))
-        .filter(|a| a.supports("meta", kind, id))
-    {
-        if let Ok(meta) = client.meta(addon, kind, id).await
-            && let Some(value) = project(meta)
+        .filter(|a| a.supports("meta", kind, id));
+    let mut remaining = providers.enumerate();
+    let mut tasks = tokio::task::JoinSet::new();
+    let mut pending = std::collections::BTreeSet::new();
+    let mut usable = BTreeMap::new();
+    let deadline = tokio::time::Instant::now() + DEADLINE;
+    let mut grace = deadline;
+    loop {
+        while tasks.len() < PROVIDERS {
+            let Some((index, addon)) = remaining.next() else {
+                break;
+            };
+            pending.insert(index);
+            let (client, addon, kind, id) = (
+                client.clone(),
+                addon.clone(),
+                kind.to_owned(),
+                id.to_owned(),
+            );
+            tasks.spawn(async move {
+                let result = client.meta(&addon, &kind, &id).await;
+                (index, addon, result)
+            });
+        }
+        if let Some((&first, _)) = usable.first_key_value()
+            && pending.first().is_none_or(|index| *index > first)
         {
-            return Some(value);
+            break;
+        }
+        let result = tokio::select! {
+            result = tasks.join_next() => result,
+            () = tokio::time::sleep_until(deadline.min(grace)) => break,
+        };
+        let Some(result) = result else {
+            break;
+        };
+        if let Ok((index, addon, result)) = result {
+            pending.remove(&index);
+            if let Ok(meta) = result
+                && let Some(value) = project(&addon, meta)
+            {
+                usable.insert(index, value);
+                grace = grace.min(tokio::time::Instant::now() + OWNER_GRACE);
+            }
         }
     }
-    None
+    // JoinSet cancellation drops only these consumers. The shared HTTP loader
+    // still serves another calendar/detail request for the same resource.
+    usable.pop_first().map(|(_, value)| value)
 }
 
 #[cfg(test)]
@@ -33,6 +88,47 @@ pub(super) async fn fetch<T>(
 mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn stalled_owner_does_not_block_a_usable_fallback() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let mut tasks = tokio::task::JoinSet::new();
+            for _ in 0..2 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                tasks.spawn(async move {
+                    let mut request = [0; 4096];
+                    let received = socket.read(&mut request).await.unwrap();
+                    if String::from_utf8_lossy(&request[..received]).contains("/owner/") {
+                        let mut eof = [0; 1];
+                        let _ = socket.read(&mut eof).await;
+                    } else {
+                        let body = r#"{"meta":{"id":"film","type":"movie","name":"Fallback"}}"#;
+                        socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+                    }
+                });
+            }
+            while tasks.join_next().await.is_some() {}
+        });
+        let addons = ["owner", "fallback"].map(|id| serde_json::from_value(serde_json::json!({
+            "manifest_url":format!("http://{address}/{id}/manifest.json"),"manifest":{"id":id,"name":id,"resources":["meta"]}
+        })).unwrap());
+        let client = Client::new().unwrap();
+        let name = tokio::time::timeout(
+            Duration::from_secs(2),
+            fetch(&client, &addons, "owner", "movie", "film", |meta| {
+                Some(meta.name.clone())
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(name.as_deref(), Some("Fallback"));
+        tokio::time::timeout(Duration::from_secs(2), server)
+            .await
+            .unwrap()
+            .unwrap();
+    }
 
     #[tokio::test]
     async fn prefers_the_owner_and_falls_back_until_metadata_is_usable() {

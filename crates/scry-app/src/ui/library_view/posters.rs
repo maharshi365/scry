@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 #[derive(Default)]
 pub(in crate::ui) struct PosterUi {
     pub cache: HashMap<MediaKey, Option<LibraryPoster>>,
+    failures: HashMap<MediaKey, std::time::Instant>,
     pub generation: u64,
     pub busy: bool,
 }
@@ -163,6 +164,17 @@ impl State {
     }
 
     pub(in crate::ui) fn request_library_posters(&mut self) {
+        let posters = &mut self.library.posters;
+        posters.failures.retain(|key, time| {
+            if time.elapsed() >= std::time::Duration::from_secs(30) {
+                if posters.cache.get(key).is_some_and(Option::is_none) {
+                    posters.cache.remove(key);
+                }
+                false
+            } else {
+                posters.cache.contains_key(key)
+            }
+        });
         if self.library.posters.busy || self.services.is_none() || self.addons.is_empty() {
             return;
         }
@@ -187,6 +199,25 @@ impl State {
                 missing,
             );
         }
+    }
+
+    pub(in crate::ui) fn metadata_retry_after(&self) -> Option<std::time::Duration> {
+        let delay = std::time::Duration::from_secs(30);
+        self.library
+            .posters
+            .failures
+            .values()
+            .map(|time| delay.saturating_sub(time.elapsed()))
+            .chain(
+                self.library
+                    .series
+                    .details
+                    .values()
+                    .filter(|(meta, _)| meta.is_none())
+                    .map(|(_, time)| delay.saturating_sub(time.elapsed())),
+            )
+            .filter(|remaining| !remaining.is_zero())
+            .min()
     }
 
     pub(super) fn remember_series_poster(&mut self, key: &MediaKey, meta: &scry_addons::Meta) {
@@ -236,6 +267,14 @@ impl State {
                     .iter()
                     .any(|(m, _)| *Self::poster_key(m) == key)
             {
+                if poster.is_none() {
+                    self.library
+                        .posters
+                        .failures
+                        .insert(key.clone(), std::time::Instant::now());
+                } else {
+                    self.library.posters.failures.remove(&key);
+                }
                 self.library.posters.cache.insert(key, poster);
             }
         }
@@ -249,6 +288,7 @@ impl State {
         self.retry_series_details();
         self.library.posters.generation += 1;
         self.library.posters.busy = false;
+        self.library.posters.failures.clear();
         self.library
             .posters
             .cache

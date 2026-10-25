@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+pub mod http_cache;
+
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -220,7 +222,7 @@ pub struct Stream {
 }
 
 #[derive(Clone)]
-pub struct Client(reqwest::Client);
+pub struct Client(http_cache::HttpCache);
 
 fn optional_text<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
@@ -484,40 +486,47 @@ impl Client {
     /// # Errors
     /// Returns an error if the HTTP client cannot be initialized.
     pub fn new() -> Result<Self> {
-        Ok(Self(
+        Self::with_cache_dir(None)
+    }
+
+    /// # Errors
+    /// Returns an error if the HTTP client cannot be initialized.
+    pub fn with_cache_dir(directory: Option<std::path::PathBuf>) -> Result<Self> {
+        Ok(Self(http_cache::HttpCache::new(
             reqwest::Client::builder()
                 .timeout(Duration::from_secs(25))
                 .connect_timeout(Duration::from_secs(8))
                 .user_agent("Scry/0.1")
                 .build()?,
-        ))
+            directory,
+        )))
+    }
+
+    pub fn invalidate_cache(&self) {
+        self.0.invalidate();
+    }
+
+    #[must_use]
+    pub fn background(&self) -> Self {
+        Self(self.0.background())
     }
 
     async fn json<T: serde::de::DeserializeOwned>(&self, url: Url) -> Result<T> {
-        // Never include reqwest errors: they can contain private manifest path tokens.
+        self.json_mode(url, true).await
+    }
+
+    async fn json_mode<T: serde::de::DeserializeOwned>(
+        &self,
+        url: Url,
+        allow_stale: bool,
+    ) -> Result<T> {
         let response = self
             .0
-            .get(url)
-            .send()
-            .await
-            .map_err(|_| anyhow::anyhow!("Add-on request failed or timed out"))?;
-        if !response.status().is_success() {
-            bail!("Add-on returned HTTP {}", response.status().as_u16());
-        }
-        let mut response = response;
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| anyhow::anyhow!("Add-on response interrupted"))?
-        {
-            if bytes.len() + chunk.len() > 4 * 1024 * 1024 {
-                bail!("Add-on response exceeds 4 MiB");
-            }
-            bytes.extend_from_slice(&chunk);
-        }
+            .get_json::<T>(url, 4 * 1024 * 1024, allow_stale)
+            .await?;
         // Serde errors can echo an invalid string value, including private URLs.
-        serde_json::from_slice(&bytes).map_err(|_| anyhow::anyhow!("Invalid add-on response"))
+        serde_json::from_slice(&response.bytes)
+            .map_err(|_| anyhow::anyhow!("Invalid add-on response"))
     }
 
     /// # Errors
@@ -585,7 +594,10 @@ impl Client {
             streams: Vec<Stream>,
         }
         Ok(self
-            .json::<Response>(resource_url(&addon.manifest_url, "stream", kind, id, None)?)
+            .json_mode::<Response>(
+                resource_url(&addon.manifest_url, "stream", kind, id, None)?,
+                false,
+            )
             .await?
             .streams
             .into_iter()
