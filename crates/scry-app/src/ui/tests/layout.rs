@@ -1,6 +1,29 @@
 use super::*;
 
 #[test]
+fn topbar_controls_share_height_and_alignment_while_searching() {
+    for width in [880.0, 1280.0] {
+        let mut rt = rune::Runtime::new(init(), view, (width, 600.0), rune::Env::default());
+        rt.frame(0.0);
+        let search = rect(&rt, "search-frame");
+        let button = rect(&rt, "search-go");
+        for key in ["nav-back", "nav-forward", "search-go", "page-refresh"] {
+            let bounds = rect(&rt, key);
+            assert!((bounds[3] - search[3]).abs() < 0.5, "{key} height");
+            assert!((bounds[1] - search[1]).abs() < 0.5, "{key} alignment");
+        }
+        rt.update(|s, _| {
+            s.navigation.page = Page::Discover;
+            s.loading = true;
+            s.displayed_query = "movie".into();
+        });
+        rt.frame(0.0);
+        assert_eq!(rect(&rt, "search-go"), button);
+        assert_eq!(rect(&rt, "search-frame"), search);
+    }
+}
+
+#[test]
 fn watched_episode_badges_do_not_move_episode_cards_or_titles() {
     let mut s = init();
     s.navigation.page = Page::Detail;

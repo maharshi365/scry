@@ -109,7 +109,7 @@ impl State {
         self.error = None;
         self.warnings.clear();
         self.loading = true;
-        self.status = "Searching…".into();
+        self.status.clear();
         if let Some(services) = &mut self.services {
             services.search(
                 self.catalog_id,

@@ -5,7 +5,7 @@ use super::{
     controls::{icon_action, input},
     design::{
         icons,
-        tokens::{self, type_},
+        tokens::{self, control, type_},
     },
     detail::detail,
     discover::discover,
@@ -189,6 +189,28 @@ fn nav_action(
 }
 
 fn topbar(s: &State) -> El {
+    let searching =
+        s.navigation.page == Page::Discover && s.loading && !s.displayed_query.is_empty();
+    let mut search = Button::new("search-go", "Search")
+        .busy(searching)
+        .frame()
+        .h(control::INPUT_HEIGHT)
+        .w(112.0)
+        .gap(8.0);
+    if searching {
+        search = search.child(
+            rune::icon(&icons::SPINNER, 16.0)
+                .key("search-spinner")
+                .color(tokens::accent())
+                .looping(rune::LoopSpec::rotation(0.8)),
+        );
+    }
+    let search = search.child(text("Search").font(type_::BODY).color(tokens::theme().text));
+    let search = if searching {
+        search
+    } else {
+        search.on_press(State::submit_search)
+    };
     row()
         .key("topbar")
         .w_full()
@@ -222,25 +244,17 @@ fn topbar(s: &State) -> El {
             |s| &mut s.search,
             State::submit_search,
         ))
+        .child(search)
         .child(
-            Button::new(
-                "search-go",
-                if s.navigation.page == Page::Discover && s.loading && !s.displayed_query.is_empty()
-                {
-                    "Searching…"
-                } else {
-                    "Search"
-                },
+            icon_action(
+                "page-refresh",
+                "Refresh current page",
+                &icons::REFRESH,
+                State::refresh_page,
             )
-            .busy(s.navigation.page == Page::Discover && s.loading && !s.displayed_query.is_empty())
-            .on_press(State::submit_search),
+            .w(control::INPUT_HEIGHT)
+            .h(control::INPUT_HEIGHT),
         )
-        .child(icon_action(
-            "page-refresh",
-            "Refresh current page",
-            &icons::REFRESH,
-            State::refresh_page,
-        ))
 }
 
 fn history_button(key: &str, enabled: bool, forward: bool) -> El {
@@ -256,4 +270,6 @@ fn history_button(key: &str, enabled: bool, forward: bool) -> El {
     .enabled(enabled)
     .icon(if forward { &icons::RIGHT } else { &icons::LEFT })
     .on_press(move |s: &mut State| s.travel(forward))
+    .w(control::INPUT_HEIGHT)
+    .h(control::INPUT_HEIGHT)
 }

@@ -333,25 +333,35 @@ fn search_button_shows_pending_requests_until_the_last_provider_finishes() {
     s.submit_search();
     let mut rt = rune::Runtime::new(s, view, (1280.0, 820.0), rune::Env::default());
     rt.frame(0.0);
+    assert!(rt.find("search-spinner").is_some());
+    assert!(
+        !rt.elements()
+            .iter()
+            .any(|e| e.text.as_deref() == Some("Searching…"))
+    );
     assert!(
         rt.elements()
             .iter()
-            .any(|e| e.text.as_deref() == Some("Searching…"))
+            .any(|e| e.text.as_deref() == Some("Search"))
+    );
+    assert!(
+        !rt.elements()
+            .iter()
+            .find(|e| e.key.as_deref() == Some("search-go"))
+            .unwrap()
+            .focusable
     );
     rt.poll = Some(poll);
     tx.try_send(Event::Search(rt.state.catalog_id, vec![], vec![], false))
         .unwrap();
     rt.frame(1.0 / 60.0);
-    assert_eq!(rt.state.status, "Searching…");
-    assert!(
-        rt.elements()
-            .iter()
-            .any(|e| e.text.as_deref() == Some("Searching…"))
-    );
+    assert!(rt.state.status.is_empty());
+    assert!(rt.find("search-spinner").is_some());
     tx.try_send(Event::Search(rt.state.catalog_id, vec![], vec![], true))
         .unwrap();
     rt.frame(1.0 / 60.0);
     assert!(rt.state.status.is_empty());
+    assert!(rt.find("search-spinner").is_none());
     assert!(
         rt.elements()
             .iter()

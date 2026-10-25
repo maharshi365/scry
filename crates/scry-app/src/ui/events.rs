@@ -159,7 +159,7 @@ fn apply(s: &mut State, event: Event) {
             s.providers = Arc::new(results.iter().map(|result| result.addon.clone()).collect());
             s.metas = Arc::new(results.into_iter().map(|result| result.meta).collect());
             s.warnings = warnings;
-            s.status = if done { "" } else { "Searching…" }.into();
+            s.status.clear();
         }
         Event::Detail(id, result) if id == s.detail_id && s.navigation.page == Page::Detail => {
             s.loading = false;
