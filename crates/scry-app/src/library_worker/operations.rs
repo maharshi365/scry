@@ -61,13 +61,7 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
                 } else {
                     None
                 };
-                let progress = summary
-                    .and_then(scry_library::SeriesProgress::fraction)
-                    .filter(|fraction| *fraction > 0.0)
-                    .map(|fraction| scry_library::Progress {
-                        position_seconds: fraction,
-                        duration_seconds: 1.0,
-                    });
+                let progress = summary.and_then(scry_library::SeriesProgress::normalized_progress);
                 states.push(SeriesState {
                     key: state.key,
                     tracked,

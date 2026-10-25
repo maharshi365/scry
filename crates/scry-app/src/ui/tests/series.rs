@@ -12,6 +12,51 @@ fn wait_for_watched_series(rt: &mut rune::Runtime<State>, key: &MediaKey) {
 }
 
 #[test]
+fn undated_watched_specials_share_the_counter_and_poster_completion() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("library.sqlite3");
+    let show = Media {
+        key: MediaKey::new("imdb", MediaKind::Series, "tt123"),
+        title: "Show".into(),
+        parent: None,
+    };
+    {
+        let mut db = Library::open(&path).unwrap();
+        let releases = [Some(0), None]
+            .into_iter()
+            .enumerate()
+            .map(|(index, released_at)| scry_library::EpisodeRelease {
+                media: Media {
+                    key: MediaKey::new("imdb", MediaKind::Episode, format!("tt123:{index}:1")),
+                    title: format!("Episode {index}"),
+                    parent: Some(show.key.clone()),
+                },
+                released_at,
+                season: None,
+                episode: None,
+            })
+            .collect::<Vec<_>>();
+        db.set_media_watched(&show, None, Some(&releases), true)
+            .unwrap();
+    }
+    let mut s = init();
+    scene_discover(&mut s);
+    s.metas = Arc::new(vec![
+        serde_json::from_value(serde_json::json!({"id":"tt123","type":"series","name":"Show"}))
+            .unwrap(),
+    ]);
+    s.library.worker = Some(crate::library_worker::Worker::start(path, Arc::new(|| {})).unwrap());
+    let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
+    rt.poll = Some(poll);
+    wait_for_watched_series(&mut rt, &show.key);
+    assert_eq!(
+        rt.state.series_progress_label(&show.key).as_deref(),
+        Some("2 / 2 episodes watched · 100%")
+    );
+    assert!(rt.find("title-poster-0-watched").is_some());
+}
+
+#[test]
 fn background_tracking_finds_completed_shows_hidden_by_the_library_filter() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("library.sqlite3");

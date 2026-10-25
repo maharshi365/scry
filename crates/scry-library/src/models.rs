@@ -85,6 +85,17 @@ impl SeriesProgress {
         (self.total_episodes > 0)
             .then(|| (self.completed_equivalents / f64::from(self.total_episodes)).clamp(0.0, 1.0))
     }
+
+    /// Presentation-only progress; individual episode resume times stay separate.
+    #[must_use]
+    pub fn normalized_progress(self) -> Option<Progress> {
+        self.fraction()
+            .filter(|fraction| *fraction > 0.0)
+            .map(|fraction| Progress {
+                position_seconds: fraction,
+                duration_seconds: 1.0,
+            })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

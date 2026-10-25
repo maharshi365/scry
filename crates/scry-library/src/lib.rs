@@ -8,6 +8,7 @@ mod playback;
 mod playlists;
 mod schema;
 mod up_next;
+mod watch_status;
 
 pub use app_storage::AddonRecord;
 pub use models::*;
@@ -23,7 +24,7 @@ use diesel::{
 
 /// All persistent app state shares this database. Older pre-release stores are not imported.
 pub const DATABASE_NAME: &str = "scry-v2.sqlite3";
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 // SQLite's initial journal-mode switch can return BUSY without using the
 // busy timeout. Serialize our workers' startup, not their normal database work.
 static INITIALIZE: Mutex<()> = Mutex::new(());
@@ -78,12 +79,16 @@ impl Library {
                 .get_result::<Count>(connection)?;
                 ensure!(tables.count == 0, "unversioned app database is not empty");
                 connection.batch_execute(include_str!("schema.sql"))?;
-                connection.batch_execute(include_str!("effective_watched.sql"))?;
-                connection.batch_execute("PRAGMA user_version=2;")?;
+                watch_status::install_view(connection)?;
+                connection.batch_execute("PRAGMA user_version=3;")?;
             } else if version == 1 {
                 connection.batch_execute(include_str!("migrations/2.sql"))?;
-                connection.batch_execute(include_str!("effective_watched.sql"))?;
-                connection.batch_execute("PRAGMA user_version=2;")?;
+                watch_status::install_view(connection)?;
+                connection.batch_execute("PRAGMA user_version=3;")?;
+            } else if version == 2 {
+                connection.batch_execute("DROP VIEW effective_watched;")?;
+                watch_status::install_view(connection)?;
+                connection.batch_execute("PRAGMA user_version=3;")?;
             } else {
                 ensure!(
                     version == SCHEMA_VERSION,

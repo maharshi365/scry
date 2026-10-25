@@ -3,6 +3,68 @@ use diesel::{connection::SimpleConnection, prelude::*};
 use scry_library::{EpisodeRelease, Library, Media, MediaKey, MediaKind, Page, Progress};
 
 #[test]
+fn version_two_upgrade_counts_saved_undated_watches_without_rewriting_history() -> anyhow::Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("library.sqlite3");
+    {
+        let mut connection =
+            SqliteConnection::establish(path.to_str().context("test database path is not UTF-8")?)?;
+        connection.batch_execute(include_str!("../src/schema.sql"))?;
+        connection.batch_execute(
+            "CREATE VIEW effective_watched AS
+             SELECT m.media_id, CASE WHEN m.kind='series' THEN
+                 EXISTS(SELECT 1 FROM media e JOIN episode_releases r ON r.media_id=e.media_id
+                     WHERE e.parent_id=m.media_id)
+                 AND NOT EXISTS(SELECT 1 FROM media e JOIN episode_releases r ON r.media_id=e.media_id
+                     LEFT JOIN watched v ON v.media_id=e.media_id
+                     WHERE e.parent_id=m.media_id AND
+                         (r.released_at IS NULL OR r.released_at>unixepoch() OR COALESCE(v.watched,0)=0))
+                 ELSE COALESCE(w.watched,0) END AS watched
+             FROM media m LEFT JOIN watched w ON w.media_id=m.media_id;
+             INSERT INTO media VALUES (1,'test','series','show','Show',NULL),
+                 (2,'test','episode','first','First',1), (3,'test','episode','special','Special',1);
+             INSERT INTO series_inventory VALUES (1);
+             INSERT INTO episode_releases VALUES (2,0,1,1),(3,NULL,0,1);
+             INSERT INTO watched VALUES (2,1),(3,1);
+             INSERT INTO progress VALUES (3,80.0,100.0);
+             INSERT INTO viewing VALUES (3,75.0,1,1);
+             INSERT INTO watchlist (media_id) VALUES (1);
+             PRAGMA user_version=2;",
+        )?;
+    }
+    let show = MediaKey::new("test", MediaKind::Series, "show");
+    let special = MediaKey::new("test", MediaKind::Episode, "special");
+    for _ in 0..2 {
+        let db = Library::open(&path)?;
+        let summary = db.series_progress(&show, 100)?;
+        assert_eq!(summary.total_episodes, 2);
+        assert_eq!(summary.released_episodes, 1);
+        assert_eq!(summary.watched_episodes, 2);
+        assert_eq!(summary.fraction(), Some(1.0));
+        assert!(db.watched_state(&show)?.watched);
+        assert!(db.series_poster_state(&show, 100)?.0);
+        assert_eq!(
+            db.list_library(true, MediaKind::Series, Page::default())?
+                .len(),
+            1
+        );
+        assert_eq!(
+            db.load_progress(&special)?,
+            Some(Progress {
+                position_seconds: 80.0,
+                duration_seconds: 100.0,
+            })
+        );
+        assert!(
+            (db.media_states(std::slice::from_ref(&special))?[0].watched_seconds - 75.0).abs()
+                < f64::EPSILON
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn version_one_upgrade_corrects_completion_and_preserves_watch_history() -> anyhow::Result<()> {
     #[derive(QueryableByName)]
     struct Flag {

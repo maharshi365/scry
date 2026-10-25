@@ -22,10 +22,10 @@ search, Library, and Currently watching. Screens put their own headings and filt
 above that grid. Movie posters show saved progress as an overlay one-sixth of the
 poster height above the bottom, or a top-right check mark when watched. Visible
 movie states are read in bounded batches on the database worker for all grid routes.
-TV posters use aggregate actual playback across all known released episodes and
-show watched/released episode counts. Resume-based advancement is separate. A check mark requires
-every known released episode across all seasons to be watched. Future and undated
-episodes do not count; an empty released set never earns a check mark. The database
+TV posters use the library watch-status service's aggregate actual playback and
+show watched/total episode counts. Resume-based advancement is separate. A check mark requires
+a nonempty inventory with every episode watched across all seasons. Known future
+episodes block completion; undated watched episodes count. The database
 summary is independent of episode and Currently watching pagination. Visible tracked
 shows fetch metadata in batches of 12 with four requests in flight; the bounded
 32-show in-memory metadata cache expires after ten minutes and Refresh retries failures.

@@ -13,7 +13,8 @@ watch history, saved titles, or add-ons.
 
 The embedded schema is `crates/scry-library/src/schema.sql`, with the derived
 completion view in `effective_watched.sql`. `PRAGMA user_version` identifies the
-schema. Version two allows undated episode inventory and corrects show completion.
+schema. Version two allows undated episode inventory. Version three rebuilds the
+completion view from the shared watch-status service, preserving all stored history.
 Startup creates or upgrades the schema inside an immediate transaction; the
 version-one upgrade is in `src/migrations/2.sql`. A process-local startup
 gate also serializes the initial WAL switch, which can otherwise return BUSY
@@ -44,7 +45,8 @@ do not share it. Artwork pixels and temporary media remain external files.
 
 Show-level automatic watched flags are **not stored separately**. A show is
 automatically watched only when its known inventory is nonempty and every episode
-is released and watched. Being caught up with released episodes is not completion.
+is watched and has no known future release date. Undated watched episodes count.
+Being caught up with released episodes is not completion when future episodes remain.
 There is no independent show override. Totals depend on the provider's inventory;
 episodes omitted by the provider cannot be counted.
 Episode changes affect Library filtering and badges immediately;
@@ -54,8 +56,8 @@ change the result without downloading metadata again. The worker returns the
 next known release timestamp and the UI schedules a wake to refresh cached
 lists and badges when that release becomes eligible.
 
-Marking a show watched marks all its known released episodes, atomically, across
-all pages and seasons. Future and undated episodes are not invented as watched.
+Marking a show watched marks all its known episodes except known future releases,
+atomically, across all pages and seasons. Missing dates do not block watched actions.
 Marking a show unwatched resets its stored episodes. The resulting show status
 is always derived from its episodes. Season actions use their captured full
 release inventory in the same transaction, so a pending background refresh
@@ -76,8 +78,8 @@ cannot accidentally allow a future episode through.
 - Marking a known future release watched is a successful no-op, not an error.
   A debug log records the skip without title names or identities. Bulk actions
   continue with eligible episodes. Known future dates also prevent playback
-  samples from setting watched status. Undated inventory episodes also cannot be
-  marked watched. Movies without known release metadata keep their existing behavior.
+   samples from setting watched status. Undated movies and episodes can be marked
+   watched, either explicitly or through actual playback.
   If new metadata identifies a previously undated item as future, its watched
   flag is cleared without deleting its resume history.
 - Movie and show actions capture release metadata before mutating state; saved
@@ -95,18 +97,26 @@ cannot accidentally allow a future episode through.
 `SeriesProgress` is an episode-weighted summary over the full stored inventory,
 not the visible episode page:
 
+`src/watch_status.rs` owns this service. Its shared `watch_status.sql` query supplies
+counts, progress, and completion for both API reads and the persisted
+`effective_watched` view. Watched mutations use the service's release-eligibility
+rule. App workers consume these results instead of calculating their own totals.
+`SeriesProgress::normalized_progress` supplies the common poster progress value.
+
 ```text
 total_episodes          = count of all known inventory episodes, including future/undated
 released_episodes       = count of episodes released by the requested time
-watched_episodes        = count of those episodes marked watched
+watched_episodes        = count of eligible episodes marked watched, including undated
 completed_equivalents   = watched episodes + sum(partial actual playback / duration)
 resume_equivalents      = watched episodes + sum(partial resume position / duration)
 show fraction           = completed_equivalents / total_episodes
 ```
 
 Partial actual-playback fractions are capped at one. An empty inventory has no
-fraction. Future and undated episodes count toward the denominator, but not the
-watched numerator. Withdrawn entries are excluded. Each episode has equal weight;
+fraction. Known future episodes count toward the denominator, but not watched or
+partial progress. Undated episodes contribute watched and partial progress without
+being counted as known releases or offered in Up Next. Withdrawn entries are excluded.
+Each episode has equal weight;
 this is not a runtime-weighted
 estimate of a show's total duration, because providers often omit durations.
 

@@ -3,20 +3,11 @@ use diesel::{dsl::max, prelude::*, upsert::excluded};
 
 use crate::{
     COMPLETION_THRESHOLD, Library, Media, MediaKey, MediaKind, MediaState, Page, Progress,
-    SeriesProgress, WATCHED_THRESHOLD, WatchedState,
+    WATCHED_THRESHOLD, WatchedState,
     media::{MediaProgressRecord, hydrate_progress, media_id, upsert_media},
     schema::{effective_watched, episode_releases, media, progress, viewing, watched},
+    watch_status::can_mark_watched,
 };
-
-fn released(connection: &mut SqliteConnection, id: i64) -> Result<bool> {
-    Ok(!diesel::select(diesel::dsl::exists(
-        episode_releases::table.find(id).filter(
-            episode_releases::released_at
-                .gt(diesel::dsl::sql::<diesel::sql_types::BigInt>("unixepoch()").nullable()),
-        ),
-    ))
-    .get_result::<bool>(connection)?)
-}
 
 fn store_release(connection: &mut SqliteConnection, id: i64, date: Option<i64>) -> Result<()> {
     if let Some(date) = date {
@@ -64,26 +55,17 @@ fn set_watched(connection: &mut SqliteConnection, id: i64, value: bool) -> Resul
         .select(media::kind)
         .first::<String>(connection)?;
     if kind == "series" {
-        let mut query = media::table.filter(media::parent_id.eq(id)).into_boxed();
-        if value {
-            query = query.filter(
-                media::media_id.ne_all(
-                    episode_releases::table
-                        .filter(episode_releases::released_at.gt(
-                            diesel::dsl::sql::<diesel::sql_types::BigInt>("unixepoch()").nullable(),
-                        ))
-                        .select(episode_releases::media_id),
-                ),
-            );
-        }
-        let children = query.select(media::media_id).load::<i64>(connection)?;
+        let children = media::table
+            .filter(media::parent_id.eq(id))
+            .select(media::media_id)
+            .load::<i64>(connection)?;
         diesel::delete(watched::table.find(id)).execute(connection)?;
         for child in children {
             set_watched(connection, child, value)?;
         }
         return Ok(());
     }
-    if value && !released(connection, id)? {
+    if value && !can_mark_watched(connection, id)? {
         tracing::debug!("Skipped marking an unreleased item watched");
         return Ok(());
     }
@@ -100,7 +82,7 @@ fn set_watched(connection: &mut SqliteConnection, id: i64, value: bool) -> Resul
 
 fn update_watched(connection: &mut SqliteConnection, id: i64, automatic: bool) -> Result<()> {
     let state = watched_state(connection, id)?;
-    let value = (state.watched || automatic) && released(connection, id)?;
+    let value = (state.watched || automatic) && can_mark_watched(connection, id)?;
     diesel::insert_into(watched::table)
         .values((watched::media_id.eq(id), watched::is_watched.eq(value)))
         .on_conflict(watched::media_id)
@@ -290,73 +272,6 @@ impl Library {
                 ),
             })
             .collect())
-    }
-
-    /// Aggregate the full known inventory, not the visible episode page.
-    /// Watched episodes contribute one; other episodes contribute actual playback / duration.
-    /// Resume-based advancement is returned separately and does not establish watched status.
-    /// Future and undated episodes count toward the total, but not watched progress.
-    /// # Errors
-    /// Returns an error for invalid keys, a missing parent, or failed reads.
-    pub fn series_progress(&self, parent: &MediaKey, now: i64) -> Result<SeriesProgress> {
-        #[derive(QueryableByName)]
-        struct Summary {
-            #[diesel(sql_type = diesel::sql_types::BigInt)]
-            total: i64,
-            #[diesel(sql_type = diesel::sql_types::BigInt)]
-            released: i64,
-            #[diesel(sql_type = diesel::sql_types::BigInt)]
-            watched: i64,
-            #[diesel(sql_type = diesel::sql_types::Double)]
-            completed: f64,
-            #[diesel(sql_type = diesel::sql_types::Double)]
-            resumed: f64,
-        }
-        ensure!(
-            parent.kind == MediaKind::Series,
-            "invalid series progress key"
-        );
-        let connection = &mut *self.connection.borrow_mut();
-        let parent_id = media_id(connection, parent)?;
-        let summary = diesel::sql_query("SELECT (SELECT COUNT(*) FROM media e JOIN episode_releases r ON r.media_id=e.media_id WHERE e.parent_id=?) AS total, COUNT(*) AS released, COALESCE(SUM(CASE WHEN w.watched=1 THEN 1 ELSE 0 END),0) AS watched, COALESCE(SUM(CASE WHEN w.watched=1 THEN 1.0 ELSE MIN(COALESCE(v.watched_seconds/p.duration_seconds,0.0),1.0) END),0.0) AS completed, COALESCE(SUM(CASE WHEN w.watched=1 THEN 1.0 ELSE COALESCE(p.position_seconds/p.duration_seconds,0.0) END),0.0) AS resumed FROM media e JOIN episode_releases r ON r.media_id=e.media_id LEFT JOIN watched w ON w.media_id=e.media_id LEFT JOIN progress p ON p.media_id=e.media_id LEFT JOIN viewing v ON v.media_id=e.media_id WHERE e.parent_id=? AND r.released_at<=?")
-            .bind::<diesel::sql_types::BigInt, _>(parent_id)
-            .bind::<diesel::sql_types::BigInt, _>(parent_id)
-            .bind::<diesel::sql_types::BigInt, _>(now)
-            .get_result::<Summary>(connection)?;
-        Ok(SeriesProgress {
-            total_episodes: u32::try_from(summary.total)?,
-            released_episodes: u32::try_from(summary.released)?,
-            watched_episodes: u32::try_from(summary.watched)?,
-            completed_equivalents: summary.completed,
-            resume_equivalents: summary.resumed,
-        })
-    }
-
-    /// Summarize a show without relying on the currently-watching page or episode pagination.
-    /// Uses the persisted release inventory across all seasons.
-    /// # Errors
-    /// Returns an error for invalid kinds, missing series, or failed reads.
-    pub fn series_poster_state(
-        &self,
-        parent: &MediaKey,
-        now: i64,
-    ) -> Result<(bool, Option<Progress>)> {
-        ensure!(
-            parent.kind == MediaKind::Series,
-            "invalid series poster keys"
-        );
-        let summary = self.series_progress(parent, now)?;
-        let watched =
-            summary.total_episodes > 0 && summary.watched_episodes == summary.total_episodes;
-        // Presentation-only normalized fraction. Episode resume seconds stay in `progress`.
-        let progress = summary
-            .fraction()
-            .filter(|fraction| *fraction > 0.0)
-            .map(|fraction| Progress {
-                position_seconds: fraction,
-                duration_seconds: 1.0,
-            });
-        Ok((watched, progress))
     }
 
     /// # Errors
