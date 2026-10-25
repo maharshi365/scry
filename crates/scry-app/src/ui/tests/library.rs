@@ -42,7 +42,7 @@ fn movie_detail_overlay_handles_missing_duration_and_watched_state() {
             let track = rect(&rt, "detail-poster-progress-track");
             let fill = rect(&rt, "detail-poster-progress-fill");
             assert!((fill[2] / track[2] - fraction).abs() < 0.01);
-            assert!((track[1] + track[3] / 2.0 - (poster[1] + poster[3] * 5.0 / 6.0)).abs() < 1.0);
+            assert!((track[1] + track[3] / 2.0 - (poster[1] + poster[3] * 7.0 / 8.0)).abs() < 1.0);
         }
     }
 }
@@ -234,7 +234,7 @@ fn watching_cards_show_posters_progress_and_resume_the_saved_episode() {
     let track = rect(&rt, "watching-poster-0-progress-track");
     let fill = rect(&rt, "watching-poster-0-progress-fill");
     assert!(track[0] > poster[0] && track[0] + track[2] < poster[0] + poster[2]);
-    assert!((track[1] + track[3] / 2.0 - (poster[1] + poster[3] * 5.0 / 6.0)).abs() < 1.0);
+    assert!((track[1] + track[3] / 2.0 - (poster[1] + poster[3] * 7.0 / 8.0)).abs() < 1.0);
     assert!((fill[2] / track[2] - 0.5).abs() < 0.01);
     assert!(
         rt.elements()

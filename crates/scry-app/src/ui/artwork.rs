@@ -189,7 +189,7 @@ pub(super) fn poster_status_overlay(
     let fraction = (progress.position_seconds / progress.duration_seconds).clamp(0.0, 1.0) as f32;
     surface.child(
         row()
-            .absolute(0.0, height * 5.0 / 6.0 - 3.0)
+            .absolute(0.0, height * 7.0 / 8.0 - 3.0)
             .w_full()
             .h(6.0)
             .px(8.0)
