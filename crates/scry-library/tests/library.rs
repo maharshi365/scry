@@ -174,7 +174,7 @@ fn playlist_order_and_failed_reorder_are_atomic() -> anyhow::Result<()> {
 }
 
 #[test]
-fn episode_resets_allow_automatic_tracking_without_affecting_the_parent() -> anyhow::Result<()> {
+fn episode_resets_allow_automatic_tracking_and_update_parent_completion() -> anyhow::Result<()> {
     let mut db = Library::memory()?;
     let show = Media {
         key: MediaKey::new("test", MediaKind::Series, "show"),
@@ -187,10 +187,10 @@ fn episode_resets_allow_automatic_tracking_without_affecting_the_parent() -> any
         title: "Pilot".into(),
         parent: Some(show.key.clone()),
     };
-    db.upsert_media(&episode)?;
+    db.register_release(&episode, Some(0))?;
     db.record_playback(&episode.key, 90.0, 100.0, 90.0)?;
     assert!(db.watched_state(&episode.key)?.watched);
-    assert!(!db.watched_state(&show.key)?.watched);
+    assert!(db.watched_state(&show.key)?.watched);
     assert_eq!(
         db.list_episodes(&show.key, Page::default())?,
         vec![episode.clone()]
@@ -202,7 +202,7 @@ fn episode_resets_allow_automatic_tracking_without_affecting_the_parent() -> any
     db.set_watched(&episode.key, true)?;
     db.record_playback(&episode.key, 1.0, 100.0, 1.0)?;
     assert!(db.watched_state(&episode.key)?.watched);
-    assert_eq!(db.list_watched(Page::default())?, vec![episode]);
+    assert_eq!(db.list_watched(Page::default())?, vec![episode, show]);
     Ok(())
 }
 

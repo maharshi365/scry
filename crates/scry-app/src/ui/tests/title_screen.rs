@@ -83,7 +83,7 @@ fn searching_beyond_the_first_episode_page_loads_its_watched_marker() {
     {
         let mut db = Library::open(&path).unwrap();
         db.upsert_media(&parent).unwrap();
-        db.upsert_media(&episode).unwrap();
+        db.register_release(&episode, Some(0)).unwrap();
         db.set_watched(&episode.key, true).unwrap();
     }
     let mut s = init();

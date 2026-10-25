@@ -9,7 +9,7 @@ fn item(kind: MediaKind, id: &str, parent: Option<MediaKey>) -> Media {
 }
 
 #[test]
-fn undated_items_can_be_marked_individually_and_in_bulk() -> anyhow::Result<()> {
+fn undated_movies_and_specials_can_be_marked_individually_and_in_bulk() -> anyhow::Result<()> {
     let mut db = Library::memory()?;
     let movie = item(MediaKind::Movie, "undated-movie", None);
     db.set_media_watched(&movie, None, None, true)?;
@@ -22,7 +22,7 @@ fn undated_items_can_be_marked_individually_and_in_bulk() -> anyhow::Result<()> 
         &[EpisodeRelease {
             media: episode.clone(),
             released_at: None,
-            season: Some(1),
+            season: Some(0),
             episode: Some(1),
         }],
     )?;
@@ -34,6 +34,75 @@ fn undated_items_can_be_marked_individually_and_in_bulk() -> anyhow::Result<()> 
     assert!(db.watched_state(&episode.key)?.watched);
     db.set_watched(&show.key, false)?;
     db.set_watched(&show.key, true)?;
+    assert!(db.watched_state(&episode.key)?.watched);
+    Ok(())
+}
+
+#[test]
+fn regular_episodes_require_a_known_release_but_specials_do_not() -> anyhow::Result<()> {
+    for season in [None, Some(0), Some(1)] {
+        for date in [None, Some(0), Some(i64::MAX)] {
+            let mut db = Library::memory()?;
+            let show = item(MediaKind::Series, "show", None);
+            db.upsert_media(&show)?;
+            let episode = item(MediaKind::Episode, "episode", Some(show.key.clone()));
+            let inventory = [EpisodeRelease {
+                media: episode.clone(),
+                released_at: date,
+                season,
+                episode: Some(1),
+            }];
+            let expected = season == Some(0) || date == Some(0);
+            db.set_media_watched(&show, None, Some(&inventory), true)?;
+            assert_eq!(
+                db.watched_state(&episode.key)?.watched,
+                expected,
+                "bulk: {season:?}, {date:?}"
+            );
+            let summary = db.series_progress(&show.key, 100)?;
+            assert_eq!(summary.total_episodes, u32::from(season != Some(0)));
+            assert_eq!(
+                summary.watched_episodes,
+                u32::from(expected && season != Some(0))
+            );
+            db.set_watched(&episode.key, false)?;
+            db.set_media_watched(&episode, date, None, true)?;
+            assert_eq!(
+                db.watched_state(&episode.key)?.watched,
+                expected,
+                "individual: {season:?}, {date:?}"
+            );
+            db.set_watched(&episode.key, false)?;
+            db.record_playback(&episode.key, 80.0, 100.0, 80.0)?;
+            assert_eq!(
+                db.watched_state(&episode.key)?.watched,
+                expected,
+                "playback: {season:?}, {date:?}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn future_special_watches_survive_release_registration_and_inventory_refresh() -> anyhow::Result<()>
+{
+    let mut db = Library::memory()?;
+    let show = item(MediaKind::Series, "show", None);
+    db.upsert_media(&show)?;
+    let episode = item(MediaKind::Episode, "special", Some(show.key.clone()));
+    let mut inventory = [EpisodeRelease {
+        media: episode.clone(),
+        released_at: Some(i64::MAX),
+        season: Some(0),
+        episode: Some(1),
+    }];
+    db.set_media_watched(&show, None, Some(&inventory), true)?;
+    assert!(db.watched_state(&episode.key)?.watched);
+    db.register_release(&episode, Some(i64::MAX - 1))?;
+    assert!(db.watched_state(&episode.key)?.watched);
+    inventory[0].media.title = "Updated special".into();
+    db.sync_episode_releases(&show.key, &inventory)?;
     assert!(db.watched_state(&episode.key)?.watched);
     Ok(())
 }
@@ -127,7 +196,9 @@ fn new_future_dates_clear_invalid_watched_flags_but_keep_resume_history() -> any
     let show = item(MediaKind::Series, "show", None);
     let episode = item(MediaKind::Episode, "episode", Some(show.key.clone()));
     db.upsert_media_batch(&[show.clone(), episode.clone()])?;
+    db.register_release(&episode, Some(0))?;
     db.set_watched(&episode.key, true)?;
+    assert!(db.watched_state(&episode.key)?.watched);
     db.sync_episode_releases(
         &show.key,
         &[EpisodeRelease {

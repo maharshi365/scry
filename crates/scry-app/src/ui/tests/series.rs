@@ -32,7 +32,7 @@ fn undated_watched_specials_share_the_counter_and_poster_completion() {
                     parent: Some(show.key.clone()),
                 },
                 released_at,
-                season: None,
+                season: Some(u32::from(index == 0)),
                 episode: None,
             })
             .collect::<Vec<_>>();
@@ -51,7 +51,7 @@ fn undated_watched_specials_share_the_counter_and_poster_completion() {
     wait_for_watched_series(&mut rt, &show.key);
     assert_eq!(
         rt.state.series_progress_label(&show.key).as_deref(),
-        Some("2 / 2 episodes watched · 100%")
+        Some("1 / 1 episodes watched · 100%")
     );
     assert!(rt.find("title-poster-0-watched").is_some());
 }
@@ -79,8 +79,9 @@ fn background_tracking_finds_completed_shows_hidden_by_the_library_filter() {
             })
             .unwrap();
             db.add_to_watchlist(&key).unwrap();
-            db.upsert_media(&episode).unwrap();
+            db.register_release(&episode, Some(0)).unwrap();
             db.set_watched(&episode.key, true).unwrap();
+            db.sync_episode_releases(&key, &[]).unwrap();
             let meta = serde_json::from_value(serde_json::json!({
                 "id":id,"type":"series","name":"Show","videos":[
                     {"id":episode.key.id,"season":1,"episode":1,"released":"2000-01-01"}
@@ -105,6 +106,8 @@ fn background_tracking_finds_completed_shows_hidden_by_the_library_filter() {
             .as_ref()
             .is_some_and(|items| items.len() == 13)
     });
+    let first = rt.state.library.entries.as_ref().unwrap()[0].key.clone();
+    wait_for_watched_series(&mut rt, &first);
     assert!(rt.find("library-poster-0-watched").is_some());
     tap(&mut rt, "library-watchlist-tab");
     settle_library(&mut rt, |s| {
@@ -131,8 +134,10 @@ fn tv_completion_waits_for_matching_metadata_and_reacts_to_new_releases() {
             title: "Pilot".into(),
             parent: Some(key.clone()),
         };
-        db.upsert_media(&episode).unwrap();
+        db.register_release(&episode, Some(0)).unwrap();
         db.set_watched(&episode.key, true).unwrap();
+        // A saved watch can outlive the provider's episode inventory.
+        db.sync_episode_releases(&key, &[]).unwrap();
     }
     let (mut s, tx) = state_with_events();
     s.navigation.page = Page::Discover;
@@ -224,6 +229,8 @@ fn tv_posters_share_episode_progress_and_require_the_full_inventory_across_route
                 db.upsert_media(media).unwrap();
             }
             db.add_to_watchlist(&parent.key).unwrap();
+            db.register_release(&first, Some(0)).unwrap();
+            db.register_release(&second, Some(0)).unwrap();
             db.set_watched(&first.key, true).unwrap();
             db.record_playback(&second.key, 30.0, 120.0, 30.0).unwrap();
         }
@@ -250,11 +257,13 @@ fn tv_posters_share_episode_progress_and_require_the_full_inventory_across_route
             tap(&mut rt, "library-series-filter");
         }
         settle_library(&mut rt, |s| {
-            s.library
-                .series
-                .states
-                .iter()
-                .any(|state| state.key == parent.key && state.progress.is_some())
+            s.library.series.states.iter().any(|state| {
+                state.key == parent.key
+                    && state.progress.is_some()
+                    && state
+                        .summary
+                        .is_some_and(|summary| summary.total_episodes == 3)
+            })
         });
         for _ in 0..30 {
             rt.frame(1.0 / 60.0);

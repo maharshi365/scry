@@ -2,6 +2,7 @@ use crate::{
     EpisodeRelease, Library, Media, MediaKey, MediaKind, Page, Progress,
     media::{MediaProgressRecord, hydrate_progress, media_id, upsert_media},
     schema::{episode_releases, media, series_inventory, watched},
+    watch_status::{ReleaseScope, clear_future_watches},
 };
 use anyhow::{Result, ensure};
 use diesel::{prelude::*, upsert::excluded};
@@ -160,20 +161,6 @@ pub(crate) fn sync_episode_releases(
             ))
             .execute(connection)?;
     }
-    let future = media::table
-        .inner_join(episode_releases::table)
-        .filter(media::parent_id.eq(id))
-        .filter(
-            episode_releases::released_at
-                .gt(diesel::dsl::sql::<diesel::sql_types::BigInt>("unixepoch()").nullable()),
-        )
-        .select(media::media_id);
-    diesel::update(
-        watched::table
-            .filter(watched::media_id.eq_any(future))
-            .filter(watched::is_watched.eq(true)),
-    )
-    .set(watched::is_watched.eq(false))
-    .execute(connection)?;
+    clear_future_watches(connection, ReleaseScope::Series(id))?;
     Ok(true)
 }

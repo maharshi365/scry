@@ -5,6 +5,15 @@ use scry_library::{EpisodeRelease, Library, Media, MediaKey, MediaKind, Page, Pr
 #[test]
 fn version_two_upgrade_counts_saved_undated_watches_without_rewriting_history() -> anyhow::Result<()>
 {
+    upgrade_saved_watch_history(2)
+}
+
+#[test]
+fn version_three_upgrade_excludes_specials_without_rewriting_history() -> anyhow::Result<()> {
+    upgrade_saved_watch_history(3)
+}
+
+fn upgrade_saved_watch_history(version: i64) -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("library.sqlite3");
     {
@@ -23,20 +32,25 @@ fn version_two_upgrade_counts_saved_undated_watches_without_rewriting_history() 
                  ELSE COALESCE(w.watched,0) END AS watched
              FROM media m LEFT JOIN watched w ON w.media_id=m.media_id;
              INSERT INTO media VALUES (1,'test','series','show','Show',NULL),
-                 (2,'test','episode','first','First',1), (3,'test','episode','special','Special',1);
+                 (2,'test','episode','first','First',1), (3,'test','episode','special','Special',1),
+                 (4,'test','episode','unknown','Unknown',1);
              INSERT INTO series_inventory VALUES (1);
-             INSERT INTO episode_releases VALUES (2,0,1,1),(3,NULL,0,1);
-             INSERT INTO watched VALUES (2,1),(3,1);
+             INSERT INTO episode_releases VALUES (2,0,1,1),(3,NULL,0,1),(4,NULL,1,2);
+             INSERT INTO watched VALUES (2,1),(3,1),(4,1);
              INSERT INTO progress VALUES (3,80.0,100.0);
              INSERT INTO viewing VALUES (3,75.0,1,1);
-             INSERT INTO watchlist (media_id) VALUES (1);
-             PRAGMA user_version=2;",
+             INSERT INTO watchlist (media_id) VALUES (1);",
         )?;
+        connection.batch_execute(&format!("PRAGMA user_version={version};"))?;
     }
     let show = MediaKey::new("test", MediaKind::Series, "show");
     let special = MediaKey::new("test", MediaKind::Episode, "special");
     for _ in 0..2 {
-        let db = Library::open(&path)?;
+        let mut db = Library::open(&path)?;
+        let unknown = MediaKey::new("test", MediaKind::Episode, "unknown");
+        db.record_playback(&unknown, 80.0, 100.0, 80.0)?;
+        assert!(db.watched_state(&unknown)?.watched);
+        assert!(db.watched_state(&special)?.watched);
         let summary = db.series_progress(&show, 100)?;
         assert_eq!(summary.total_episodes, 2);
         assert_eq!(summary.released_episodes, 1);

@@ -141,3 +141,43 @@ fn invalid_release_inventories_leave_existing_metadata_and_progress_unchanged() 
     assert!(db.load_progress(&release.media.key)?.is_some());
     Ok(())
 }
+#[test]
+fn next_episodes_require_a_passed_known_date_even_for_specials() -> anyhow::Result<()> {
+    for season in [Some(0), Some(1), None] {
+        let mut db = Library::memory()?;
+        let show = Media {
+            key: MediaKey::new("test", MediaKind::Series, "show"),
+            title: "Show".into(),
+            parent: None,
+        };
+        db.upsert_media(&show)?;
+        db.add_to_watchlist(&show.key)?;
+        let releases = [None, Some(200), Some(100)]
+            .into_iter()
+            .enumerate()
+            .map(|(index, released_at)| EpisodeRelease {
+                media: Media {
+                    key: MediaKey::new("test", MediaKind::Episode, format!("episode-{index}")),
+                    title: format!("Episode {index}"),
+                    parent: Some(show.key.clone()),
+                },
+                released_at,
+                season,
+                episode: None,
+            })
+            .collect::<Vec<_>>();
+        db.sync_episode_releases(&show.key, &releases)?;
+        db.record_playback(&releases[0].media.key, 25.0, 100.0, 25.0)?;
+        let next = db.list_up_next(100, Page::default())?;
+        assert_eq!(next.len(), 1);
+        assert_eq!(next[0].0.key, releases[2].media.key);
+        db.set_watched(&releases[2].media.key, true)?;
+        assert!(db.list_up_next(100, Page::default())?.is_empty());
+        let next = db.list_up_next(200, Page::default())?;
+        assert_eq!(next.len(), 1);
+        assert_eq!(next[0].0.key, releases[1].media.key);
+        db.set_watched(&releases[1].media.key, true)?;
+        assert!(db.list_up_next(200, Page::default())?.is_empty());
+    }
+    Ok(())
+}

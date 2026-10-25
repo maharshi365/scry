@@ -24,8 +24,10 @@ poster height above the bottom, or a top-right check mark when watched. Visible
 movie states are read in bounded batches on the database worker for all grid routes.
 TV posters use the library watch-status service's aggregate actual playback and
 show watched/total episode counts. Resume-based advancement is separate. A check mark requires
-a nonempty inventory with every episode watched across all seasons. Known future
-episodes block completion; undated watched episodes count. The database
+a nonempty regular-season inventory with every regular episode watched. Season-zero
+specials do not affect counts or completion. Unknown season numbers count as regular.
+Future or undated regular episodes cannot newly be marked watched; previously saved
+undated watched flags still count. Specials can be marked watched regardless of date. The database
 summary is independent of episode and Currently watching pagination. Visible tracked
 shows fetch metadata in batches of 12 with four requests in flight; the bounded
 32-show in-memory metadata cache expires after ten minutes and Refresh retries failures.

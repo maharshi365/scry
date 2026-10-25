@@ -15,6 +15,7 @@ The embedded schema is `crates/scry-library/src/schema.sql`, with the derived
 completion view in `effective_watched.sql`. `PRAGMA user_version` identifies the
 schema. Version two allows undated episode inventory. Version three rebuilds the
 completion view from the shared watch-status service, preserving all stored history.
+Version four excludes season-zero specials from that view and series summaries.
 Startup creates or upgrades the schema inside an immediate transaction; the
 version-one upgrade is in `src/migrations/2.sql`. A process-local startup
 gate also serializes the initial WAL switch, which can otherwise return BUSY
@@ -44,8 +45,10 @@ do not share it. Artwork pixels and temporary media remain external files.
 | `effective_watched` | A SQL view; derives show completion from episode records |
 
 Show-level automatic watched flags are **not stored separately**. A show is
-automatically watched only when its known inventory is nonempty and every episode
-is watched and has no known future release date. Undated watched episodes count.
+automatically watched only when its regular-season inventory is nonempty and every
+regular episode is watched and has no known future release date. Specials (season
+zero) do not affect totals, progress, or completion. Unknown season numbers count
+as regular episodes. Previously saved undated watched flags are preserved and count.
 Being caught up with released episodes is not completion when future episodes remain.
 There is no independent show override. Totals depend on the provider's inventory;
 episodes omitted by the provider cannot be counted.
@@ -56,12 +59,12 @@ change the result without downloading metadata again. The worker returns the
 next known release timestamp and the UI schedules a wake to refresh cached
 lists and badges when that release becomes eligible.
 
-Marking a show watched marks all its known episodes except known future releases,
-atomically, across all pages and seasons. Missing dates do not block watched actions.
+Marking a show watched marks regular episodes only when their known release date
+has passed, and marks specials regardless of date, atomically across all pages.
 Marking a show unwatched resets its stored episodes. The resulting show status
 is always derived from its episodes. Season actions use their captured full
 release inventory in the same transaction, so a pending background refresh
-cannot accidentally allow a future episode through.
+cannot accidentally allow an unreleased regular episode through.
 
 ## Resume, watched time, and show progress are different
 
@@ -75,13 +78,14 @@ cannot accidentally allow a future episode through.
 - `set_watched(false)` clears that video's resume and accumulated playback in
   one transaction. Automatic tracking is immediately available again. There is
   no Auto track button and no permanent false override in the app's actions.
-- Marking a known future release watched is a successful no-op, not an error.
+- Marking a regular episode with a future or missing date watched is a successful
+  no-op, not an error. Specials can be marked watched with any date or no date.
+  Movies retain their existing rule: only known future dates block watched actions.
   A debug log records the skip without title names or identities. Bulk actions
-  continue with eligible episodes. Known future dates also prevent playback
-   samples from setting watched status. Undated movies and episodes can be marked
-   watched, either explicitly or through actual playback.
-  If new metadata identifies a previously undated item as future, its watched
-  flag is cleared without deleting its resume history.
+  continue with eligible episodes. Playback uses the same eligibility rules.
+  Existing watched flags remain sticky when a regular episode's date is missing.
+  If new metadata identifies a regular episode or movie as future, its watched
+  flag is cleared without deleting its resume history. Specials are exempt.
 - Movie and show actions capture release metadata before mutating state; saved
   titles without cached metadata fetch it in a bounded background task. Superseded
   responses cannot undo a newer watched/unwatched action. Future release years
@@ -104,18 +108,18 @@ rule. App workers consume these results instead of calculating their own totals.
 `SeriesProgress::normalized_progress` supplies the common poster progress value.
 
 ```text
-total_episodes          = count of all known inventory episodes, including future/undated
-released_episodes       = count of episodes released by the requested time
-watched_episodes        = count of eligible episodes marked watched, including undated
+total_episodes          = count of regular inventory episodes, including future/undated
+released_episodes       = count of regular episodes released by the requested time
+watched_episodes        = regular watched flags except known future releases
 completed_equivalents   = watched episodes + sum(partial actual playback / duration)
 resume_equivalents      = watched episodes + sum(partial resume position / duration)
 show fraction           = completed_equivalents / total_episodes
 ```
 
-Partial actual-playback fractions are capped at one. An empty inventory has no
-fraction. Known future episodes count toward the denominator, but not watched or
-partial progress. Undated episodes contribute watched and partial progress without
-being counted as known releases or offered in Up Next. Withdrawn entries are excluded.
+Partial actual-playback fractions are capped at one. An empty or specials-only
+inventory has no fraction. Future and undated regular episodes count toward the
+denominator, but not partial progress. Previously saved undated watched flags still
+count toward watched progress. Withdrawn entries and specials are excluded.
 Each episode has equal weight;
 this is not a runtime-weighted
 estimate of a show's total duration, because providers often omit durations.
@@ -129,7 +133,8 @@ resume progress. A 25%-played episode is not presented as a 25%-completed show.
 - `list_library(watched, kind, page)` filters before pagination. To watch contains
   saved, unwatched titles. Watched contains watched titles regardless of membership.
 - `list_up_next(now, page)` returns saved unwatched movies and **one earliest
-  released, unwatched episode per saved show**. Shows do not occupy hundreds of
+  released, unwatched episode per saved show**. Episodes need a known, passed date,
+  including specials; future and undated episodes are never offered. Shows do not occupy hundreds of
   cards. Clicking a card opens the exact episode in the existing season/episode
   picker, where all other episodes remain available.
 - Episode order is regular seasons, then specials, then unnumbered seasons;

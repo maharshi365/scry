@@ -5,11 +5,29 @@ use diesel::{connection::SimpleConnection, prelude::*, sql_types::BigInt};
 
 use crate::{Library, MediaKey, MediaKind, Progress, SeriesProgress, media::media_id};
 
-const ELIGIBLE: &str = "r.released_at IS NULL OR r.released_at <= {now}";
+const ELIGIBLE: &str = "COALESCE(r.released_at <= {now}, 0)";
+const RETAINED: &str = "r.released_at IS NULL OR r.released_at <= {now}";
+
+/// Release policy shared by UI controls and stored watched mutations.
+/// Specials are always eligible. Unknown seasons follow the regular-episode rule.
+#[must_use]
+pub fn can_mark_watched(
+    kind: MediaKind,
+    season: Option<u32>,
+    released_at: Option<i64>,
+    now: i64,
+) -> bool {
+    match kind {
+        MediaKind::Series => true,
+        MediaKind::Movie => released_at.is_none_or(|date| date <= now),
+        MediaKind::Episode => season == Some(0) || released_at.is_some_and(|date| date <= now),
+    }
+}
 
 fn summary_sql(now: &str, parent: &str) -> String {
     include_str!("watch_status.sql")
         .replace("{eligible}", ELIGIBLE)
+        .replace("{retained}", RETAINED)
         .replace("{now}", now)
         .replace("{parent}", parent)
 }
@@ -22,20 +40,53 @@ pub(crate) fn install_view(connection: &mut SqliteConnection) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn can_mark_watched(connection: &mut SqliteConnection, id: i64) -> Result<bool> {
+pub(crate) fn can_mark_stored_watched(connection: &mut SqliteConnection, id: i64) -> Result<bool> {
     #[derive(QueryableByName)]
-    struct Eligibility {
-        #[diesel(sql_type = diesel::sql_types::Bool)]
-        allowed: bool,
+    struct Release {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        kind: String,
+        #[diesel(sql_type = diesel::sql_types::Nullable<BigInt>)]
+        season: Option<i64>,
+        #[diesel(sql_type = diesel::sql_types::Nullable<BigInt>)]
+        released_at: Option<i64>,
+        #[diesel(sql_type = BigInt)]
+        now: i64,
     }
-    let sql = format!(
-        "SELECT ({}) AS allowed FROM media m LEFT JOIN episode_releases r ON r.media_id=m.media_id WHERE m.media_id=?",
-        ELIGIBLE.replace("{now}", "unixepoch()")
-    );
-    Ok(diesel::sql_query(sql)
+    let release = diesel::sql_query(
+        "SELECT m.kind, r.season, r.released_at, unixepoch() AS now FROM media m LEFT JOIN episode_releases r ON r.media_id=m.media_id WHERE m.media_id=?",
+    )
         .bind::<BigInt, _>(id)
-        .get_result::<Eligibility>(connection)?
-        .allowed)
+        .get_result::<Release>(connection)?;
+    Ok(can_mark_watched(
+        MediaKind::parse(&release.kind)?,
+        release.season.map(u32::try_from).transpose()?,
+        release.released_at,
+        release.now,
+    ))
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum ReleaseScope {
+    Item(i64),
+    Series(i64),
+}
+
+/// Newly learned future dates invalidate watches, except for season-zero specials.
+/// Missing dates preserve existing watched flags and all playback history.
+pub(crate) fn clear_future_watches(
+    connection: &mut SqliteConnection,
+    scope: ReleaseScope,
+) -> Result<()> {
+    let (column, id) = match scope {
+        ReleaseScope::Item(id) => ("e.media_id", id),
+        ReleaseScope::Series(id) => ("e.parent_id", id),
+    };
+    diesel::sql_query(format!(
+        "UPDATE watched SET watched=0 WHERE watched=1 AND media_id IN (SELECT e.media_id FROM media e JOIN episode_releases r ON r.media_id=e.media_id WHERE {column}=? AND r.released_at>unixepoch() AND (e.kind!='episode' OR r.season IS NULL OR r.season!=0))"
+    ))
+    .bind::<BigInt, _>(id)
+    .execute(connection)?;
+    Ok(())
 }
 
 #[derive(QueryableByName)]
@@ -85,8 +136,8 @@ impl Library {
             .get_result(connection)?)
     }
 
-    /// Aggregate the full known inventory, not the visible episode page.
-    /// Undated watched episodes count; known future episodes do not.
+    /// Aggregate regular episodes across the full inventory, excluding season zero.
+    /// Existing undated watched flags count; known future episodes do not.
     /// Resume-based advancement is separate and does not establish watched status.
     /// # Errors
     /// Returns an error for invalid keys, a missing parent, or failed reads.

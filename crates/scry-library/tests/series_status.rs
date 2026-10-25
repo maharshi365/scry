@@ -18,8 +18,9 @@ fn episode(parent: &Media, index: usize) -> Media {
 }
 
 #[test]
-fn bulk_watched_counts_include_undated_specials_for_full_inventories() -> anyhow::Result<()> {
-    for (total, undated) in [(124, 11), (30, 1), (35, 11)] {
+fn bulk_watched_counts_exclude_dated_and_undated_specials_for_full_inventories()
+-> anyhow::Result<()> {
+    for (total, specials, undated) in [(124, 71, 11), (30, 5, 1), (35, 11, 11)] {
         let mut db = Library::memory()?;
         let parent = show();
         db.upsert_media(&parent)?;
@@ -27,15 +28,15 @@ fn bulk_watched_counts_include_undated_specials_for_full_inventories() -> anyhow
             .map(|index| EpisodeRelease {
                 media: episode(&parent, index),
                 released_at: (index >= undated).then_some(0),
-                season: Some(u32::from(index >= undated)),
+                season: Some(u32::from(index >= specials)),
                 episode: None,
             })
             .collect::<Vec<_>>();
         db.set_media_watched(&parent, None, Some(&releases), true)?;
         let summary = db.series_progress(&parent.key, 100)?;
-        assert_eq!(summary.total_episodes, u32::try_from(total)?);
-        assert_eq!(summary.released_episodes, u32::try_from(total - undated)?);
-        assert_eq!(summary.watched_episodes, u32::try_from(total)?);
+        assert_eq!(summary.total_episodes, u32::try_from(total - specials)?);
+        assert_eq!(summary.released_episodes, u32::try_from(total - specials)?);
+        assert_eq!(summary.watched_episodes, u32::try_from(total - specials)?);
         assert_eq!(summary.fraction(), Some(1.0));
         assert!(db.watched_state(&parent.key)?.watched);
         assert!(db.series_poster_state(&parent.key, 100)?.0);
@@ -44,7 +45,37 @@ fn bulk_watched_counts_include_undated_specials_for_full_inventories() -> anyhow
 }
 
 #[test]
-fn shared_status_keeps_undated_progress_separate_from_known_future_releases() -> anyhow::Result<()>
+fn specials_only_inventory_does_not_complete_a_series() -> anyhow::Result<()> {
+    let mut db = Library::memory()?;
+    let parent = show();
+    let special = episode(&parent, 1);
+    db.set_media_watched(
+        &parent,
+        None,
+        Some(&[EpisodeRelease {
+            media: special.clone(),
+            released_at: Some(i64::MAX),
+            season: Some(0),
+            episode: Some(1),
+        }]),
+        true,
+    )?;
+    let summary = db.series_progress(&parent.key, 100)?;
+    assert_eq!(summary.total_episodes, 0);
+    assert_eq!(summary.watched_episodes, 0);
+    assert_eq!(summary.fraction(), None);
+    assert!(!db.watched_state(&parent.key)?.watched);
+    assert!(!db.series_poster_state(&parent.key, 100)?.0);
+    assert!(db.watched_state(&special.key)?.watched);
+    assert_eq!(
+        db.list_episodes(&parent.key, Page::default())?,
+        vec![special]
+    );
+    Ok(())
+}
+
+#[test]
+fn shared_status_excludes_special_progress_and_blocks_future_regular_releases() -> anyhow::Result<()>
 {
     let mut db = Library::memory()?;
     let parent = show();
@@ -75,12 +106,14 @@ fn shared_status_keeps_undated_progress_separate_from_known_future_releases() ->
     let summary = db.series_progress(&parent.key, 100)?;
     assert_eq!(summary.released_episodes, 0);
     assert_eq!(summary.watched_episodes, 0);
-    assert!((summary.completed_equivalents - 0.25).abs() < f64::EPSILON);
-    assert!((summary.resume_equivalents - 0.95).abs() < f64::EPSILON);
+    assert_eq!(summary.total_episodes, 1);
+    assert!(summary.completed_equivalents.abs() < f64::EPSILON);
+    assert!(summary.resume_equivalents.abs() < f64::EPSILON);
     db.set_watched(&parent.key, true)?;
     let summary = db.series_progress(&parent.key, 100)?;
-    assert_eq!(summary.watched_episodes, 1);
-    assert_eq!(summary.fraction(), Some(0.5));
+    assert_eq!(summary.watched_episodes, 0);
+    assert_eq!(summary.fraction(), Some(0.0));
+    assert!(db.watched_state(&undated.key)?.watched);
     assert!(!db.watched_state(&parent.key)?.watched);
     assert!(!db.series_poster_state(&parent.key, 100)?.0);
     assert!(!db.watched_state(&future.key)?.watched);
@@ -170,8 +203,7 @@ fn caught_up_is_not_complete_until_all_known_episodes_are_released_and_watched()
 }
 
 #[test]
-fn undated_episodes_can_be_marked_but_are_not_counted_as_released_or_offered() -> anyhow::Result<()>
-{
+fn undated_regular_episodes_are_not_marked_or_offered_until_released() -> anyhow::Result<()> {
     let mut db = Library::memory()?;
     let parent = show();
     db.upsert_media(&parent)?;
@@ -199,17 +231,17 @@ fn undated_episodes_can_be_marked_but_are_not_counted_as_released_or_offered() -
     let summary = db.series_progress(&parent.key, 100)?;
     assert_eq!(summary.total_episodes, 2);
     assert_eq!(summary.released_episodes, 1);
-    assert_eq!(summary.watched_episodes, 2);
-    assert_eq!(summary.fraction(), Some(1.0));
-    assert!(db.watched_state(&unknown.key)?.watched);
-    assert!(db.watched_state(&parent.key)?.watched);
-    assert!(db.series_poster_state(&parent.key, 100)?.0);
+    assert_eq!(summary.watched_episodes, 1);
+    assert_eq!(summary.fraction(), Some(0.5));
+    assert!(!db.watched_state(&unknown.key)?.watched);
+    assert!(!db.watched_state(&parent.key)?.watched);
+    assert!(!db.series_poster_state(&parent.key, 100)?.0);
     assert_eq!(
-        db.list_library(true, MediaKind::Series, Page::default())?,
+        db.list_library(false, MediaKind::Series, Page::default())?,
         vec![parent.clone()]
     );
     assert!(
-        db.media_states(std::slice::from_ref(&parent.key))?[0]
+        !db.media_states(std::slice::from_ref(&parent.key))?[0]
             .watched
             .watched
     );
@@ -273,7 +305,7 @@ fn series_check_requires_every_released_episode_across_all_pages() -> anyhow::Re
     let mut released = Vec::new();
     for i in 0..250 {
         let item = episode(&parent, i);
-        db.upsert_media(&item)?;
+        db.register_release(&item, Some(0))?;
         db.set_watched(&item.key, true)?;
         released.push(item.key);
     }
@@ -299,7 +331,7 @@ fn episode_completion_moves_a_series_between_library_lists_without_creating_an_o
     db.upsert_media(&parent)?;
     db.add_to_watchlist(&parent.key)?;
     let first = episode(&parent, 1);
-    db.upsert_media(&first)?;
+    db.register_release(&first, Some(0))?;
     db.set_watched(&first.key, true)?;
     assert!(sync(&mut db, &parent, std::slice::from_ref(&first.key))?);
     assert_eq!(
@@ -333,6 +365,9 @@ fn bulk_episode_changes_are_atomic_and_do_not_touch_other_seasons() -> anyhow::R
     let parent = show();
     db.upsert_media(&parent)?;
     let items: Vec<_> = (0..250).map(|i| episode(&parent, i)).collect();
+    for item in &items {
+        db.register_release(item, Some(0))?;
+    }
     db.set_episodes_watched(&parent, &items, true)?;
     assert!(db.watched_state(&items[249].key)?.watched);
     let other = episode(&parent, 999);

@@ -159,7 +159,7 @@ mod tests {
             parent: Some(parent.key.clone()),
         };
         library.upsert_media(&parent).unwrap();
-        library.upsert_media(&episode).unwrap();
+        library.register_release(&episode, Some(0)).unwrap();
         library.set_watched(&episode.key, true).unwrap();
         apply(
             &mut library,
@@ -378,7 +378,7 @@ mod tests {
             parent: Some(parent.key.clone()),
         };
         library.upsert_media(&parent).unwrap();
-        library.upsert_media(&episode).unwrap();
+        library.register_release(&episode, Some(0)).unwrap();
         library.set_watched(&episode.key, true).unwrap();
         let unknown = MediaKey::new("test", MediaKind::Episode, "episode-1001");
         let Event::Snapshot { data, .. } = apply(
@@ -418,6 +418,10 @@ mod tests {
         let mut items = vec![series.clone()];
         items.extend(episodes.clone());
         change(&worker, Command::Upsert(items));
+        change(
+            &worker,
+            Command::RegisterRelease(episodes[0].clone(), Some(0)),
+        );
         change(&worker, Command::SetWatched(episodes[0].clone(), true));
         for selected in [series.key, episodes[200].key.clone()] {
             worker

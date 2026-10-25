@@ -152,7 +152,7 @@ fn next_episode_replaces_finished_episode_but_not_other_series() -> anyhow::Resu
     db.upsert_media(&other_show)?;
     db.upsert_media(&other)?;
     db.record_playback(&other.key, 5.0, 100.0, 5.0)?;
-    db.upsert_media(&first)?;
+    db.register_release(&first, Some(0))?;
     db.record_playback(&first.key, 95.0, 100.0, 95.0)?;
     db.finish_playback(&first.key, Some(&second))?;
     let watching = db.list_currently_watching(Page::default())?;
@@ -254,8 +254,8 @@ fn advancing_preserves_next_episode_resume_and_does_not_reactivate_watched_episo
         title: "Next".into(),
         parent: Some(show.key.clone()),
     };
-    db.upsert_media(&first)?;
-    db.upsert_media(&next)?;
+    db.register_release(&first, Some(0))?;
+    db.register_release(&next, Some(0))?;
     db.record_playback(&next.key, 35.0, 100.0, 35.0)?;
     db.record_playback(&first.key, 95.0, 100.0, 80.0)?;
     db.finish_playback(&first.key, Some(&next))?;
@@ -289,6 +289,7 @@ fn calendar_tracks_an_unsaved_show_with_manually_watched_episodes() -> anyhow::R
         parent: Some(show.key.clone()),
     };
     db.upsert_media_batch(&[show.clone(), episode.clone()])?;
+    db.register_release(&episode, Some(0))?;
     db.set_watched(&episode.key, true)?;
     assert_eq!(db.list_calendar_titles(Page::default())?, vec![show]);
     Ok(())

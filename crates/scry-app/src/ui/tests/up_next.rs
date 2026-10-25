@@ -386,7 +386,9 @@ fn currently_watching_episode_badge_does_not_use_the_whole_shows_status() {
         let mut db = Library::open(&path).unwrap();
         db.upsert_media_batch(&[show.clone(), episode.clone()])
             .unwrap();
+        db.register_release(&episode, Some(0)).unwrap();
         db.record_playback(&episode.key, 80.0, 100.0, 80.0).unwrap();
+        db.sync_episode_releases(&show.key, &[]).unwrap();
         assert!(!db.watched_state(&show.key).unwrap().watched);
     }
     let mut s = init();

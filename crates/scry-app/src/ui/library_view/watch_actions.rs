@@ -90,8 +90,42 @@ impl State {
     }
 
     pub(in crate::ui) fn can_mark_released(&self, media: &Media) -> bool {
-        self.known_release_date(media)
-            .is_none_or(|date| date <= chrono::Utc::now().timestamp())
+        let season = media.parent.as_ref().and_then(|parent| {
+            self.detail
+                .iter()
+                .filter(|meta| {
+                    meta.id == parent.id
+                        && self.parent_media().is_some_and(|item| item.key == *parent)
+                })
+                .chain(
+                    self.library
+                        .series
+                        .details
+                        .get(parent)
+                        .and_then(|(meta, _)| meta.as_ref()),
+                )
+                .find_map(|meta| {
+                    meta.videos
+                        .iter()
+                        .find(|video| video.id == media.key.id)?
+                        .season
+                })
+                .or_else(|| {
+                    self.calendar
+                        .releases
+                        .iter()
+                        .find(|release| {
+                            release.media.key == *parent && release.episode_id == media.key.id
+                        })?
+                        .season
+                })
+        });
+        scry_library::can_mark_watched(
+            media.key.kind,
+            season,
+            self.known_release_date(media),
+            chrono::Utc::now().timestamp(),
+        )
     }
 
     pub(in crate::ui) fn mark_media_watched(&mut self, media: Media, watched: bool) {

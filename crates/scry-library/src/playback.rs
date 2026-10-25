@@ -6,7 +6,7 @@ use crate::{
     WATCHED_THRESHOLD, WatchedState,
     media::{MediaProgressRecord, hydrate_progress, media_id, upsert_media},
     schema::{effective_watched, episode_releases, media, progress, viewing, watched},
-    watch_status::can_mark_watched,
+    watch_status::{ReleaseScope, can_mark_stored_watched, clear_future_watches},
 };
 
 fn store_release(connection: &mut SqliteConnection, id: i64, date: Option<i64>) -> Result<()> {
@@ -20,20 +20,7 @@ fn store_release(connection: &mut SqliteConnection, id: i64, date: Option<i64>) 
             .do_update()
             .set(episode_releases::released_at.eq(date))
             .execute(connection)?;
-        diesel::update(
-            watched::table
-                .find(id)
-                .filter(watched::is_watched.eq(true))
-                .filter(diesel::dsl::exists(
-                    episode_releases::table
-                        .find(id)
-                        .filter(episode_releases::released_at.gt(
-                            diesel::dsl::sql::<diesel::sql_types::BigInt>("unixepoch()").nullable(),
-                        )),
-                )),
-        )
-        .set(watched::is_watched.eq(false))
-        .execute(connection)?;
+        clear_future_watches(connection, ReleaseScope::Item(id))?;
     }
     Ok(())
 }
@@ -65,7 +52,7 @@ fn set_watched(connection: &mut SqliteConnection, id: i64, value: bool) -> Resul
         }
         return Ok(());
     }
-    if value && !can_mark_watched(connection, id)? {
+    if value && !can_mark_stored_watched(connection, id)? {
         tracing::debug!("Skipped marking an unreleased item watched");
         return Ok(());
     }
@@ -82,7 +69,7 @@ fn set_watched(connection: &mut SqliteConnection, id: i64, value: bool) -> Resul
 
 fn update_watched(connection: &mut SqliteConnection, id: i64, automatic: bool) -> Result<()> {
     let state = watched_state(connection, id)?;
-    let value = (state.watched || automatic) && can_mark_watched(connection, id)?;
+    let value = state.watched || (automatic && can_mark_stored_watched(connection, id)?);
     diesel::insert_into(watched::table)
         .values((watched::media_id.eq(id), watched::is_watched.eq(value)))
         .on_conflict(watched::media_id)
@@ -203,7 +190,8 @@ impl Library {
     }
 
     /// Register a captured metadata snapshot and apply a watched action atomically.
-    /// Known future releases are skipped, not errors. Missing dates are allowed.
+    /// Regular episodes need a known, passed release date. Specials allow any date.
+    /// Ineligible watched actions are skipped, not errors. Movie rules are unchanged.
     /// # Errors
     /// Returns an error for invalid metadata/inventories or failed writes.
     pub fn set_media_watched(

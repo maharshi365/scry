@@ -14,6 +14,38 @@ fn show_meta() -> Meta {
 }
 
 #[test]
+fn watched_controls_use_the_shared_specials_and_regular_release_policy() {
+    for season in [None, Some(0), Some(1)] {
+        for (date, released) in [
+            (None, false),
+            (Some("2000-01-01"), true),
+            (Some("2100-01-01"), false),
+        ] {
+            let mut s = init();
+            s.detail_namespace = "imdb".into();
+            s.detail = Some(
+                serde_json::from_value(serde_json::json!({
+                    "id":"show", "type":"series", "name":"Show", "videos":[
+                        {"id":"episode", "season":season, "episode":1, "released":date}
+                    ]
+                }))
+                .unwrap(),
+            );
+            let episode = Media {
+                key: MediaKey::new("imdb", MediaKind::Episode, "episode"),
+                title: "Episode".into(),
+                parent: Some(MediaKey::new("imdb", MediaKind::Series, "show")),
+            };
+            assert_eq!(
+                s.can_mark_released(&episode),
+                season == Some(0) || released,
+                "{season:?}, {date:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn show_mark_watched_updates_episode_icons_skips_future_and_needs_no_auto_track() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("library.db");
