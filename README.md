@@ -88,7 +88,7 @@ reports remain external files. There is no cloud account or sync.
 
 Storage uses Diesel with an embedded schema. Existing `scry-v2.sqlite3` schema-one
 databases upgrade automatically, preserving watch history and add-ons. Older database
-formats are not imported or deleted. See [library semantics](docs/library.md).
+formats are not imported or deleted.
 
 Episode browsing uses 100-item pages. Library lists use 200-item pages.
 **Calendar** has Week and Month views; each day has its own scrollable release
@@ -111,7 +111,7 @@ python scripts/profile-app.py --torrent --report target/perf-torrent
 
 This requires Python 3, FFmpeg, and an unlocked Windows desktop. New control and
 profiling hooks compile only with the non-default `profiling` feature. A normal
-release build excludes them. See [memory profiling](docs/memory-profiling.md).
+release build excludes them.
 
 Measure the idle native window on Windows (release build, no playback):
 
@@ -155,7 +155,6 @@ It does not start playback or change watchlists, playlists, or installed add-ons
 Optional `-CaptureDirectory` saves app-only screenshots for checking that each
 step reached the intended screen. Screenshots can reveal titles and configuration;
 keep them private. Numeric reports contain no URLs, search text, or title names.
-See [measured results and remaining limits](docs/ui-performance.md).
 
 ```powershell
 cargo run --release -- --self-test --report self-test.jsonl
@@ -193,7 +192,7 @@ flowchart LR
 - `crates/scry-playback/`: `PlaybackEngine` contract, dynamic libmpv client binding, playback telemetry, and OS process counters. No Rune dependency.
 - `crates/scry-app/src/platform/`: `VideoHost` contract and OS implementations. Win32 stays in `windows.rs`; other systems return a clear unsupported error for embedding.
 - `crates/scry-app/src/diagnostics.rs`: no-window playback probes and report analysis.
-- `crates/scry-library/`: Diesel/SQLite repository and a single embedded schema for installed add-ons, watchlists, ordered playlists, watched state, per-video progress, and derived show summaries. See [library semantics](docs/library.md).
+- `crates/scry-library/`: Diesel/SQLite repository and a single embedded schema for installed add-ons, watchlists, ordered playlists, watched state, per-video progress, and derived show summaries.
 
 The root manifest contains only workspace configuration. `crates/scry-app/`
 owns the `scry` binary, Rune UI, workers, search, artwork, and native window host.
@@ -205,21 +204,13 @@ The workspace shares dependency versions, one lockfile, and one target directory
 The app depends on all four service crates; torrents depends on add-ons. None of
 the service crates depends on the app or Rune.
 
-See [UI state and shortcut ownership](docs/ui-state.md) for feature APIs,
-binding registration, and the remaining state extraction work.
-See [the persistence and UI review](docs/architecture-review.md) for the rebuild,
-its findings, regression coverage, and remaining limits.
-See [the shared UI system](docs/ui-system.md) for colors, icons, primitives,
-and the Clippy and test rules that prevent visual drift.
-
 ### macOS implementation path
 
 Implement `VideoHost` in `crates/scry-app/src/platform/macos.rs`, then select it with `cfg(target_os = "macos")`. Choose an appropriate NSView/libmpv render integration; do not assume a Windows window identifier works on macOS. Add native process counters in `crates/scry-playback/src/process/` and test resizing, Retina scaling, playback lifecycle, audio, and shutdown. Shared add-on and torrent services do not need OS-specific forks.
 
 ## Development
 
-Local checks and their rationale are documented in the
-[Rust quality and performance policy](docs/rust-quality.md).
+Run the local checks:
 
 ```powershell
 pwsh -File scripts/check.ps1
@@ -241,6 +232,6 @@ Rune is pinned to Git revision `e18cc657232a93af500b40917880c02cd4edd069`. Cargo
 
 libmpv and its codec build have their own license obligations. Include their license notices and satisfy the selected build's source-distribution requirements before redistributing an installer. This repository does not treat third-party binaries as MIT-licensed.
 
-For repeatable hardware-decoded embedded playback checks, see
-[the native probe](docs/native-probe.md). The default self-test does not need
-FFmpeg; the native probe uses a local synthetic fixture you can generate with FFmpeg.
+The `embedded_probe` example checks hardware-decoded embedded playback with a
+local media file. The default self-test does not need FFmpeg; the native probe
+uses a local synthetic fixture you can generate with FFmpeg.

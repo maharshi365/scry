@@ -104,7 +104,6 @@ impl VideoRenderer {
         match std::env::var("Scry_VIDEO_RENDERER") {
             Ok(value) => Self::parse(&value),
             // gpu saved working set but increased private commit in matched probes.
-            // See docs/rendering-performance.md before changing the default.
             Err(std::env::VarError::NotPresent) => Ok(Self::GpuNext),
             Err(_) => bail!("Scry_VIDEO_RENDERER must be gpu or gpu-next"),
         }

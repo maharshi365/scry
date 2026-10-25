@@ -1,7 +1,5 @@
 # Rust development rules
 
-- Read [the Rust quality policy](docs/rust-quality.md) before changing lint or
-  performance settings.
 - New workspace members must inherit `[lints] workspace = true`.
 - Run `pwsh -File scripts/check.ps1` and
   `pwsh -File scripts/check.ps1 -AllFeatures` before handoff.
