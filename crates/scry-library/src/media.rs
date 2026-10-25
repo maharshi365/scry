@@ -264,15 +264,12 @@ impl Library {
         page: Page,
     ) -> Result<Vec<Media>> {
         let connection = &mut *self.connection.borrow_mut();
-        let mut query = media::table
+        let query = media::table
+            .inner_join(watchlist::table)
             .inner_join(effective_watched::table)
             .filter(media::kind.eq(kind.as_str()))
             .filter(effective_watched::is_watched.eq(is_watched))
             .into_boxed();
-        if !is_watched {
-            query =
-                query.filter(media::media_id.eq_any(watchlist::table.select(watchlist::media_id)));
-        }
         let records = query
             .order(media::media_id.desc())
             .limit(i64::from(page.limit))
@@ -282,15 +279,17 @@ impl Library {
         hydrate(connection, records)
     }
 
-    /// Movies and series saved, watched, or with playback. No unrelated metadata.
+    /// Only movies and series explicitly saved in the library, regardless of watch state.
     /// # Errors
     /// Returns an error on database reads.
-    pub fn list_calendar_titles(&self, page: Page) -> Result<Vec<Media>> {
+    pub fn list_calendar_titles(&self) -> Result<Vec<Media>> {
         let connection = &mut *self.connection.borrow_mut();
-        // Correlated self-reference is clearer in SQL than in Diesel's alias DSL.
-        let records = diesel::sql_query("SELECT m.* FROM media m WHERE m.kind IN ('movie','series') AND (EXISTS(SELECT 1 FROM watchlist w WHERE w.media_id=m.media_id) OR EXISTS(SELECT 1 FROM watched w WHERE w.media_id=m.media_id) OR EXISTS(SELECT 1 FROM viewing v WHERE v.media_id=m.media_id) OR EXISTS(SELECT 1 FROM media e WHERE e.parent_id=m.media_id AND (EXISTS(SELECT 1 FROM viewing v WHERE v.media_id=e.media_id) OR EXISTS(SELECT 1 FROM watched w WHERE w.media_id=e.media_id)))) ORDER BY m.media_id DESC LIMIT ? OFFSET ?")
-            .bind::<diesel::sql_types::BigInt, _>(i64::from(page.limit))
-            .bind::<diesel::sql_types::BigInt, _>(i64::from(page.offset)).load(connection)?;
+        let records = media::table
+            .inner_join(watchlist::table)
+            .filter(media::kind.eq_any([MediaKind::Movie.as_str(), MediaKind::Series.as_str()]))
+            .order(media::media_id.desc())
+            .select(MediaRecord::as_select())
+            .load(connection)?;
         hydrate(connection, records)
     }
 

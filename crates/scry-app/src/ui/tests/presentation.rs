@@ -117,11 +117,10 @@ fn month_columns_align_across_rows_at_small_window_sizes() {
 }
 
 #[test]
-fn calendar_series_paging_stays_in_the_header() {
+fn calendar_has_no_title_paging_for_large_libraries() {
     let mut s = init();
     s.navigation.page = Page::Calendar;
     s.calendar.mode = crate::ui::calendar::Mode::Month;
-    let date = s.calendar.anchor;
     s.calendar.series = (0..20)
         .map(|i| scry_library::Media {
             key: scry_library::MediaKey::new(
@@ -137,14 +136,10 @@ fn calendar_series_paging_stays_in_the_header() {
     for _ in 0..30 {
         rt.frame(1.0 / 60.0);
     }
-    let control = rect(&rt, "calendar-series-next");
-    let day = rect(&rt, &format!("calendar-day-{date}"));
-    assert!(control[1] + control[3] <= day[1]);
-    assert!(control[0] + control[2] <= 860.0);
     assert!(rt.find("calendar-series-prev").is_none());
-    tap(&mut rt, "calendar-series-next");
-    assert_eq!(rt.state.calendar.offset, 20);
-    assert!(rt.find("calendar-series-prev").is_some());
+    assert!(rt.find("calendar-series-next").is_none());
+    assert!(rt.find("calendar-prev").is_some());
+    assert!(rt.find("calendar-next").is_some());
 }
 
 #[test]

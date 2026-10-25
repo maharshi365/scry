@@ -159,6 +159,7 @@ mod tests {
             parent: Some(parent.key.clone()),
         };
         library.upsert_media(&parent).unwrap();
+        library.add_to_watchlist(&parent.key).unwrap();
         library.register_release(&episode, Some(0)).unwrap();
         library.set_watched(&episode.key, true).unwrap();
         apply(
@@ -193,6 +194,36 @@ mod tests {
                 vec![parent.clone()]
             );
         }
+    }
+
+    #[test]
+    fn calendar_overview_includes_every_saved_title_without_paging() {
+        let mut library = Library::memory().unwrap();
+        let saved: Vec<_> = (0..205)
+            .map(|i| Media {
+                key: MediaKey::new("test", MediaKind::Series, i.to_string()),
+                title: format!("Show {i}"),
+                parent: None,
+            })
+            .collect();
+        library.upsert_media_batch(&saved).unwrap();
+        for item in &saved {
+            library.add_to_watchlist(&item.key).unwrap();
+        }
+        let unsaved = movie();
+        library.upsert_media(&unsaved).unwrap();
+        library.set_watched(&unsaved.key, true).unwrap();
+        let Event::Overview { series, .. } = apply(
+            &mut library,
+            Command::Overview {
+                generation: 1,
+                watching_offset: 0,
+            },
+        )
+        .unwrap() else {
+            panic!("Expected overview")
+        };
+        assert_eq!(series, saved.into_iter().rev().collect::<Vec<_>>());
     }
 
     #[test]

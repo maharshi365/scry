@@ -130,8 +130,12 @@ resume progress. A 25%-played episode is not presented as a 25%-completed show.
 
 ## Lists and metadata
 
-- `list_library(watched, kind, page)` filters before pagination. To watch contains
-  saved, unwatched titles. Watched contains watched titles regardless of membership.
+- `list_library(watched, kind, page)` filters before pagination. Both tabs contain
+  only explicitly saved titles, filtered by watch state. Watching or marking a
+  title watched does not add it to the library.
+- `list_calendar_titles()` includes all saved movies and series without title
+  pagination, regardless of watch state. Unsaved titles and their episode history
+  do not add calendar entries. Metadata requests run with bounded concurrency.
 - `list_up_next(now, page)` returns saved unwatched movies and **one earliest
   released, unwatched episode per saved show**. Episodes need a known, passed date,
   including specials; future and undated episodes are never offered. Shows do not occupy hundreds of
@@ -146,7 +150,8 @@ resume progress. A 25%-played episode is not presented as a 25%-completed show.
 - Background metadata checks use 12-show pages and bounded concurrency. Cached
   metadata expires after ten minutes. Showing a poster no longer serializes and
   sends the full released-episode key list on each viewport change.
-- Library, currently-watching, next-up, and calendar paging are independent.
+- Library, currently-watching, and next-up paging are independent. The calendar
+  includes the full saved library; each day has its own scroll viewport.
 
 ## Query and worker boundaries
 

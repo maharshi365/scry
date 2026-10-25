@@ -69,28 +69,26 @@ fn automatically_watched_titles_are_excluded_before_to_watch_pagination() -> any
 }
 
 #[test]
-fn calendar_includes_saved_movies_and_series_but_not_browsed_metadata() -> anyhow::Result<()> {
+fn calendar_includes_only_saved_movies_and_series() -> anyhow::Result<()> {
     let mut db = Library::memory()?;
     let saved = movie("saved");
     let playing = movie("playing");
+    let watched = movie("watched");
     let unrelated = movie("browsed");
     let show = Media {
         key: MediaKey::new("test", MediaKind::Series, "show"),
         title: "Show".into(),
         parent: None,
     };
-    for item in [&saved, &playing, &unrelated, &show] {
+    for item in [&saved, &playing, &watched, &unrelated, &show] {
         db.upsert_media(item)?;
     }
     db.add_to_watchlist(&saved.key)?;
     db.add_to_watchlist(&show.key)?;
     db.record_playback(&playing.key, 10.0, 100.0, 10.0)?;
-    let titles = db.list_calendar_titles(Page::default())?;
-    assert_eq!(titles.len(), 3);
-    for item in [saved, playing, show] {
-        assert!(titles.contains(&item));
-    }
-    assert!(!titles.contains(&unrelated));
+    db.set_watched(&watched.key, true)?;
+    let titles = db.list_calendar_titles()?;
+    assert_eq!(titles, vec![show, saved]);
     Ok(())
 }
 
@@ -276,7 +274,7 @@ fn advancing_preserves_next_episode_resume_and_does_not_reactivate_watched_episo
 }
 
 #[test]
-fn calendar_tracks_an_unsaved_show_with_manually_watched_episodes() -> anyhow::Result<()> {
+fn calendar_excludes_unsaved_shows_with_episode_watch_or_playback_state() -> anyhow::Result<()> {
     let mut db = Library::memory()?;
     let show = Media {
         key: MediaKey::new("test", MediaKind::Series, "show"),
@@ -290,7 +288,100 @@ fn calendar_tracks_an_unsaved_show_with_manually_watched_episodes() -> anyhow::R
     };
     db.upsert_media_batch(&[show.clone(), episode.clone()])?;
     db.register_release(&episode, Some(0))?;
+    db.record_playback(&episode.key, 10.0, 100.0, 10.0)?;
+    assert!(db.list_calendar_titles()?.is_empty());
     db.set_watched(&episode.key, true)?;
-    assert_eq!(db.list_calendar_titles(Page::default())?, vec![show]);
+    assert!(db.list_calendar_titles()?.is_empty());
+    assert!(
+        db.list_library(true, MediaKind::Series, Page::default())?
+            .is_empty()
+    );
+    assert!(!db.is_in_watchlist(&show.key)?);
+    Ok(())
+}
+
+#[test]
+fn calendar_keeps_watched_saved_titles_until_removed() -> anyhow::Result<()> {
+    let mut db = Library::memory()?;
+    for kind in [MediaKind::Movie, MediaKind::Series] {
+        let item = Media {
+            key: MediaKey::new("test", kind, "saved"),
+            title: "Saved".into(),
+            parent: None,
+        };
+        db.upsert_media(&item)?;
+        db.add_to_watchlist(&item.key)?;
+        if kind == MediaKind::Series {
+            db.register_release(
+                &Media {
+                    key: MediaKey::new("test", MediaKind::Episode, "saved-pilot"),
+                    title: "Pilot".into(),
+                    parent: Some(item.key.clone()),
+                },
+                Some(0),
+            )?;
+        }
+        db.set_watched(&item.key, true)?;
+        assert!(db.watched_state(&item.key)?.watched);
+        assert_eq!(db.list_calendar_titles()?, vec![item.clone()]);
+        db.remove_from_watchlist(&item.key)?;
+        assert!(db.list_calendar_titles()?.is_empty());
+    }
+    Ok(())
+}
+
+#[test]
+fn calendar_includes_all_saved_titles_without_a_page_limit() -> anyhow::Result<()> {
+    let mut db = Library::memory()?;
+    let saved: Vec<_> = (0..205).map(|i| movie(&i.to_string())).collect();
+    db.upsert_media_batch(&saved)?;
+    for item in &saved {
+        db.add_to_watchlist(&item.key)?;
+    }
+    let unsaved = movie("unsaved");
+    db.upsert_media(&unsaved)?;
+    db.set_watched(&unsaved.key, true)?;
+    assert_eq!(
+        db.list_calendar_titles()?,
+        saved.into_iter().rev().collect::<Vec<_>>()
+    );
+    Ok(())
+}
+
+#[test]
+fn watching_unsaved_titles_does_not_add_them_to_library() -> anyhow::Result<()> {
+    let mut db = Library::memory()?;
+    let saved = movie("saved");
+    let manual = movie("manual");
+    let played = movie("played");
+    for item in [&saved, &manual, &played] {
+        db.upsert_media(item)?;
+    }
+    db.add_to_watchlist(&saved.key)?;
+    db.set_watched(&saved.key, true)?;
+    db.set_watched(&manual.key, true)?;
+    db.record_playback(&played.key, 80.0, 100.0, 80.0)?;
+    for item in [&manual, &played] {
+        assert!(db.watched_state(&item.key)?.watched);
+        assert!(!db.is_in_watchlist(&item.key)?);
+    }
+    assert_eq!(
+        db.list_library(true, MediaKind::Movie, Page::new(1, 0)?)?,
+        vec![saved.clone()]
+    );
+    assert!(
+        db.list_library(true, MediaKind::Movie, Page::new(1, 1)?)?
+            .is_empty()
+    );
+    assert!(
+        db.list_library(false, MediaKind::Movie, Page::default())?
+            .is_empty()
+    );
+    db.remove_from_watchlist(&saved.key)?;
+    assert!(db.watched_state(&saved.key)?.watched);
+    assert!(
+        db.list_library(true, MediaKind::Movie, Page::default())?
+            .is_empty()
+    );
     Ok(())
 }

@@ -36,7 +36,6 @@ pub(super) struct Release {
 pub(super) struct CalendarUi {
     pub mode: Mode,
     pub anchor: NaiveDate,
-    pub offset: u32,
     pub series: Vec<Media>,
     pub releases: Vec<Release>,
     pub release_times: std::collections::HashMap<(scry_library::MediaKey, String), i64>,
@@ -56,7 +55,6 @@ impl Default for CalendarUi {
         Self {
             mode: Mode::Week,
             anchor: Local::now().date_naive(),
-            offset: 0,
             series: Vec::new(),
             releases: Vec::new(),
             release_times: std::collections::HashMap::new(),
@@ -278,8 +276,7 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
                         .grow(1.0)
                         .min_w(0.0)
                         .truncate(),
-                )
-                .child(series_pages(s)),
+                ),
         );
     if c.failed > 0 {
         body = body.child(label(format!(
@@ -615,58 +612,6 @@ fn day_dialog_header(date: NaiveDate) -> El {
             "Close day",
             |s: &mut State| s.calendar.expanded_day = None,
         ))
-}
-
-fn series_pages(s: &State) -> El {
-    let c = &s.calendar;
-    let mut controls = row().gap(5.0).center_y();
-    if c.offset == 0 && c.series.len() < 20 {
-        return controls;
-    }
-    let caption = if c.series.is_empty() {
-        "No more titles".into()
-    } else {
-        format!(
-            "Titles {}–{}",
-            c.offset.saturating_add(1),
-            c.offset
-                .saturating_add(u32::try_from(c.series.len()).unwrap_or(20))
-        )
-    };
-    controls = controls.child(label(caption).font(type_::CAPTION));
-    if c.offset > 0 {
-        controls = controls.child(
-            icon_action(
-                "calendar-series-prev",
-                "Previous 20 library titles",
-                &icons::LEFT,
-                |s| {
-                    s.calendar.offset = s.calendar.offset.saturating_sub(20);
-                    s.refresh_library();
-                },
-            )
-            .w(28.0)
-            .h(28.0)
-            .label("Previous 20 library titles"),
-        );
-    }
-    if c.series.len() == 20 {
-        controls = controls.child(
-            icon_action(
-                "calendar-series-next",
-                "Next 20 library titles",
-                &icons::RIGHT,
-                |s| {
-                    s.calendar.offset = s.calendar.offset.saturating_add(20);
-                    s.refresh_library();
-                },
-            )
-            .w(28.0)
-            .h(28.0)
-            .label("Next 20 library titles"),
-        );
-    }
-    controls
 }
 
 #[cfg(test)]

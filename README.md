@@ -94,8 +94,8 @@ Episode browsing uses 100-item pages. Library lists use 200-item pages.
 **Calendar** has Week and Month views; each day has its own scrollable release
 list and an expand button for a larger day dialog. Month view shows only that
 month's dates. Saved movies and series appear when metadata supplies an exact
-release date, not stream availability. The calendar loads 20 library titles at a
-time; use its title-page controls for more. Refresh retrieves current metadata.
+release date, not stream availability. The calendar includes the full saved library
+without title pages. Refresh retrieves current metadata with bounded concurrency.
 Undated releases are omitted. There is no background
 new-release notification service yet.
 

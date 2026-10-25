@@ -215,7 +215,6 @@ impl State {
                     worker.send(Command::Overview {
                         generation,
                         watching_offset: self.library.watching_offset,
-                        calendar_offset: self.calendar.offset,
                     })
                 })
                 .and_then(|()| {

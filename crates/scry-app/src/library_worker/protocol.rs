@@ -38,7 +38,6 @@ pub enum Command {
     Overview {
         generation: u64,
         watching_offset: u32,
-        calendar_offset: u32,
     },
     SavePlayback(Media, f64, f64, f64),
     FinishPlayback(MediaKey, Option<Media>),

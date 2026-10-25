@@ -105,7 +105,6 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
         Command::Overview {
             generation,
             watching_offset,
-            calendar_offset,
         } => {
             let watching =
                 library.list_currently_watching(Page::new(MAX_PAGE_SIZE, watching_offset)?)?;
@@ -124,7 +123,7 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
                 watching,
                 watching_watched,
                 next_release_at: library.next_release_at(chrono::Utc::now().timestamp())?,
-                series: library.list_calendar_titles(Page::new(20, calendar_offset)?)?,
+                series: library.list_calendar_titles()?,
             });
         }
         Command::SavePlayback(item, position, duration, delta) => {
