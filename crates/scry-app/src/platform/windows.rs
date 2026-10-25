@@ -76,7 +76,7 @@ impl VideoHost for Host {
                     bail!("Expected a Windows window");
                 };
                 // SAFETY: raw.hwnd is borrowed live on its owning UI thread.
-                // Resource 1 is generated from assets/skry.svg by build.rs. Shared
+                // Resource 1 is generated from the selected SVG by build.rs. Shared
                 // handles live with the executable; the window does not own them.
                 unsafe {
                     let module = GetModuleHandleW(ptr::null());

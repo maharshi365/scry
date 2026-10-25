@@ -1,9 +1,11 @@
 # Shared by install.ps1 and dev.ps1. Dot-source; do not run directly.
 $ScryRepository = Split-Path $PSScriptRoot -Parent
 
-function Build-Scry([switch]$Release) {
+function Build-Scry([switch]$Release, [switch]$Development) {
     Push-Location $ScryRepository
+    $previousDevIcon = $env:SCRY_DEV_ICON
     try {
+        $env:SCRY_DEV_ICON = if ($Development) { '1' } else { $null }
         $arguments = @('build', '-p', 'scry-app', '--bin', 'scry', '--locked')
         if ($Release) { $arguments += '--release' }
         & cargo @arguments
@@ -12,7 +14,10 @@ function Build-Scry([switch]$Release) {
         if ($LASTEXITCODE -ne 0) { throw 'Cannot locate Cargo build output.' }
         $profile = if ($Release) { 'release' } else { 'debug' }
         return Join-Path ($json | ConvertFrom-Json).target_directory "$profile/scry.exe"
-    } finally { Pop-Location }
+    } finally {
+        $env:SCRY_DEV_ICON = $previousDevIcon
+        Pop-Location
+    }
 }
 
 function Stop-ScryExecutable([string]$Executable, [switch]$Force) {

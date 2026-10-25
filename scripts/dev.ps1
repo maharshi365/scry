@@ -6,7 +6,7 @@ if (-not $IsWindows -or [System.Runtime.InteropServices.RuntimeInformation]::OSA
 }
 . "$PSScriptRoot/app-deployment.ps1"
 
-$executable = Build-Scry -Release:$Release
+$executable = Build-Scry -Release:$Release -Development
 # Each checkout gets its own run directory and isolated data.
 $directory = Join-Path $ScryRepository 'target/dev-run'
 Publish-Scry $executable $directory -Force:$Force

@@ -2,9 +2,15 @@ use std::{env, fs, path::PathBuf};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=assets/skry.svg");
+    println!("cargo:rerun-if-changed=assets/skry-dev.svg");
+    println!("cargo:rerun-if-env-changed=SCRY_DEV_ICON");
     println!("cargo:rerun-if-changed=assets/app.manifest");
     let out = PathBuf::from(env::var_os("OUT_DIR").ok_or("Missing Cargo output directory")?);
-    let source = fs::read("assets/skry.svg")?;
+    let source = fs::read(if env::var("SCRY_DEV_ICON").as_deref() == Ok("1") {
+        "assets/skry-dev.svg"
+    } else {
+        "assets/skry.svg"
+    })?;
     let tree = resvg::usvg::Tree::from_data(&source, &resvg::usvg::Options::default())?;
     let mut icons = ico::IconDir::new(ico::ResourceType::Icon);
     for size in [16_u16, 20, 24, 32, 40, 48, 64, 128, 256] {

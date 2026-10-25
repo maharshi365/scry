@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none">
+  <title>Scry Development</title>
+  <rect x="2" y="2" width="92" height="92" rx="10" fill="#202632"/>
+  <path d="M30 18H78L66 30H36L30 36l18 8-12 12-22-10V34l16-16Z" fill="#78BEFF"/>
+  <path d="m60 40 22 10v12L66 78H18l12-12h30l6-6-18-8 12-12Z" fill="#78BEFF"/>
+</svg>
