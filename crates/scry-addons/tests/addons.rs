@@ -319,3 +319,23 @@ fn episode_names_accept_cinemeta_name_and_prefer_nonempty_title() {
         assert_eq!(video.title, expected);
     }
 }
+#[test]
+fn metadata_snapshots_share_large_payloads_but_edits_preserve_previous_values() {
+    let original: scry_addons::Meta = serde_json::from_value(serde_json::json!({
+        "id": "large-series", "type": "series", "name": "Original",
+        "description": "A long description. ".repeat(1000),
+        "videos": (0..1000).map(|index| serde_json::json!({
+            "id": format!("large-series:1:{index}"), "title": format!("Episode {index}")
+        })).collect::<Vec<_>>()
+    })).unwrap();
+    let mut snapshot = original.clone();
+    assert_eq!(original.videos.as_ptr(), snapshot.videos.as_ptr(), "History must not copy episode buffers");
+    assert_eq!(original.description.as_ptr(), snapshot.description.as_ptr(), "History must not copy descriptions");
+    snapshot.videos[0].title = "Edited".into();
+    snapshot.name = "New title".into();
+    assert_eq!(original.videos[0].title, "Episode 0");
+    assert_eq!(original.name, "Original");
+    assert_eq!(snapshot.videos[0].title, "Edited");
+    assert_eq!(snapshot.name, "New title");
+    assert_eq!(snapshot.videos.len(), 1000);
+}

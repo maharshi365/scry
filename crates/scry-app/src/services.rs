@@ -28,7 +28,7 @@ pub struct LibraryPoster {
 }
 
 impl LibraryPoster {
-    fn for_media(media: &scry_library::Media, meta: Meta) -> Option<Self> {
+    fn for_media(media: &scry_library::Media, meta: &Meta) -> Option<Self> {
         let kind = match media.key.kind {
             scry_library::MediaKind::Movie => "movie",
             scry_library::MediaKind::Series => "series",
@@ -41,8 +41,8 @@ impl LibraryPoster {
             return None;
         }
         Some(Self {
-            poster: meta.poster,
-            year: meta.year,
+            poster: meta.poster.clone(),
+            year: meta.year.clone(),
         })
     }
 }
@@ -127,10 +127,8 @@ impl Services {
         &self.data
     }
     pub fn start(wake: rune::Waker) -> Result<(Self, mpsc::Receiver<Event>)> {
-        let data = directories::ProjectDirs::from("app", "Scry", "Scry")
-            .context("Cannot locate the private application data folder")?
-            .data_local_dir()
-            .to_owned();
+        let data = scry_app::project_dir(false)
+            .context("Cannot locate the private application data folder")?;
         let runtime = Arc::new(
             tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
@@ -569,7 +567,7 @@ impl Services {
                             .filter(|a| a.supports("meta", kind, &media.key.id))
                         {
                             if let Ok(meta) = client.meta(addon, kind, &media.key.id).await
-                                && let Some(poster) = LibraryPoster::for_media(&media, meta)
+                                && let Some(poster) = LibraryPoster::for_media(&media, &meta)
                             {
                                 return (media.key, Some(poster));
                             }
@@ -977,7 +975,7 @@ mod tests {
         let meta: Meta = serde_json::from_value(serde_json::json!({
             "id":"film", "type":"movie", "name":"Film", "releaseInfo":"2026", "poster":"https://example.com/poster.jpg"
         })).unwrap();
-        let poster = LibraryPoster::for_media(&media, meta.clone()).unwrap();
+        let poster = LibraryPoster::for_media(&media, &meta).unwrap();
         assert_eq!(
             poster.poster.as_deref(),
             Some("https://example.com/poster.jpg")
@@ -985,14 +983,14 @@ mod tests {
         assert_eq!(poster.year, "2026");
         let mut wrong_id = meta.clone();
         wrong_id.id = "another-film".into();
-        assert!(LibraryPoster::for_media(&media, wrong_id).is_none());
+        assert!(LibraryPoster::for_media(&media, &wrong_id).is_none());
         let mut wrong_type = meta.clone();
         wrong_type.kind = "series".into();
-        assert!(LibraryPoster::for_media(&media, wrong_type).is_none());
+        assert!(LibraryPoster::for_media(&media, &wrong_type).is_none());
         for url in [None, Some(" ".into())] {
             let mut missing = meta.clone();
             missing.poster = url;
-            assert!(LibraryPoster::for_media(&media, missing).is_none());
+            assert!(LibraryPoster::for_media(&media, &missing).is_none());
         }
     }
 

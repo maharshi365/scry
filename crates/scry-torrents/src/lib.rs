@@ -15,6 +15,8 @@ use tokio_util::io::ReaderStream;
 
 /// Created only when a torrent is selected. Exactly one torrent runs at a time.
 pub struct Torrents {
+    #[cfg(feature = "profiling")]
+    peer: Option<std::net::SocketAddr>,
     session: Arc<Session>,
     api: Api,
     port: u16,
@@ -33,6 +35,14 @@ impl Torrents {
     /// # Errors
     /// Returns an error if session storage, the torrent engine, or its local HTTP listener cannot start.
     pub async fn new(folder: PathBuf) -> Result<Self> {
+        #[cfg(feature = "profiling")]
+        let peer = std::env::var("SCRY_PROFILE_TORRENT_PEER").ok()
+            .map(|value| value.parse::<std::net::SocketAddr>()).transpose()
+            .context("Invalid profiling peer")?;
+        #[cfg(feature = "profiling")]
+        if peer.is_some_and(|peer| !peer.ip().is_loopback()) {
+            bail!("Profiling peer must be loopback");
+        }
         // Each engine owns a new cache directory. Never remove files from a caller's
         // existing directory, or from another Scry session.
         let folder = folder.join(uuid::Uuid::new_v4().to_string());
@@ -40,6 +50,8 @@ impl Torrents {
         let session = Session::new_with_opts(
             folder.clone(),
             SessionOptions {
+                #[cfg(feature = "profiling")]
+                disable_dht: peer.is_some(),
                 disable_dht_persistence: true,
                 enable_upnp_port_forwarding: false,
                 concurrent_init_limit: Some(1),
@@ -62,6 +74,8 @@ impl Torrents {
             let _ = axum::serve(listener, router).await;
         });
         Ok(Self {
+            #[cfg(feature = "profiling")]
+            peer,
             session,
             api,
             port,
@@ -93,6 +107,10 @@ impl Torrents {
                 self.session.add_torrent(
                     AddTorrent::from_url(magnet),
                     Some(AddTorrentOptions {
+                        #[cfg(feature = "profiling")]
+                        initial_peers: self.peer.map(|peer| vec![peer]),
+                        #[cfg(feature = "profiling")]
+                        disable_trackers: self.peer.is_some(),
                         list_only: true,
                         ..Default::default()
                     }),
@@ -122,6 +140,10 @@ impl Torrents {
             self.api.api_add_torrent(
                 source,
                 Some(AddTorrentOptions {
+                    #[cfg(feature = "profiling")]
+                    initial_peers: self.peer.map(|peer| vec![peer]),
+                    #[cfg(feature = "profiling")]
+                    disable_trackers: self.peer.is_some(),
                     paused: true,
                     only_files: Some(vec![index]),
                     overwrite: true,

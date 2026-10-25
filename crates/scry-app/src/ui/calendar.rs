@@ -151,12 +151,13 @@ impl State {
                         title: String::new(),
                         season: None,
                         episode: None,
-                        poster: meta.poster,
+                        poster: meta.poster.clone(),
                         media,
                     });
                 }
                 continue;
             }
+            let meta = meta.into_data();
             for video in meta.videos {
                 if let Some(date) = video
                     .released

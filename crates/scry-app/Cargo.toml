@@ -6,6 +6,9 @@ rust-version.workspace = true
 license.workspace = true
 default-run = "scry"
 
+[features]
+profiling = ["scry-playback/profiling", "scry-torrents/profiling"]
+
 [lints]
 workspace = true
 

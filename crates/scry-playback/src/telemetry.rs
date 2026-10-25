@@ -13,6 +13,10 @@ pub struct Sample {
     pub position_s: Option<f64>,
     pub duration_s: Option<f64>,
     pub cache_s: Option<f64>,
+    #[cfg(feature = "profiling")]
+    pub cache_forward_bytes: Option<f64>,
+    #[cfg(feature = "profiling")]
+    pub cache_limit_bytes: Option<u64>,
     pub buffering: bool,
     pub paused: bool,
     pub dropped_frames: Option<u64>,

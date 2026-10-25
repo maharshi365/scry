@@ -1,4 +1,5 @@
 //! Small dynamic binding to libmpv's stable C client API. No mpv subprocess or webview.
+mod cache_budget;
 mod process;
 pub mod telemetry;
 
@@ -6,6 +7,7 @@ use crate::telemetry::Sample;
 use anyhow::{Context, Result, bail};
 use libloading::Library;
 use std::{
+    cell::Cell,
     ffi::{CStr, CString, c_char, c_int, c_void},
     path::{Path, PathBuf},
     ptr,
@@ -29,8 +31,31 @@ type Destroy = unsafe extern "C" fn(*mut c_void);
 type SetOption = unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char) -> c_int;
 type Command = unsafe extern "C" fn(*mut c_void, *const *const c_char) -> c_int;
 type GetProperty = unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_char;
+type GetNode = unsafe extern "C" fn(*mut c_void, *const c_char, c_int, *mut c_void) -> c_int;
+type FreeNode = unsafe extern "C" fn(*mut Node);
 type Free = unsafe extern "C" fn(*mut c_void);
 type WaitEvent = unsafe extern "C" fn(*mut c_void, f64) -> *const Event;
+
+// Stable mpv_node ABI from client.h. Only the integer member of the cache map
+// is inspected; mpv owns and frees the entire returned tree.
+#[repr(C)]
+union NodeValue {
+    integer: i64,
+    list: *mut NodeList,
+}
+
+#[repr(C)]
+struct Node {
+    value: NodeValue,
+    format: c_int,
+}
+
+#[repr(C)]
+struct NodeList {
+    count: c_int,
+    values: *mut Node,
+    keys: *mut *mut c_char,
+}
 
 pub struct Player {
     handle: *mut c_void,
@@ -38,8 +63,11 @@ pub struct Player {
     destroy: Destroy,
     command: Command,
     get: GetProperty,
+    get_node: GetNode,
+    free_node: FreeNode,
     free: Free,
     wait: WaitEvent,
+    cache_budget: Cell<Option<cache_budget::CacheBudget>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -122,6 +150,8 @@ impl Player {
             let destroy: Destroy = *library.get(b"mpv_terminate_destroy\0")?;
             let command: Command = *library.get(b"mpv_command\0")?;
             let get: GetProperty = *library.get(b"mpv_get_property_string\0")?;
+            let get_node: GetNode = *library.get(b"mpv_get_property\0")?;
+            let free_node: FreeNode = *library.get(b"mpv_free_node_contents\0")?;
             let free: Free = *library.get(b"mpv_free\0")?;
             let wait: WaitEvent = *library.get(b"mpv_wait_event\0")?;
             let handle = create();
@@ -134,8 +164,11 @@ impl Player {
                 destroy,
                 command,
                 get,
+                get_node,
+                free_node,
                 free,
                 wait,
+                cache_budget: Cell::new(renderer.map(|_| cache_budget::CacheBudget::default())),
             };
             let mut options = vec![
                 ("config", "no".to_owned()),
@@ -148,7 +181,7 @@ impl Player {
                 ("keep-open", "no".into()),
                 ("cache", "yes".into()),
                 ("demuxer-max-bytes", "32MiB".into()),
-                ("demuxer-max-back-bytes", "8MiB".into()),
+                ("demuxer-max-back-bytes", "2MiB".into()),
                 ("cache-secs", "10".into()),
                 ("network-timeout", "20".into()),
                 ("msg-level", "all=no".into()),
@@ -180,6 +213,21 @@ impl Player {
                 let value_c = CString::new(value)?;
                 if set(handle, key_c.as_ptr(), value_c.as_ptr()) < 0 {
                     bail!("libmpv rejected option {key}");
+                }
+            }
+            #[cfg(feature = "profiling")]
+            if let Ok(extra) = std::env::var("SCRY_PROFILE_MPV_OPTIONS") {
+                let extra: std::collections::BTreeMap<String, String> =
+                    serde_json::from_str(&extra)?;
+                if extra.contains_key("demuxer-max-bytes") {
+                    player.cache_budget.set(None);
+                }
+                for (key, value) in extra {
+                    let key_c = CString::new(key)?;
+                    let value_c = CString::new(value)?;
+                    if set(handle, key_c.as_ptr(), value_c.as_ptr()) < 0 {
+                        bail!("libmpv rejected a profiling option");
+                    }
                 }
             }
             if initialize(handle) < 0 {
@@ -222,6 +270,43 @@ impl Player {
             Some(result)
         }
     }
+
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "Packet bytes are normally bounded to 32 MiB and sized in whole MiB, not sub-byte precision"
+    )]
+    fn cache_forward_bytes(&self) -> Option<f64> {
+        // SAFETY: mpv fills a node with its documented ABI. Read the map only
+        // after a successful request, and release it before returning.
+        unsafe {
+            let mut node: Node = std::mem::zeroed();
+            if (self.get_node)(
+                self.handle,
+                c"demuxer-cache-state".as_ptr(),
+                6,
+                (&raw mut node).cast(),
+            ) < 0
+            {
+                return None;
+            }
+            let mut bytes = None;
+            if node.format == 8 && !node.value.list.is_null() {
+                let list = &*node.value.list;
+                for index in 0..usize::try_from(list.count).unwrap_or(0) {
+                    let key = *list.keys.add(index);
+                    let value = &*list.values.add(index);
+                    if !key.is_null() && CStr::from_ptr(key) == c"fw-bytes" && value.format == 4 {
+                        bytes = u64::try_from(value.value.integer)
+                            .ok()
+                            .map(|value| value as f64);
+                        break;
+                    }
+                }
+            }
+            (self.free_node)(&raw mut node);
+            bytes
+        }
+    }
     #[must_use]
     pub fn event(&self, timeout: f64) -> Option<PlaybackEvent> {
         // SAFETY: copy event data before the next wait_event invalidates it.
@@ -251,11 +336,29 @@ impl Player {
                 .filter(|v| v.is_finite())
         };
         let (resident_bytes, private_bytes) = telemetry::memory();
+        let cache_s = number("demuxer-cache-duration");
+        let cache_forward_bytes = self.cache_forward_bytes();
+        if let Some(mut budget) = self.cache_budget.get() {
+            if let Some(limit) = cache_forward_bytes
+                .zip(cache_s)
+                .and_then(|(bytes, seconds)| budget.observe(bytes, seconds))
+                && self
+                    .command(&["set", "demuxer-max-bytes", &limit.to_string()])
+                    .is_ok()
+            {
+                budget.limit = limit;
+            }
+            self.cache_budget.set(Some(budget));
+        }
         Sample {
             elapsed_s,
             position_s: number("time-pos"),
             duration_s: number("duration"),
-            cache_s: number("demuxer-cache-duration"),
+            cache_s,
+            #[cfg(feature = "profiling")]
+            cache_forward_bytes,
+            #[cfg(feature = "profiling")]
+            cache_limit_bytes: self.cache_budget.get().map(|budget| budget.limit),
             buffering: self.property("paused-for-cache").as_deref() == Some("yes"),
             paused: self.property("pause").as_deref() == Some("yes"),
             dropped_frames: self

@@ -42,7 +42,12 @@ pub struct Extra {
 }
 
 #[derive(Clone, Debug)]
-pub struct Meta {
+pub struct Meta(std::sync::Arc<MetaData>);
+
+/// Shared metadata payload. Read access does not copy descriptions or episodes;
+/// editing through `Meta` detaches the payload from history and worker snapshots.
+#[derive(Clone, Debug)]
+pub struct MetaData {
     pub id: String,
     pub kind: String,
     pub name: String,
@@ -54,6 +59,27 @@ pub struct Meta {
     pub released: Option<String>,
     pub genres: Vec<String>,
     pub videos: Vec<Video>,
+}
+
+impl std::ops::Deref for Meta {
+    type Target = MetaData;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for Meta {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        std::sync::Arc::make_mut(&mut self.0)
+    }
+}
+
+impl Meta {
+    #[must_use]
+    pub fn into_data(self) -> MetaData {
+        std::sync::Arc::unwrap_or_clone(self.0)
+    }
 }
 
 impl<'de> Deserialize<'de> for Meta {
@@ -82,7 +108,7 @@ impl<'de> Deserialize<'de> for Meta {
             videos: Vec<Video>,
         }
         let fields = Fields::deserialize(deserializer)?;
-        Ok(Self {
+        Ok(Self(std::sync::Arc::new(MetaData {
             id: fields.id,
             kind: fields.kind,
             name: fields.name,
@@ -98,7 +124,7 @@ impl<'de> Deserialize<'de> for Meta {
             genres: fields.genres,
             released: fields.released,
             videos: fields.videos,
-        })
+        })))
     }
 }
 

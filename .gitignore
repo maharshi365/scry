@@ -1,4 +1,6 @@
 /target/
 /runtime/
+__pycache__/
+*.py[cod]
 *.jsonl
 *.png

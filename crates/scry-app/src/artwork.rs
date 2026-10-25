@@ -133,6 +133,11 @@ impl State {
                 let _ = cancel.send(true);
             }
         }
+        // No artwork is drawn on the new page. Drop pixel owners so the renderer
+        // can also retire their atlas entries; posters remain in the disk cache.
+        if self.visible.is_empty() {
+            self.ready.0.clear();
+        }
         for url in &self.visible {
             self.ready.touch(url);
             self.failed.touch(url);
@@ -152,6 +157,15 @@ pub struct Artwork {
 }
 
 impl Artwork {
+    #[cfg(feature = "profiling")]
+    pub fn stats(&self) -> Option<serde_json::Value> {
+        let state = self.shared.state.lock().ok()?;
+        let bytes: u64 = state.ready.0.iter().map(|(_, pixels)| {
+            let (width, height) = pixels.size();
+            u64::from(width) * u64::from(height) * 4
+        }).sum();
+        Some(serde_json::json!({"images": state.ready.0.len(), "pixel_bytes": bytes, "active": state.active.len()}))
+    }
     /// Two sleeping workers each run async HTTP on a current-thread runtime.
     /// Decode happens on those same workers, never on the UI thread. Thumbnails
     /// are already display-sized; use Pixels directly rather than queueing
@@ -167,7 +181,7 @@ impl Artwork {
 
     fn start_profile(wake: &rune::Waker, profile: Profile) -> Result<Self> {
         let client = reqwest::Client::builder()
-            .https_only(true)
+            .https_only(!cfg!(feature = "profiling"))
             .redirect(reqwest::redirect::Policy::limited(3))
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(15))
@@ -182,11 +196,11 @@ impl Artwork {
             ..Shared::default()
         });
         let artwork = Self { shared };
-        let disk = directories::ProjectDirs::from("app", "Scry", "Scry")
+        let disk = scry_app::project_dir(true)
             .filter(|_| matches!(profile, Profile::Poster))
             .map(|dirs| {
                 Arc::new(Mutex::new(crate::artwork_cache::DiskCache::new(
-                    dirs.cache_dir().join("artwork"),
+                    dirs.join("artwork"),
                 )))
             });
         for index in 0..WORKERS {
@@ -365,7 +379,10 @@ fn valid_url(value: &str) -> bool {
     let Ok(url) = url::Url::parse(value) else {
         return false;
     };
-    url.scheme() == "https"
+    let scheme_allowed = url.scheme() == "https";
+    #[cfg(feature = "profiling")]
+    let scheme_allowed = scheme_allowed || (url.scheme() == "http" && url.host_str() == Some("127.0.0.1"));
+    scheme_allowed
         && url.host_str().is_some()
         && url.username().is_empty()
         && url.password().is_none()
@@ -457,6 +474,25 @@ mod tests {
         state.set_visible(&[url(99)]);
         assert!(*receiver.borrow(), "offscreen work must be cancelled");
         assert_eq!(state.next(), Some(url(99)));
+    }
+
+    #[test]
+    fn leaving_artwork_pages_releases_decoded_pixels_and_cancels_work() {
+        for profile in [Profile::Poster, Profile::Player] {
+            let mut state = State { profile, ..State::default() };
+            let pixels = rune::Pixels::new();
+            pixels.set(160, 240, vec![0; 160 * 240 * 4]);
+            state.ready.insert(url(0), pixels, profile.capacity(), &[]);
+            state.set_visible(&[url(0)]);
+            assert!(state.ready.get(&url(0)).is_some());
+            let (sender, receiver) = watch::channel(false);
+            state.active.insert(url(1), sender);
+            state.set_visible(&[]);
+            assert!(state.ready.0.is_empty(), "Hidden pages must not pin decoded images");
+            assert!(*receiver.borrow(), "Hidden artwork work must be cancelled");
+            state.set_visible(&[url(0)]);
+            assert_eq!(state.next(), Some(url(0)), "Returning must reload the thumbnail");
+        }
     }
 
     #[test]

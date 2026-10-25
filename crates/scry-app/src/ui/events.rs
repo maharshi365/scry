@@ -98,6 +98,8 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
     s.request_library_posters();
     s.request_series_states();
     s.request_series_tracking(false);
+    #[cfg(feature = "profiling")]
+    { changed |= super::profiling::poll(s, tx); }
     changed
 }
 

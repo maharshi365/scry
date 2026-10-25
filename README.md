@@ -90,6 +90,18 @@ new-release notification service yet.
 
 ## Performance diagnostics
 
+For unattended full-app streaming, scrolling, and navigation measurements with
+an isolated 1,000-title library and original synthetic media:
+
+```powershell
+python scripts/profile-app.py --build --report target/perf-run
+python scripts/profile-app.py --torrent --report target/perf-torrent
+```
+
+This requires Python 3, FFmpeg, and an unlocked Windows desktop. New control and
+profiling hooks compile only with the non-default `profiling` feature. A normal
+release build excludes them. See [memory profiling](docs/memory-profiling.md).
+
 Measure the idle native window on Windows (release build, no playback):
 
 ```powershell
@@ -111,6 +123,7 @@ poster again. Cache work stays off the UI thread. Cache failures fall back to th
 network. On Windows, the cache is `%LOCALAPPDATA%\Scry\Scry\cache\artwork`;
 close Scry before clearing it. It contains image pixels and opaque hashed keys,
 not plaintext URLs or credentials, but artwork can still reveal browsing history.
+Pages with no visible artwork release decoded RAM-cache entries, including during steady playback.
 Only nearby rows build cards and layout nodes. Spacer blocks represent offscreen
 rows, preserving scroll position and back/forward navigation. Geometry and requests
 update per section rather than per row.
@@ -206,7 +219,7 @@ cargo test -p scry-torrents
 cargo run -p scry-addons --example addon_probe
 ```
 
-Rune is pinned to a Git revision because its API is still developing. `Cargo.lock` should be retained for reproducible app builds. The first build is much larger than the running app: it compiles Rune/wgpu and the torrent dependencies.
+Rune is pinned to Git revision `e18cc657232a93af500b40917880c02cd4edd069`. Cargo downloads Rune and its dependencies; no framework fork is maintained in this repository. `Cargo.lock` should be retained for reproducible app builds. The first build is much larger than the running app: it compiles Rune/wgpu and the torrent dependencies.
 
 libmpv and its codec build have their own license obligations. Include their license notices and satisfy the selected build's source-distribution requirements before redistributing an installer. This repository does not treat third-party binaries as MIT-licensed.
 

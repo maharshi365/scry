@@ -1,5 +1,9 @@
 # UI performance checks
 
+The later [memory profiling pass](memory-profiling.md) adds isolated full-app
+streaming/torrent workloads and app-owned memory improvements. Its experimental
+framework patches have been removed; Rune is managed by Cargo without a fork.
+
 ## Current persistence and grid rebuild
 
 The earlier measurements below describe the first optimization pass, not a new

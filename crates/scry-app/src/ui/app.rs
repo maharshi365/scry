@@ -62,6 +62,8 @@ impl State {
             include_bytes!(concat!(env!("OUT_DIR"), "/skry.rgba")).to_vec(),
         );
         Self {
+            #[cfg(feature = "profiling")]
+            profiling: None,
             native_navigation: scry_app::platform::NavigationInput::default(),
             logo,
             artwork: None,
@@ -140,6 +142,8 @@ pub(super) fn headless() -> bool {
 }
 
 fn setup(s: &mut State, wake: rune::Waker) {
+    #[cfg(feature = "profiling")]
+    { s.profiling = super::profiling::Driver::start(wake.clone()); }
     s.native_navigation.connect(wake.clone());
     if headless() {
         s.config_busy = false;

@@ -17,6 +17,8 @@ mod navigation;
 mod player;
 mod poster_grid;
 mod primitives;
+#[cfg(feature = "profiling")]
+mod profiling;
 mod scenes;
 mod shell;
 mod shortcuts;
@@ -38,6 +40,8 @@ const EPISODES_PER_PAGE: usize = 100;
     reason = "Independent UI, configuration, and playback flags are not mutually exclusive states"
 )]
 pub struct State {
+    #[cfg(feature = "profiling")]
+    profiling: Option<profiling::Driver>,
     native_navigation: scry_app::platform::NavigationInput,
     logo: rune::Pixels,
     artwork: Option<crate::artwork::Artwork>,
