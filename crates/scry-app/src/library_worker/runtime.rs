@@ -54,6 +54,9 @@ pub(super) fn run(
     if !emit(events, stop, wake, Event::Ready) {
         return;
     }
+    if !achievements(&mut library, events, stop, wake) {
+        return;
+    }
     while !stop.load(Ordering::Acquire) {
         let command = match commands.recv_timeout(Duration::from_millis(250)) {
             Ok(command) => command,
@@ -64,13 +67,31 @@ pub(super) fn run(
             break;
         }
         let mutation = command.acknowledges_mutation();
+        let evaluate = command.affects_achievements();
         let event = match apply(&mut library, command) {
             Ok(event) => event,
             Err(_) if mutation => Event::Error("Cannot complete the library request".into()),
             Err(_) => Event::RequestError("Cannot complete the library request".into()),
         };
+        let succeeded = !matches!(event, Event::Error(_) | Event::RequestError(_));
         if !emit(events, stop, wake, event) {
             break;
         }
+        if succeeded && evaluate && !achievements(&mut library, events, stop, wake) {
+            break;
+        }
     }
+}
+
+fn achievements(
+    library: &mut Library,
+    events: &SyncSender<Event>,
+    stop: &AtomicBool,
+    wake: &rune::Waker,
+) -> bool {
+    let event = match library.evaluate_achievements() {
+        Ok(result) => Event::Achievements(result),
+        Err(_) => Event::RequestError("Cannot update achievements".into()),
+    };
+    emit(events, stop, wake, event)
 }

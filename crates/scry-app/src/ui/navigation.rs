@@ -11,6 +11,7 @@ pub(super) enum Page {
     Discover,
     Library,
     Addons,
+    Stats,
     Detail,
     Player,
 }
@@ -85,6 +86,9 @@ impl State {
         self.loading = false;
         self.error = None;
         self.status.clear();
+        if page == Page::Stats {
+            self.refresh_stats();
+        }
         if page == Page::Discover && self.catalog.is_some() && self.metas.is_empty() {
             self.fetch_catalog();
         }
@@ -192,6 +196,7 @@ impl State {
         self.source_menu_open = false;
         self.loading = false;
         match self.navigation.page {
+            Page::Stats => self.refresh_stats(),
             Page::Discover if route.loading => self.fetch_catalog(),
             Page::Detail => {
                 if route.loading && self.selected_video_id.is_none() {

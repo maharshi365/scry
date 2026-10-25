@@ -51,11 +51,21 @@ impl Worker {
 
     /// Never blocks. A full queue rejects the command; it is not executed.
     pub fn send(&self, command: Command) -> Result<()> {
+        self.try_send(command).map_err(|error| match error {
+            TrySendError::Full(()) => anyhow!("Library is busy; try again"),
+            TrySendError::Disconnected(()) => anyhow!("Library worker is unavailable"),
+        })
+    }
+
+    /// Preserve queue backpressure separately from a disconnected worker.
+    /// # Errors
+    /// Returns whether the queue is full or disconnected. The caller retains retry data.
+    pub fn try_send(&self, command: Command) -> std::result::Result<(), TrySendError<()>> {
         self.commands
             .try_send(command)
             .map_err(|error| match error {
-                TrySendError::Full(_) => anyhow!("Library is busy; try again"),
-                TrySendError::Disconnected(_) => anyhow!("Library worker is unavailable"),
+                TrySendError::Full(_) => TrySendError::Full(()),
+                TrySendError::Disconnected(_) => TrySendError::Disconnected(()),
             })
     }
 
@@ -234,7 +244,13 @@ mod tests {
     }
 
     fn receive(worker: &Worker) -> Event {
-        worker.events.recv_timeout(Duration::from_secs(10)).unwrap()
+        loop {
+            let event = worker.events.recv_timeout(Duration::from_secs(10)).unwrap();
+            // Achievement updates are unsolicited, not command acknowledgments.
+            if !matches!(event, Event::Achievements(_)) {
+                return event;
+            }
+        }
     }
 
     fn refresh(worker: &Worker, generation: u64) -> Snapshot {
@@ -260,7 +276,8 @@ mod tests {
     fn change(worker: &Worker, command: Command) {
         worker.send(command).unwrap();
         assert!(matches!(receive(worker), Event::Changed));
-        assert!(matches!(worker.try_recv(), Err(TryRecvError::Empty)));
+        worker.send(Command::Flush(0)).unwrap();
+        assert!(matches!(receive(worker), Event::Flushed(0)));
     }
 
     #[test]
@@ -467,11 +484,12 @@ mod tests {
     fn full_completion_queue_can_shutdown_without_ui_drain() {
         let dir = tempfile::tempdir().unwrap();
         let mut worker = start(dir.path().join("library.db"));
-        // Ready plus these acknowledgments fill the completion queue. More
+        // Ready and the initial achievement update take two completion slots.
+        // Mutation acknowledgments fill the rest. More
         // commands then fill the command queue behind the blocked completion.
         let deadline = Instant::now() + Duration::from_secs(10);
         let mut accepted = 0;
-        while accepted < CAPACITY * 2 {
+        while accepted < CAPACITY * 2 - 1 {
             if worker.send(Command::Upsert(Vec::new())).is_ok() {
                 accepted += 1;
             } else if Instant::now() >= deadline {
@@ -480,7 +498,7 @@ mod tests {
                 thread::sleep(Duration::from_millis(5));
             }
         }
-        assert_eq!(accepted, CAPACITY * 2);
+        assert_eq!(accepted, CAPACITY * 2 - 1);
         assert_eq!(
             worker
                 .send(Command::Upsert(Vec::new()))

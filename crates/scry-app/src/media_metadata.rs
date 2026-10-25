@@ -69,9 +69,92 @@ pub(crate) fn episode_inventory(key: &MediaKey, meta: &Meta) -> Vec<EpisodeRelea
         .collect()
 }
 
+fn runtime_seconds(value: &str) -> Option<f64> {
+    if value.len() > 128 {
+        return None;
+    }
+    let value = value
+        .to_ascii_lowercase()
+        .replace("minutes", "m")
+        .replace("minute", "m")
+        .replace("mins", "m")
+        .replace("min", "m")
+        .replace("hours", "h")
+        .replace("hour", "h")
+        .replace("hrs", "h")
+        .replace("hr", "h");
+    let value: String = value.chars().filter(|c| !c.is_whitespace()).collect();
+    let seconds = if let Some((hours, minutes)) = value.split_once('h') {
+        let hours = hours.parse::<f64>().ok()?;
+        let minutes = minutes.strip_suffix('m').unwrap_or(minutes);
+        let minutes = if minutes.is_empty() {
+            0.0
+        } else {
+            minutes.parse::<f64>().ok()?
+        };
+        if hours < 0.0 || minutes < 0.0 {
+            return None;
+        }
+        hours * 3600.0 + minutes * 60.0
+    } else {
+        value
+            .strip_suffix('m')
+            .unwrap_or(&value)
+            .parse::<f64>()
+            .ok()?
+            * 60.0
+    };
+    (seconds.is_finite() && seconds > 0.0).then_some(seconds)
+}
+
+pub(crate) fn known_runtimes(key: &MediaKey, meta: &Meta) -> Vec<(MediaKey, f64)> {
+    if key.kind == MediaKind::Movie {
+        return runtime_seconds(&meta.runtime)
+            .map(|seconds| vec![(key.clone(), seconds)])
+            .unwrap_or_default();
+    }
+    meta.videos
+        .iter()
+        .filter(|video| !video.id.trim().is_empty())
+        .filter_map(|video| {
+            // A series runtime is the provider's per-episode runtime. Prefer an
+            // episode-specific value when supplied; never substitute a fixed guess.
+            let runtime = if video.runtime.is_empty() {
+                &meta.runtime
+            } else {
+                &video.runtime
+            };
+            Some((
+                MediaKey::new(&key.namespace, MediaKind::Episode, &video.id),
+                runtime_seconds(runtime)?,
+            ))
+        })
+        .take(50_000)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn known_runtime_formats_do_not_invent_values_for_missing_or_ambiguous_metadata() {
+        for (value, expected) in [("120 min", 7200.0), ("1h 30m", 5400.0), ("45", 2700.0)] {
+            assert_eq!(runtime_seconds(value), Some(expected));
+        }
+        for value in [
+            "",
+            "unknown",
+            "45-60 min",
+            "NaN",
+            "inf",
+            "-5 min",
+            "-1h 120m",
+            "0 min",
+        ] {
+            assert_eq!(runtime_seconds(value), None);
+        }
+    }
 
     #[test]
     fn inventory_includes_future_and_undated_episodes_without_duplicates() -> anyhow::Result<()> {

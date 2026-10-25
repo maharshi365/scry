@@ -9,6 +9,18 @@ use scry_library::{Library, MAX_PAGE_SIZE, MediaKind, Page};
 )]
 pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
     match command {
+        Command::Runtimes(values) => {
+            library.set_known_runtimes(&values)?;
+            return Ok(Event::RuntimesStored);
+        }
+        Command::NerdStats { generation } => {
+            return Ok(
+                match library.nerd_stats(scry_library::StatsPeriod::AllTime) {
+                    Ok(data) => Event::NerdStats { generation, data },
+                    Err(_) => Event::StatsError { generation },
+                },
+            );
+        }
         Command::UpNext { generation, offset } => {
             let now = chrono::Utc::now().timestamp();
             let items = library.list_up_next(now, Page::new(MAX_PAGE_SIZE, offset)?)?;

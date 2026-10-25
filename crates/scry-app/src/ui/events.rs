@@ -58,6 +58,7 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
         | s.artwork
             .as_mut()
             .is_some_and(crate::artwork::Artwork::poll);
+    changed |= s.poll_achievement_toast(tx);
     if let Some(release) = s.library.next_release_at {
         let now = chrono::Utc::now().timestamp();
         if release <= now {
@@ -95,9 +96,7 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
         changed = true;
         apply(s, event);
     }
-    s.request_library_posters();
-    s.request_series_states();
-    s.request_series_tracking(false);
+    changed |= request_library_updates(s);
     if let Some(delay) = s.metadata_retry_after() {
         tx.wake_after(delay);
     }
@@ -106,6 +105,13 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
         changed |= super::profiling::poll(s, tx);
     }
     changed
+}
+
+fn request_library_updates(s: &mut State) -> bool {
+    s.request_library_posters();
+    s.request_series_states();
+    s.request_series_tracking(false);
+    s.flush_known_runtimes()
 }
 
 #[expect(

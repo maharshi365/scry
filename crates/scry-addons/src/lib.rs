@@ -171,6 +171,7 @@ pub struct Video {
     pub episode: Option<u32>,
     pub released: Option<String>,
     pub thumbnail: Option<String>,
+    pub runtime: String,
 }
 
 #[derive(Deserialize)]
@@ -184,6 +185,8 @@ struct VideoFields {
     episode: Option<u32>,
     released: Option<String>,
     thumbnail: Option<String>,
+    #[serde(default, deserialize_with = "optional_text")]
+    runtime: String,
 }
 
 impl From<VideoFields> for Video {
@@ -199,6 +202,7 @@ impl From<VideoFields> for Video {
             episode: fields.episode,
             released: fields.released,
             thumbnail: fields.thumbnail,
+            runtime: fields.runtime,
         }
     }
 }

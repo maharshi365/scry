@@ -127,6 +127,8 @@ impl State {
     }
 
     pub(in crate::ui) fn mark_media_watched(&mut self, media: Media, watched: bool) {
+        let runtime_key = media.key.clone();
+        let runtime_meta = self.watch_metadata(&media).cloned();
         self.library.watch_pending.remove(&media.key);
         let date = self.known_release_date(&media);
         if !watched
@@ -165,9 +167,13 @@ impl State {
         } else {
             self.db(Command::SetWatched(media, watched), true);
         }
+        if let Some(meta) = runtime_meta {
+            self.register_known_runtimes(&runtime_key, &meta);
+        }
     }
 
     fn mark_with_metadata(&mut self, media: Media, watched: bool, meta: &Meta) {
+        let key = media.key.clone();
         let inventory =
             (media.key.kind == MediaKind::Series).then(|| episode_inventory(&media.key, meta));
         let released_at = meta_release_timestamp(meta);
@@ -180,6 +186,7 @@ impl State {
             },
             true,
         );
+        self.register_known_runtimes(&key, meta);
     }
 
     pub(in crate::ui) fn apply_watch_metadata(

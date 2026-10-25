@@ -26,6 +26,7 @@ mod playback;
 mod player;
 mod presentation;
 mod series;
+mod stats;
 mod title_screen;
 mod up_next;
 mod watch_rules;

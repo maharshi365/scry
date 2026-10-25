@@ -1,18 +1,24 @@
 //! Synchronous, local-only app storage. Run on a worker, never the UI thread.
 #![forbid(unsafe_code)]
 
+mod achievements;
 mod app_storage;
 mod media;
 mod models;
 mod playback;
 mod playlists;
 mod schema;
+mod stats;
 mod up_next;
 mod watch_status;
 mod watchlist;
 
+pub use achievements::{
+    Achievement, AchievementDb, AchievementEntry, AchievementEvaluation, Evaluation,
+};
 pub use app_storage::AddonRecord;
 pub use models::*;
+pub use stats::{NerdStats, StatsPeriod, TopTitle};
 pub use watch_status::can_mark_watched;
 
 use std::{cell::RefCell, path::Path, sync::Mutex};
@@ -26,7 +32,7 @@ use diesel::{
 
 /// All persistent app state shares this database. Older pre-release stores are not imported.
 pub const DATABASE_NAME: &str = "scry-v2.sqlite3";
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 // SQLite's initial journal-mode switch can return BUSY without using the
 // busy timeout. Serialize our workers' startup, not their normal database work.
 static INITIALIZE: Mutex<()> = Mutex::new(());
@@ -91,11 +97,15 @@ impl Library {
                 connection.batch_execute("DROP VIEW effective_watched;")?;
                 watch_status::install_view(connection)?;
                 connection.batch_execute("PRAGMA user_version=4;")?;
-            } else {
+            } else if version != 4 {
                 ensure!(
                     version == SCHEMA_VERSION,
                     "unsupported app database schema; reset the local database"
                 );
+            }
+            if version < 5 {
+                connection.batch_execute(include_str!("stats_schema.sql"))?;
+                connection.batch_execute("PRAGMA user_version=5;")?;
             }
             Self::validate(connection)?;
             Ok(())
@@ -145,6 +155,7 @@ impl Library {
         schema::effective_watched::table
             .limit(0)
             .load::<(i64, bool)>(connection)?;
+        stats::validate(connection)?;
         ensure!(
             diesel::sql_query("PRAGMA foreign_key_check")
                 .load::<ForeignKeyViolation>(connection)?

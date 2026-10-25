@@ -55,16 +55,7 @@ pub(super) fn shortcut(
 
 pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
     if s.navigation.page == Page::Player && s.player.fullscreen {
-        let mut content = col()
-            .key("fullscreen-player")
-            .w_full()
-            .h_full()
-            .fill(tokens::video())
-            .child(player(s, cx.env().scale));
-        if let Some(error) = &s.error {
-            content = content.child(label(error.clone()));
-        }
-        return content;
+        return fullscreen_player(s, cx.env().scale);
     }
     let mut content = col()
         .key("content")
@@ -83,6 +74,7 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
         Page::Calendar => super::calendar::view(s, cx),
         Page::Library => library_view::view(s, cx),
         Page::Addons => addons(s),
+        Page::Stats => super::stats::view(s),
         Page::Detail if s.detail_preview => row()
             .grow(1.0)
             .min_h(0.0)
@@ -123,7 +115,6 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
     if s.navigation.page != Page::Detail {
         body = body.child(sidebar(s));
     }
-    body = body.child(content);
     let mut root = col()
         .key("scry")
         .w_full()
@@ -135,7 +126,9 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
     if !s.app_fullscreen {
         root = root.child(topbar(s));
     }
-    root = root.child(body);
+    root = root
+        .child(body.child(content))
+        .children(super::stats::toast(s));
     if s.navigation.page == Page::Detail {
         if let Some(menu) = super::detail::season_menu(s, cx) {
             root = root.child(menu);
@@ -156,6 +149,19 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
     root
 }
 
+fn fullscreen_player(s: &State, scale: f32) -> El {
+    let mut content = col()
+        .key("fullscreen-player")
+        .w_full()
+        .h_full()
+        .fill(tokens::video())
+        .child(player(s, scale));
+    if let Some(error) = &s.error {
+        content = content.child(label(error.clone()));
+    }
+    content.children(super::stats::toast(s))
+}
+
 fn sidebar(s: &State) -> El {
     let mut sidebar = col()
         .key("sidebar")
@@ -174,6 +180,7 @@ fn sidebar(s: &State) -> El {
         ),
         ("nav-library", "Library", Page::Library, &icons::LIBRARY),
         ("nav-calendar", "Calendar", Page::Calendar, &icons::CALENDAR),
+        ("nav-stats", "Stats for Nerds", Page::Stats, &icons::CHART),
         ("nav-addons", "Add-ons", Page::Addons, &icons::ADDONS),
     ] {
         sidebar = sidebar.child(

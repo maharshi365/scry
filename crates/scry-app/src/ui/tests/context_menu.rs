@@ -71,6 +71,11 @@ fn season_actions_cover_every_episode_on_all_pages_but_not_other_seasons() {
     let last = MediaKey::new("imdb", MediaKind::Episode, "tt123:1:205");
     assert!(db.watched_state(&last).unwrap().watched);
     assert!(db.load_progress(&other.key).unwrap().is_some());
+    // The new achievement notification occupies the top-right controls until
+    // dismissed, just as it does in the app.
+    if rt.find("achievement-dismiss").is_some() {
+        tap(&mut rt, "achievement-dismiss");
+    }
     right_click(&mut rt, "season-select");
     tap(&mut rt, "context-season-unwatched");
     settle_library(&mut rt, |s| {

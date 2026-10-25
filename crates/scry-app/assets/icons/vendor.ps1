@@ -6,7 +6,10 @@ $names = @(
     'download', 'trash-2', 'play', 'pause', 'rewind', 'fast-forward',
     'volume-2', 'volume-x', 'captions', 'audio-lines', 'square', 'maximize',
     'minimize', 'arrow-left', 'arrow-right', 'chevron-down', 'refresh-cw',
-    'x', 'check', 'plus'
+    'x', 'check', 'plus',
+    'layers', 'flag', 'sun', 'shield', 'scan-eye', 'graduation-cap',
+    'repeat-2', 'moon', 'briefcase-business', 'trophy', 'clock-3',
+    'chart-no-axes-combined', 'hourglass'
 )
 $upstream = Join-Path $PSScriptRoot 'lucide'
 $bodies = Join-Path $PSScriptRoot 'rune'

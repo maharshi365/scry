@@ -77,6 +77,7 @@ impl State {
         self.retry_series_details();
         self.request_series_tracking(true);
         match self.navigation.page {
+            Page::Stats => self.refresh_stats(),
             Page::Discover => self.fetch_catalog(),
             Page::Calendar => self.refresh_calendar(),
             Page::Library | Page::Watching => {

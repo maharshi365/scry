@@ -85,6 +85,7 @@ impl State {
             poster_route: 0,
             library: LibraryUi::default(),
             calendar: super::calendar::CalendarUi::default(),
+            stats: super::stats::StatsUi::default(),
             context_menu: None,
             addon_install_open: false,
             addon_install_complete: false,
@@ -212,6 +213,7 @@ pub(super) fn run() -> anyhow::Result<()> {
         poll: Some(poll),
         on_key: Some(on_key),
         scenes: &[
+            ("stats", super::stats::scene),
             ("discover", scene_discover),
             ("detail", scene_detail),
             ("detail-watched", scene_detail_watched),

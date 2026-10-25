@@ -234,12 +234,16 @@ impl State {
             return;
         };
         if parent.key.kind == MediaKind::Movie {
+            let key = parent.key.clone();
             let date = self
                 .detail
                 .as_ref()
                 .and_then(crate::media_metadata::meta_release_timestamp);
             self.library.generation += 1;
             self.db(Command::RegisterRelease(parent, date), true);
+            if let Some(meta) = self.detail.clone() {
+                self.register_known_runtimes(&key, &meta);
+            }
             return;
         }
         let mut entries = vec![parent.clone()];
@@ -274,6 +278,9 @@ impl State {
         // Reject snapshots for the old page while the upsert acknowledgement is pending.
         self.library.generation += 1;
         self.db(Command::Upsert(entries), true);
+        if let Some(meta) = self.detail.clone() {
+            self.register_known_runtimes(&parent.key, &meta);
+        }
     }
 
     pub(super) fn visible_episode_keys(&self) -> Vec<MediaKey> {
@@ -308,6 +315,9 @@ impl State {
         let mut refresh = false;
         for event in events {
             match event {
+                DbEvent::NerdStats { generation, data } => self.apply_stats(generation, data),
+                DbEvent::StatsError { generation } => self.stats_failed(generation),
+                DbEvent::Achievements(result) => self.apply_achievements(result),
                 DbEvent::UpNext {
                     generation,
                     items,
@@ -364,7 +374,8 @@ impl State {
                         self.fetch_calendar();
                     }
                 }
-                DbEvent::UpNext { .. }
+                DbEvent::RuntimesStored
+                | DbEvent::UpNext { .. }
                 | DbEvent::Browse { .. }
                 | DbEvent::Overview { .. }
                 | DbEvent::Flushed(_) => {}

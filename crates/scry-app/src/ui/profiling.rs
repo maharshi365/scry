@@ -118,6 +118,7 @@ fn metadata_stress(s: &mut State) {
     if let Some(meta) = s.detail.as_mut() {
         meta.videos = (1..=10_000)
             .map(|index| scry_addons::Video {
+                runtime: String::new(),
                 id: format!("scene-series:1:{index}"),
                 title: format!("Benchmark chapter {index}: a long episode title"),
                 season: Some(1),

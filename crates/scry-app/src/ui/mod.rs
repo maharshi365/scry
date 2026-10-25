@@ -23,6 +23,7 @@ mod scenes;
 mod shell;
 mod shortcuts;
 mod source_picker;
+mod stats;
 
 use crate::services::{Event, Services};
 use library_view::LibraryUi;
@@ -54,6 +55,7 @@ pub struct State {
     poster_route: u64,
     library: LibraryUi,
     calendar: calendar::CalendarUi,
+    stats: stats::StatsUi,
     context_menu: Option<(rune::PointerPress, Option<context_menu::Target>)>,
     addon_install_open: bool,
     addon_install_complete: bool,

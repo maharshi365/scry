@@ -38,6 +38,25 @@ pub(in crate::ui) fn disabled() -> Color {
 pub(in crate::ui) fn success() -> Color {
     rune::oklch(0.80, 0.10, 155.0)
 }
+pub(in crate::ui) fn stats_hero() -> Color {
+    rune::oklch(0.225, 0.035, 215.0)
+}
+pub(in crate::ui) fn stats_violet() -> Color {
+    rune::oklch(0.73, 0.14, 295.0)
+}
+pub(in crate::ui) fn stats_gold() -> Color {
+    rune::oklch(0.81, 0.13, 80.0)
+}
+pub(in crate::ui) fn stats_badge_fill(earned: bool) -> Color {
+    if earned {
+        stats_gold().alpha(0.12)
+    } else {
+        edge().alpha(0.3)
+    }
+}
+pub(in crate::ui) fn stats_rail() -> Color {
+    edge().alpha(0.5)
+}
 pub(in crate::ui) fn warning() -> Color {
     rune::oklch(0.8, 0.12, 70.0)
 }
@@ -161,4 +180,7 @@ pub(in crate::ui) mod type_ {
     pub const LOADING_TITLE: TextStyle = TextStyle::new(30.0, 550.0);
     pub const POSTER_FALLBACK: TextStyle = TextStyle::new(52.0, 300.0);
     pub const THUMBNAIL_FALLBACK: TextStyle = TextStyle::new(16.0, 500.0);
+    pub const STATS_HERO: TextStyle = TextStyle::new(48.0, 650.0);
+    pub const STATS_NUMBER: TextStyle = TextStyle::new(26.0, 600.0);
+    pub const STATS_KICKER: TextStyle = TextStyle::new(10.0, 650.0);
 }

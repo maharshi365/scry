@@ -3,6 +3,10 @@ use scry_library::{Media, MediaKey, MediaKind, Progress, WatchedState};
 
 #[derive(Clone, Debug)]
 pub enum Command {
+    Runtimes(Vec<(MediaKey, f64)>),
+    NerdStats {
+        generation: u64,
+    },
     UpNext {
         generation: u64,
         offset: u32,
@@ -98,6 +102,15 @@ pub struct Snapshot {
 
 #[derive(Debug)]
 pub enum Event {
+    RuntimesStored,
+    NerdStats {
+        generation: u64,
+        data: scry_library::NerdStats,
+    },
+    StatsError {
+        generation: u64,
+    },
+    Achievements(scry_library::AchievementEvaluation),
     UpNext {
         generation: u64,
         items: Vec<(Media, Option<Progress>)>,
@@ -143,6 +156,22 @@ pub enum Event {
 }
 
 impl Command {
+    pub(super) fn affects_achievements(&self) -> bool {
+        matches!(
+            self,
+            Self::Runtimes(..)
+                | Self::RegisterRelease(..)
+                | Self::SavePlayback(..)
+                | Self::FinishPlayback(..)
+                | Self::SetWatched(..)
+                | Self::SetWatchedMetadata { .. }
+                | Self::SetEpisodesWatched { .. }
+                | Self::ToggleWatchlist(..)
+                | Self::SetWatchlist(..)
+                | Self::SyncSeries { .. }
+        )
+    }
+
     pub(super) fn acknowledges_mutation(&self) -> bool {
         matches!(
             self,

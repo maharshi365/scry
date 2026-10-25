@@ -145,6 +145,29 @@ pub(in crate::ui) static ADD: Icon = Icon {
     body: include_str!("../../../assets/icons/rune/plus.svg"),
 };
 
+macro_rules! stats_icon {
+    ($name:ident, $file:literal) => {
+        pub(in crate::ui) static $name: Icon = Icon {
+            name: $file,
+            view: 24.0,
+            body: include_str!(concat!("../../../assets/icons/rune/", $file, ".svg")),
+        };
+    };
+}
+stats_icon!(LAYERS, "layers");
+stats_icon!(FLAG, "flag");
+stats_icon!(SUN, "sun");
+stats_icon!(SHIELD, "shield");
+stats_icon!(SCAN_EYE, "scan-eye");
+stats_icon!(GRADUATION, "graduation-cap");
+stats_icon!(REPEAT, "repeat-2");
+stats_icon!(MOON, "moon");
+stats_icon!(BRIEFCASE, "briefcase-business");
+stats_icon!(TROPHY, "trophy");
+stats_icon!(CLOCK, "clock-3");
+stats_icon!(CHART, "chart-no-axes-combined");
+stats_icon!(HOURGLASS, "hourglass");
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,6 +204,19 @@ mod tests {
             source!(CLOSE, "x"),
             source!(CHECK, "check"),
             source!(ADD, "plus"),
+            source!(LAYERS, "layers"),
+            source!(FLAG, "flag"),
+            source!(SUN, "sun"),
+            source!(SHIELD, "shield"),
+            source!(SCAN_EYE, "scan-eye"),
+            source!(GRADUATION, "graduation-cap"),
+            source!(REPEAT, "repeat-2"),
+            source!(MOON, "moon"),
+            source!(BRIEFCASE, "briefcase-business"),
+            source!(TROPHY, "trophy"),
+            source!(CLOCK, "clock-3"),
+            source!(CHART, "chart-no-axes-combined"),
+            source!(HOURGLASS, "hourglass"),
         ];
         for (icon, svg) in sources {
             assert!(
