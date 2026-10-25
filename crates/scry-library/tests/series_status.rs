@@ -91,7 +91,7 @@ fn caught_up_is_not_complete_until_all_known_episodes_are_released_and_watched()
 }
 
 #[test]
-fn undated_episodes_count_toward_completion_but_cannot_be_marked_or_offered() -> anyhow::Result<()>
+fn undated_episodes_can_be_marked_but_are_not_counted_as_released_or_offered() -> anyhow::Result<()>
 {
     let mut db = Library::memory()?;
     let parent = show();
@@ -121,11 +121,12 @@ fn undated_episodes_count_toward_completion_but_cannot_be_marked_or_offered() ->
     assert_eq!(summary.total_episodes, 2);
     assert_eq!(summary.released_episodes, 1);
     assert_eq!(summary.fraction(), Some(0.5));
-    assert!(!db.watched_state(&unknown.key)?.watched);
+    assert!(db.watched_state(&unknown.key)?.watched);
     assert!(!db.watched_state(&parent.key)?.watched);
     assert!(!db.series_poster_state(&parent.key, 100)?.0);
     assert!(db.list_up_next(100, Page::default())?.is_empty());
     assert_eq!(db.next_release_at(100)?, None);
+    db.set_watched(&unknown.key, false)?;
     releases[1].released_at = Some(0);
     db.sync_episode_releases(&parent.key, &releases)?;
     assert_eq!(db.list_up_next(100, Page::default())?[0].0.key, unknown.key);

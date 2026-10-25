@@ -12,9 +12,7 @@ fn released(connection: &mut SqliteConnection, id: i64) -> Result<bool> {
     Ok(!diesel::select(diesel::dsl::exists(
         episode_releases::table.find(id).filter(
             episode_releases::released_at
-                .is_null()
-                .or(episode_releases::released_at
-                    .gt(diesel::dsl::sql::<diesel::sql_types::BigInt>("unixepoch()").nullable())),
+                .gt(diesel::dsl::sql::<diesel::sql_types::BigInt>("unixepoch()").nullable()),
         ),
     ))
     .get_result::<bool>(connection)?)
@@ -69,9 +67,9 @@ fn set_watched(connection: &mut SqliteConnection, id: i64, value: bool) -> Resul
         let mut query = media::table.filter(media::parent_id.eq(id)).into_boxed();
         if value {
             query = query.filter(
-                media::media_id.eq_any(
+                media::media_id.ne_all(
                     episode_releases::table
-                        .filter(episode_releases::released_at.le(
+                        .filter(episode_releases::released_at.gt(
                             diesel::dsl::sql::<diesel::sql_types::BigInt>("unixepoch()").nullable(),
                         ))
                         .select(episode_releases::media_id),
@@ -223,7 +221,7 @@ impl Library {
     }
 
     /// Register a captured metadata snapshot and apply a watched action atomically.
-    /// Known future releases are skipped, not errors. Shows act on released episodes.
+    /// Known future releases are skipped, not errors. Missing dates are allowed.
     /// # Errors
     /// Returns an error for invalid metadata/inventories or failed writes.
     pub fn set_media_watched(

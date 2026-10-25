@@ -9,6 +9,36 @@ fn item(kind: MediaKind, id: &str, parent: Option<MediaKey>) -> Media {
 }
 
 #[test]
+fn undated_items_can_be_marked_individually_and_in_bulk() -> anyhow::Result<()> {
+    let mut db = Library::memory()?;
+    let movie = item(MediaKind::Movie, "undated-movie", None);
+    db.set_media_watched(&movie, None, None, true)?;
+    assert!(db.watched_state(&movie.key)?.watched);
+    let show = item(MediaKind::Series, "show", None);
+    db.upsert_media(&show)?;
+    let episode = item(MediaKind::Episode, "undated", Some(show.key.clone()));
+    db.sync_episode_releases(
+        &show.key,
+        &[EpisodeRelease {
+            media: episode.clone(),
+            released_at: None,
+            season: Some(1),
+            episode: Some(1),
+        }],
+    )?;
+    db.set_media_watched(&episode, None, None, true)?;
+    assert!(db.watched_state(&episode.key)?.watched);
+    db.set_watched(&episode.key, false)?;
+    assert!(!db.watched_state(&episode.key)?.watched);
+    db.set_episodes_watched(&show, std::slice::from_ref(&episode), true)?;
+    assert!(db.watched_state(&episode.key)?.watched);
+    db.set_watched(&show.key, false)?;
+    db.set_watched(&show.key, true)?;
+    assert!(db.watched_state(&episode.key)?.watched);
+    Ok(())
+}
+
+#[test]
 fn future_movies_and_episodes_are_silent_no_ops_including_bulk_actions() -> anyhow::Result<()> {
     let mut db = Library::memory()?;
     let movie = item(MediaKind::Movie, "future-movie", None);
