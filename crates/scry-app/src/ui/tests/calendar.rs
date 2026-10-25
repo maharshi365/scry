@@ -169,7 +169,7 @@ fn startup_and_addon_install_have_no_discover_or_playlist_controls() {
         rt.frame(1.0 / 60.0);
     }
     assert!(rt.find("manifest").is_none());
-    tap(&mut rt, "supported-addon-0");
+    tap(&mut rt, "add-addon");
     assert!(
         rt.state.addon_install_open,
         "{:?}",
@@ -185,7 +185,7 @@ fn startup_and_addon_install_have_no_discover_or_playlist_controls() {
     assert!(rt.find("manifest").is_some());
     assert!(rect(&rt, "manifest-frame")[3] >= 44.0);
     assert!(rt.find("direct-url").is_none());
-    assert!(rt.state.install.text.contains("cinemeta"));
+    assert!(rt.state.install.text.is_empty());
     tap(&mut rt, "addon-dialog-close");
     assert!(rt.find("manifest").is_none());
 }

@@ -1,4 +1,4 @@
-//! Available and installed providers, with one shared installation dialog.
+//! Built-in providers install directly; custom URLs use the installation dialog.
 use super::{
     State,
     controls::input,
@@ -162,7 +162,7 @@ pub(super) fn addons(s: &State) -> El {
                 Button::new(format!("supported-addon-{index}"), "Install")
                     .variant(Variant::Primary)
                     .enabled(!s.config_busy)
-                    .on_press(move |s| open_install(s, url)),
+                    .on_press(move |s: &mut State| s.install(url.to_owned())),
             ),
         );
     }

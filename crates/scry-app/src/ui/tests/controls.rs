@@ -196,6 +196,83 @@ fn addon_artwork_tracks_scrolling_without_starving_available_cards() {
 }
 
 #[test]
+fn built_in_addons_install_immediately_without_opening_the_url_dialog() {
+    for index in 0..3 {
+        let mut s = init();
+        s.navigation.page = Page::Addons;
+        s.config_busy = false;
+        s.install = TextEdit::new("https://example.invalid/custom/manifest.json");
+        s.error = Some("Previous failure".into());
+        let mut rt = rune::Runtime::new(s, view, (1000.0, 1000.0), rune::Env::default());
+        rt.frame(0.0);
+        tap(&mut rt, &format!("supported-addon-{index}"));
+        assert!(rt.state.config_busy, "one click must start installation");
+        assert!(!rt.state.addon_install_open);
+        assert!(rt.find("addon-install-dialog").is_none());
+        assert!(rt.state.error.is_none());
+        assert_eq!(
+            rt.state.install.text,
+            "https://example.invalid/custom/manifest.json"
+        );
+        assert!(
+            !rt.elements()
+                .iter()
+                .find(|element| element.key.as_deref() == Some("add-addon"))
+                .unwrap()
+                .focusable
+        );
+    }
+}
+
+#[test]
+fn custom_addons_still_require_the_url_dialog_and_explicit_install() {
+    let mut s = init();
+    s.navigation.page = Page::Addons;
+    s.config_busy = false;
+    let mut rt = rune::Runtime::new(s, view, (1000.0, 800.0), rune::Env::default());
+    rt.frame(0.0);
+    tap(&mut rt, "add-addon");
+    assert!(rt.state.addon_install_open);
+    assert!(rt.find("addon-install-dialog").is_some());
+    assert!(!rt.state.config_busy);
+    rt.update(|s, _| s.install = TextEdit::new("https://example.invalid/custom/manifest.json"));
+    tap(&mut rt, "install-addon");
+    assert!(rt.state.config_busy);
+    assert!(rt.state.addon_install_open);
+}
+
+#[test]
+fn built_in_install_failure_allows_retry_and_success_updates_the_list_without_a_dialog() {
+    let (mut s, tx) = state_with_events();
+    s.navigation.page = Page::Addons;
+    s.config_busy = false;
+    let mut rt = rune::Runtime::new(s, view, (1000.0, 800.0), rune::Env::default());
+    rt.poll = Some(poll);
+    rt.frame(0.0);
+    tap(&mut rt, "supported-addon-0");
+    tx.try_send(Event::Addons(Err("Cannot fetch manifest".into())))
+        .unwrap();
+    rt.frame(1.0 / 60.0);
+    assert!(!rt.state.config_busy);
+    assert!(!rt.state.addon_install_open);
+    assert_eq!(rt.state.error.as_deref(), Some("Cannot fetch manifest"));
+    tap(&mut rt, "supported-addon-0");
+    assert!(rt.state.config_busy);
+    assert!(rt.state.error.is_none());
+    let addon = serde_json::from_value(serde_json::json!({
+        "manifest_url":crate::services::CINEMETA,
+        "manifest":{"id":"com.linvo.cinemeta","name":"Cinemeta"}
+    }))
+    .unwrap();
+    tx.try_send(Event::Addons(Ok(vec![addon]))).unwrap();
+    rt.frame(1.0 / 60.0);
+    assert!(!rt.state.config_busy);
+    assert!(!rt.state.addon_install_open);
+    assert!(rt.find("supported-addon-0").is_none());
+    assert!(rt.find("installed-addon-0").is_some());
+}
+
+#[test]
 fn unified_addons_page_and_busy_install_spinner() {
     let mut s = init();
     s.navigation.page = Page::Addons;
