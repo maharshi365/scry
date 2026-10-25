@@ -25,6 +25,7 @@ mod settings;
 mod shell;
 mod shortcuts;
 mod source_picker;
+mod source_ranking;
 mod stats;
 
 use crate::services::{Event, Services};
@@ -97,6 +98,7 @@ pub struct State {
     season_menu_open: bool,
     streams: Vec<(String, Stream)>,
     stream_provider: Option<String>,
+    stream_best_first: bool,
     source_menu_open: bool,
     warnings: Vec<String>,
     error: Option<String>,

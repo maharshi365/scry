@@ -167,6 +167,62 @@ fn missing_file_sizes_do_not_receive_an_unearned_small_file_bonus() {
     );
 }
 
+#[test]
+fn borrowed_ranking_matches_guide_selection_and_unsupported_swarms_do_not_affect_it() {
+    let mut unsupported = torrent(
+        "1080p",
+        "Unsupported",
+        serde_json::json!({"seeders":10000,"videoSize":1}),
+    );
+    unsupported.info_hash = Some("invalid-hash".into());
+    let streams: Vec<(String, Stream)> = vec![
+        ("Provider".into(), unsupported),
+        (
+            "Provider".into(),
+            torrent(
+                "1080p",
+                "Strong",
+                serde_json::json!({"seeders":100,"videoSize":300}),
+            ),
+        ),
+        (
+            "Provider".into(),
+            torrent(
+                "1080p",
+                "Compact",
+                serde_json::json!({"seeders":60,"videoSize":100}),
+            ),
+        ),
+    ];
+    let borrowed = rank_sources(
+        streams.iter().enumerate(),
+        |(_, (provider, stream))| (provider.as_str(), stream),
+        "",
+    );
+    assert_eq!(
+        borrowed.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
+        [2, 1, 0]
+    );
+    let guide = select_sources(
+        streams.clone(),
+        &SourcePolicy {
+            allow_torrents: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        guide
+            .iter()
+            .map(|stream| stream.title.as_str())
+            .collect::<Vec<_>>(),
+        borrowed
+            .iter()
+            .take(2)
+            .map(|(_, (_, stream))| stream.title.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
 #[derive(serde::Deserialize)]
 struct Samples {
     samples: Vec<Sample>,

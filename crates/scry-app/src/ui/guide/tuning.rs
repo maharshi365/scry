@@ -1,8 +1,6 @@
 //! Bounded provider grace and first-frame failover for the tuned channel only.
-use super::{
-    Page, State,
-    sources::{is_torrent, select_sources},
-};
+use super::{Page, State};
+use crate::ui::source_ranking::{is_torrent, select_sources};
 use scry_addons::Stream;
 use std::time::{Duration, Instant};
 

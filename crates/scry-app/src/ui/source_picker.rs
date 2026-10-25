@@ -7,6 +7,7 @@ use super::{
         tokens::{accent, edge, panel, theme, type_, warning},
     },
     primitives::{
+        input_group::input_group,
         surface::{card, dropdown, scroll},
         text::label,
     },
@@ -72,6 +73,28 @@ fn providers(s: &State) -> Vec<(String, usize)> {
     providers
 }
 
+fn visible_sources(s: &State) -> Vec<(usize, &String, &Stream)> {
+    let sources = s
+        .streams
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (addon, stream))| {
+            s.stream_provider
+                .as_ref()
+                .is_none_or(|provider| provider == addon)
+                .then_some((index, addon, stream))
+        });
+    if s.stream_best_first {
+        super::source_ranking::rank_sources(
+            sources,
+            |(_, addon, stream)| (addon.as_str(), *stream),
+            "",
+        )
+    } else {
+        sources.collect()
+    }
+}
+
 pub(super) fn provider_menu(s: &State, cx: &Cx<State>) -> Option<El> {
     if !s.source_menu_open {
         return None;
@@ -121,15 +144,8 @@ pub(super) fn provider_menu(s: &State, cx: &Cx<State>) -> Option<El> {
 )]
 pub(super) fn view(s: &State) -> El {
     let t = theme();
-    let visible = s
-        .streams
-        .iter()
-        .filter(|(addon, _)| {
-            s.stream_provider
-                .as_ref()
-                .is_none_or(|provider| provider == addon)
-        })
-        .count();
+    let sources = visible_sources(s);
+    let visible = sources.len();
     let count = if s.stream_provider.is_some() {
         format!("{visible} of {} sources", s.streams.len())
     } else {
@@ -175,21 +191,47 @@ pub(super) fn view(s: &State) -> El {
         );
     }
     let providers = providers(s);
+    let mut source_controls = input_group()
+        .key("source-controls")
+        .w_full()
+        .gap(0.0)
+        .radius(super::design::tokens::control::RADIUS)
+        .border(1.0, edge())
+        .fill(panel());
     if providers.len() > 1 {
-        header = header.child(
-            action(
-                "source-select",
-                s.stream_provider.as_deref().unwrap_or("All add-ons"),
-                |s| {
-                    s.season_menu_open = false;
-                    s.source_menu_open = !s.source_menu_open;
-                },
+        source_controls = source_controls
+            .child(
+                action(
+                    "source-select",
+                    s.stream_provider.as_deref().unwrap_or("All add-ons"),
+                    |s| {
+                        s.season_menu_open = false;
+                        s.source_menu_open = !s.source_menu_open;
+                    },
+                )
+                .w(0.0)
+                .grow(1.0)
+                .radius(0.0)
+                .border(0.0, edge())
+                .gap(6.0)
+                .child(icon(&icons::DOWN, 14.0).color(t.text)),
             )
-            .w_full()
-            .gap(6.0)
-            .child(icon(&icons::DOWN, 14.0).color(t.text)),
-        );
+            .child(
+                el().w(1.0)
+                    .h(super::design::tokens::control::HEIGHT)
+                    .fill(edge()),
+            );
     }
+    header = header.child(
+        source_controls.child(
+            select_action("source-best", "Best available", s.stream_best_first, |s| {
+                s.stream_best_first = !s.stream_best_first;
+                s.source_menu_open = false;
+            })
+            .radius(0.0)
+            .border(0.0, edge()),
+        ),
+    );
 
     let mut list = col().key("detail-body").w_full().gap(8.0);
     for (index, message) in s.warnings.iter().enumerate() {
@@ -242,13 +284,7 @@ pub(super) fn view(s: &State) -> El {
                 .child(label(message)),
         );
     }
-    for (index, (addon, stream)) in s.streams.iter().enumerate() {
-        if s.stream_provider
-            .as_ref()
-            .is_some_and(|provider| provider != addon)
-        {
-            continue;
-        }
+    for (index, addon, stream) in sources {
         let supported = stream.validate_playback().is_ok();
         let name = source_name(stream, addon);
         let mut details = col().w_full().min_w(0.0).gap(6.0).clip_rounded(0.0);

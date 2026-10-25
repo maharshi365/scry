@@ -156,9 +156,9 @@ fn quality(stream: &Stream, preferred: &str) -> u8 {
     }
 }
 
-struct Candidate {
-    provider: String,
-    stream: Stream,
+struct Candidate<T> {
+    source: T,
+    unsupported: bool,
     torrent: bool,
     metrics: Metrics,
     availability: u8,
@@ -167,6 +167,7 @@ struct Candidate {
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct Rank {
+    unsupported: bool,
     torrent: bool,
     availability: u8,
     quality: u8,
@@ -176,7 +177,7 @@ struct Rank {
     seeders: Reverse<u64>,
 }
 
-impl Candidate {
+impl<T> Candidate<T> {
     fn rank(&self, strongest: &BTreeMap<(u8, u8), u64>) -> Rank {
         let peers = self.metrics.seeders.unwrap_or_default();
         let best = strongest
@@ -187,6 +188,7 @@ impl Candidate {
         // group. Then prefer the smaller episode file, not a multi-GB remux.
         let weak_swarm = self.torrent && peers < best.div_ceil(2);
         Rank {
+            unsupported: self.unsupported,
             torrent: self.torrent,
             availability: self.availability,
             quality: self.quality,
@@ -203,20 +205,37 @@ impl Candidate {
 }
 
 pub(super) fn select_sources(streams: Vec<(String, Stream)>, policy: &SourcePolicy) -> Vec<Stream> {
-    let mut candidates: Vec<_> = streams
-        .into_iter()
-        .filter(|(provider, stream)| {
+    rank_sources(
+        streams.into_iter().filter(|(provider, stream)| {
             stream.validate_playback().is_ok()
                 && (policy.allow_torrents || !is_torrent(stream))
                 && (policy.provider.is_empty() || provider == &policy.provider)
-        })
-        .map(|(provider, stream)| {
-            let torrent = is_torrent(&stream);
-            let metrics = Metrics::read(&stream);
-            let quality = quality(&stream, &policy.quality);
+        }),
+        |(provider, stream)| (provider.as_str(), stream),
+        &policy.quality,
+    )
+    .into_iter()
+    .map(|(_, stream)| stream)
+    .collect()
+}
+
+/// Rank owned or borrowed sources without changing their playback identity.
+pub(super) fn rank_sources<T>(
+    streams: impl IntoIterator<Item = T>,
+    describe: impl Fn(&T) -> (&str, &Stream),
+    preferred: &str,
+) -> Vec<T> {
+    let mut candidates: Vec<_> = streams
+        .into_iter()
+        .map(|source| {
+            let (_, stream) = describe(&source);
+            let torrent = is_torrent(stream);
+            let metrics = Metrics::read(stream);
+            let quality = quality(stream, preferred);
+            let unsupported = stream.validate_playback().is_err();
             Candidate {
-                provider,
-                stream,
+                source,
+                unsupported,
                 torrent,
                 metrics,
                 availability: if torrent { metrics.availability() } else { 0 },
@@ -225,7 +244,10 @@ pub(super) fn select_sources(streams: Vec<(String, Stream)>, policy: &SourcePoli
         })
         .collect();
     let mut strongest = BTreeMap::<_, u64>::new();
-    for candidate in candidates.iter().filter(|candidate| candidate.torrent) {
+    for candidate in candidates
+        .iter()
+        .filter(|candidate| candidate.torrent && !candidate.unsupported)
+    {
         let best = strongest
             .entry((candidate.availability, candidate.quality))
             .or_default();
@@ -233,16 +255,18 @@ pub(super) fn select_sources(streams: Vec<(String, Stream)>, policy: &SourcePoli
     }
     candidates.sort_by(|a, b| {
         a.rank(&strongest).cmp(&b.rank(&strongest)).then_with(|| {
-            (&a.provider, &a.stream.name, &a.stream.title).cmp(&(
-                &b.provider,
-                &b.stream.name,
-                &b.stream.title,
+            let (a_provider, a_stream) = describe(&a.source);
+            let (b_provider, b_stream) = describe(&b.source);
+            (a_provider, &a_stream.name, &a_stream.title).cmp(&(
+                b_provider,
+                &b_stream.name,
+                &b_stream.title,
             ))
         })
     });
     candidates
         .into_iter()
-        .map(|candidate| candidate.stream)
+        .map(|candidate| candidate.source)
         .collect()
 }
 

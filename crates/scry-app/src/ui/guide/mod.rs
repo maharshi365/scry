@@ -1,9 +1,10 @@
 //! Guide-owned state, tuning, and clock-driven program transitions.
 mod collections;
-mod sources;
 mod tuning;
 mod view;
 
+#[cfg(test)]
+use super::source_ranking::select_sources;
 use super::{Page, State};
 use crate::{library_worker::Command, services::Source};
 use rune::{TextEdit, Tx};
@@ -12,8 +13,6 @@ use scry_library::{
     Media, MediaKey, MediaKind,
     guide::{GuideAction, GuideMetadata, Slot, Snapshot, SourcePolicy},
 };
-#[cfg(test)]
-use sources::select_sources;
 use std::collections::HashMap;
 pub(super) use view::view;
 
