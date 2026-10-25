@@ -88,6 +88,7 @@ impl State {
             context_menu: None,
             addon_install_open: false,
             addon_install_complete: false,
+            addon_layout: super::addons::AddonLayout::default(),
             detail_namespace: String::new(),
             pending_episode: None,
             host,

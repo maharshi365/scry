@@ -14,20 +14,72 @@ use super::{
 use crate::services::CINEMETA;
 use rune::{El, col, el, icon, row, text};
 
-const SUPPORTED: [(&str, &str, &str, &str); 2] = [
-    (
-        "com.linvo.cinemeta",
-        "Cinemeta",
-        CINEMETA,
-        "Movie and TV series catalogs, metadata, and episode release dates.",
-    ),
-    (
-        "com.stremio.torrentio.addon",
-        "Torrentio",
-        "https://torrentio.strem.fun/manifest.json",
-        "Streams from direct torrents or a configured debrid provider.",
-    ),
+struct Supported {
+    id: &'static str,
+    name: &'static str,
+    url: &'static str,
+    description: &'static str,
+    logo: Option<&'static str>,
+}
+
+const SUPPORTED: [Supported; 2] = [
+    Supported {
+        id: "com.linvo.cinemeta",
+        name: "Cinemeta",
+        url: CINEMETA,
+        description: "Movie and TV series catalogs, metadata, and episode release dates.",
+        logo: None,
+    },
+    Supported {
+        id: "com.stremio.torrentio.addon",
+        name: "Torrentio",
+        url: "https://torrentio.strem.fun/manifest.json",
+        description: "Streams from direct torrents or a configured debrid provider.",
+        logo: Some("https://torrentio.strem.fun/images/logo_v1.png"),
+    },
 ];
+
+#[derive(Default)]
+pub(super) struct AddonLayout {
+    rects: std::collections::BTreeMap<usize, [f32; 4]>,
+    viewport: Option<[f32; 4]>,
+}
+
+fn available(s: &State) -> impl Iterator<Item = (usize, &Supported)> {
+    SUPPORTED.iter().enumerate().filter(|(_, provider)| {
+        !s.addons
+            .iter()
+            .any(|addon| addon.manifest.id == provider.id)
+    })
+}
+
+pub(super) fn artwork_urls(s: &State) -> Vec<String> {
+    let installed = s
+        .addons
+        .iter()
+        .enumerate()
+        .map(|(index, addon)| (index, addon.manifest.logo.as_deref()));
+    let available = available(s).map(|(index, provider)| (s.addons.len() + index, provider.logo));
+    let mut urls = Vec::new();
+    for (index, logo) in installed.chain(available) {
+        let visible = s.addon_layout.rects.get(&index).is_none_or(|rect| {
+            s.addon_layout
+                .viewport
+                .is_none_or(|viewport| super::artwork::intersects(*rect, viewport))
+        });
+        if visible
+            && let Some(url) = logo
+            && !url.trim().is_empty()
+            && !urls.iter().any(|value| value == url)
+        {
+            urls.push(url.to_owned());
+        }
+        if urls.len() == 32 {
+            break;
+        }
+    }
+    urls
+}
 
 fn open_install(s: &mut State, url: &str) {
     s.install = rune::TextEdit::new(url);
@@ -44,17 +96,15 @@ pub(super) fn addons(s: &State) -> El {
         let disabled = addon.disabled;
         list = list.child(
             provider_card(
+                s,
+                index,
                 &addon.manifest.name,
                 &format!(
                     "{} catalogs · Manifest URL hidden",
                     addon.manifest.catalogs.len()
                 ),
                 if disabled { "Disabled" } else { "Enabled" },
-                if disabled {
-                    &icons::PAUSE
-                } else {
-                    &icons::CHECK
-                },
+                addon.manifest.logo.as_deref(),
             )
             .key(format!("installed-addon-{index}"))
             .child(
@@ -90,12 +140,18 @@ pub(super) fn addons(s: &State) -> El {
             ),
         );
     }
-    for (index, (id, name, url, description)) in SUPPORTED.into_iter().enumerate() {
-        if s.addons.iter().any(|a| a.manifest.id == id) {
-            continue;
-        }
+    for (index, provider) in available(s) {
+        let url = provider.url;
         list = list.child(
-            provider_card(name, description, "Available", &icons::DOWNLOAD).child(
+            provider_card(
+                s,
+                s.addons.len() + index,
+                provider.name,
+                provider.description,
+                "Available",
+                provider.logo,
+            )
+            .child(
                 Button::new(format!("supported-addon-{index}"), "Install")
                     .variant(Variant::Primary)
                     .enabled(!s.config_busy)
@@ -119,24 +175,53 @@ pub(super) fn addons(s: &State) -> El {
                     .on_press(|s| open_install(s, ""))),
         )
         .child(label("Browse available providers and manage installed add-ons in one place. Disable an add-on to keep its configuration without using it."))
-        .child(scroll("addons-scroll", list))
+        .child(scroll("addons-scroll", list).on_layout(|s: &mut State, rect| {
+            s.addon_layout.viewport = Some(rect);
+            s.refresh_artwork();
+        }))
 }
 
-fn provider_card(name: &str, description: &str, status: &str, glyph: &'static rune::Icon) -> El {
+fn provider_card(
+    s: &State,
+    index: usize,
+    name: &str,
+    description: &str,
+    status: &str,
+    logo: Option<&str>,
+) -> El {
+    let tile = el()
+        .w(56.0)
+        .h(56.0)
+        .radius(14.0)
+        .fill(tokens::selected())
+        .center();
+    let tile = if let Some(image) = logo.and_then(|url| s.artwork.as_ref()?.get(url)) {
+        tile.child(
+            el().key(format!("addon-logo-{index}"))
+                .role("img")
+                .label(format!("{name} logo"))
+                .w(40.0)
+                .h(40.0)
+                .pixels_fit(&image, rune::SurfaceFit::Fit),
+        )
+    } else {
+        tile.child(
+            icon(&icons::ADDONS, 28.0)
+                .key(format!("addon-logo-fallback-{index}"))
+                .color(tokens::accent()),
+        )
+    };
     surface(row())
         .w_full()
         .padding(24.0)
         .radius(14.0)
         .gap(18.0)
         .center_y()
-        .child(
-            el().w(56.0)
-                .h(56.0)
-                .radius(14.0)
-                .fill(tokens::selected())
-                .center()
-                .child(icon(glyph, 28.0).color(tokens::accent())),
-        )
+        .on_layout(move |s: &mut State, rect| {
+            s.addon_layout.rects.insert(index, rect);
+            s.refresh_artwork();
+        })
+        .child(tile)
         .child(
             col()
                 .grow(1.0)

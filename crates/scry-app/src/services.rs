@@ -1041,7 +1041,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let mut addon: Addon = serde_json::from_value(serde_json::json!({
             "manifest_url":"https://example.com/private-token/manifest.json",
-            "manifest":{"id":"example", "name":"Example"}
+            "manifest":{"id":"example", "name":"Example", "logo":"https://example.com/logo.png"}
         }))
         .unwrap();
         addon.disabled = true;
@@ -1050,6 +1050,10 @@ mod tests {
         assert!(loaded[0].disabled);
         assert_eq!(loaded[0].manifest_url, addon.manifest_url);
         assert_eq!(loaded[0].manifest.name, "Example");
+        assert_eq!(
+            loaded[0].manifest.logo.as_deref(),
+            Some("https://example.com/logo.png")
+        );
         addon.disabled = false;
         save(directory.path(), &[addon]).unwrap();
         assert!(!load(directory.path()).unwrap()[0].disabled);

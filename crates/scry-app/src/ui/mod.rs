@@ -57,6 +57,7 @@ pub struct State {
     context_menu: Option<(rune::PointerPress, Option<context_menu::Target>)>,
     addon_install_open: bool,
     addon_install_complete: bool,
+    addon_layout: addons::AddonLayout,
     detail_namespace: String,
     pending_episode: Option<String>,
     host: Host,

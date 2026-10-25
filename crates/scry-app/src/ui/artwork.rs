@@ -52,7 +52,9 @@ pub(super) fn player_artwork(s: &State) -> Vec<String> {
 
 pub(super) fn visible_artwork(s: &State) -> Vec<String> {
     let mut urls = Vec::new();
-    if (s.navigation.page == Page::Detail && s.detail_preview)
+    if s.navigation.page == Page::Addons {
+        return super::addons::artwork_urls(s);
+    } else if (s.navigation.page == Page::Detail && s.detail_preview)
         || matches!(
             s.navigation.page,
             Page::Discover | Page::Library | Page::Watching
@@ -203,7 +205,7 @@ pub(super) fn poster_status_overlay(
     )
 }
 
-fn intersects(a: [f32; 4], b: [f32; 4]) -> bool {
+pub(super) fn intersects(a: [f32; 4], b: [f32; 4]) -> bool {
     a[0] < b[0] + b[2] && a[0] + a[2] > b[0] && a[1] < b[1] + b[3] && a[1] + a[3] > b[1]
 }
 

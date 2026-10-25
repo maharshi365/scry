@@ -40,6 +40,26 @@ fn catalog_paging_preserves_configured_paths_and_requires_provider_support() {
 }
 
 #[test]
+fn manifest_preserves_optional_addon_logo() {
+    for logo in [
+        None,
+        Some(serde_json::Value::Null),
+        Some(json!("https://example.com/logo.png")),
+    ] {
+        let mut value = json!({"id":"example", "name":"Example"});
+        if let Some(logo) = &logo {
+            value["logo"] = logo.clone();
+        }
+        let manifest: scry_addons::Manifest = serde_json::from_value(value).unwrap();
+        let stored = serde_json::to_value(manifest).unwrap();
+        assert_eq!(
+            stored.get("logo").and_then(serde_json::Value::as_str),
+            logo.as_ref().and_then(serde_json::Value::as_str)
+        );
+    }
+}
+
+#[test]
 fn title_logo_is_optional_and_preserved_with_the_backdrop() {
     let meta: scry_addons::Meta = serde_json::from_value(json!({
         "id":"tt123", "type":"movie", "name":"A movie",

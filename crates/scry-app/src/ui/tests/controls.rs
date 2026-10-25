@@ -72,6 +72,111 @@ fn icon_only_actions_have_action_names_not_glyph_labels() {
 }
 
 #[test]
+fn addon_artwork_uses_installed_manifests_and_curated_available_logos() {
+    let mut s = init();
+    s.navigation.page = Page::Addons;
+    assert_eq!(
+        visible_artwork(&s),
+        vec!["https://torrentio.strem.fun/images/logo_v1.png"]
+    );
+    s.addons = vec![serde_json::from_value(serde_json::json!({
+        "manifest_url":"https://example.com/manifest.json",
+        "disabled":true,
+        "manifest":{"id":"com.stremio.torrentio.addon", "name":"Configured Torrentio", "logo":"https://example.com/custom.png"}
+    })).unwrap()];
+    assert_eq!(visible_artwork(&s), vec!["https://example.com/custom.png"]);
+    s.addons.push(s.addons[0].clone());
+    assert_eq!(visible_artwork(&s), vec!["https://example.com/custom.png"]);
+    s.navigation.page = Page::Discover;
+    assert!(visible_artwork(&s).is_empty());
+}
+
+#[test]
+fn addon_cards_show_cached_logos_and_keep_fallbacks_and_status_separate() {
+    let mut s = init();
+    s.navigation.page = Page::Addons;
+    s.addons = vec![
+        serde_json::from_value(serde_json::json!({
+            "manifest_url":"https://example.com/manifest.json", "disabled":true,
+            "manifest":{"id":"example", "name":"Example", "logo":"https://example.com/logo.png"}
+        }))
+        .unwrap(),
+    ];
+    let mut rt = rune::Runtime::new(s, view, (1000.0, 800.0), rune::Env::default());
+    rt.frame(0.0);
+    assert!(rt.find("addon-logo-fallback-0").is_some());
+    assert!(rt.find("addon-logo-0").is_none());
+    let image = rune::Pixels::new();
+    image.set(4, 2, vec![128; 32]);
+    rt.update(|s, _| {
+        s.artwork = Some(crate::artwork::Artwork::player_fixture(&[
+            ("https://example.com/logo.png", image.clone()),
+            ("https://torrentio.strem.fun/images/logo_v1.png", image),
+        ]));
+    });
+    rt.frame(0.0);
+    assert!(rt.find("addon-logo-0").is_some());
+    assert!(rt.find("addon-logo-fallback-0").is_none());
+    assert!(
+        rt.find("addon-logo-fallback-1").is_some(),
+        "Cinemeta has no logo"
+    );
+    assert!(
+        rt.find("addon-logo-2").is_some(),
+        "available Torrentio uses its curated logo"
+    );
+    let elements = rt.elements();
+    let logo = elements
+        .iter()
+        .find(|e| e.key.as_deref() == Some("addon-logo-0"))
+        .unwrap();
+    assert_eq!(logo.label.as_deref(), Some("Example logo"));
+    assert!(
+        elements
+            .iter()
+            .any(|e| e.text.as_deref() == Some("Disabled"))
+    );
+    rt.update(|s, _| s.addons[0].manifest.logo = Some("https://example.com/broken.png".into()));
+    rt.frame(0.0);
+    assert!(
+        rt.find("addon-logo-fallback-0").is_some(),
+        "a cache miss or failed image keeps the fallback"
+    );
+    assert!(rt.find("addon-logo-0").is_none());
+}
+
+#[test]
+fn addon_artwork_tracks_scrolling_without_starving_available_cards() {
+    let mut s = init();
+    s.navigation.page = Page::Addons;
+    s.addons = (0..32).map(|index| serde_json::from_value(serde_json::json!({
+        "manifest_url":format!("https://example.com/{index}/manifest.json"),
+        "manifest":{"id":format!("addon-{index}"), "name":format!("Addon {index}"), "logo":format!("https://example.com/{index}.png")}
+    })).unwrap()).collect();
+    assert_eq!(visible_artwork(&s).len(), 32);
+    let mut rt = rune::Runtime::new(s, view, (1000.0, 800.0), rune::Env::default());
+    rt.poll = Some(poll);
+    for _ in 0..3 {
+        rt.frame(0.0);
+    }
+    assert!(visible_artwork(&rt.state).contains(&"https://example.com/0.png".into()));
+    assert!(!visible_artwork(&rt.state).contains(&"https://example.com/31.png".into()));
+    let viewport = rect(&rt, "addons-scroll");
+    rt.wheel(viewport[0] + 20.0, viewport[1] + 20.0, -100_000.0);
+    for _ in 0..30 {
+        rt.frame(1.0 / 60.0);
+    }
+    let urls = visible_artwork(&rt.state);
+    assert!(urls.contains(&"https://example.com/31.png".into()));
+    assert!(urls.contains(&"https://torrentio.strem.fun/images/logo_v1.png".into()));
+    assert!(!urls.contains(&"https://example.com/0.png".into()));
+    assert!(urls.len() < 32);
+    rt.update(|s, _| s.navigation.page = Page::Discover);
+    rt.frame(0.0);
+    assert!(rt.state.artwork_urls.is_empty());
+}
+
+#[test]
 fn unified_addons_page_and_busy_install_spinner() {
     let mut s = init();
     s.navigation.page = Page::Addons;

@@ -18,6 +18,8 @@ pub struct Manifest {
     pub id: String,
     pub name: String,
     #[serde(default)]
+    pub logo: Option<String>,
+    #[serde(default)]
     pub resources: Vec<serde_json::Value>,
     #[serde(default)]
     pub types: Option<Vec<String>>,
