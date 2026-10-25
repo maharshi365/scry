@@ -4,6 +4,27 @@ use rune::TextEdit;
 use scry_addons::{Addon, Catalog, Meta};
 use std::sync::Arc;
 
+fn compatible_catalog(catalog: &Catalog) -> bool {
+    !catalog.kind.trim().is_empty()
+        && !catalog
+            .extra
+            .iter()
+            .any(|extra| extra.is_required && !matches!(extra.name.as_str(), "search" | "skip"))
+}
+
+pub(super) fn category_label(kind: &str) -> String {
+    match kind {
+        "movie" => "Movies".into(),
+        "series" => "TV shows".into(),
+        _ => {
+            let mut chars = kind.chars();
+            chars.next().map_or_else(String::new, |first| {
+                first.to_uppercase().chain(chars).collect()
+            })
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 pub(super) struct CatalogPaging {
     pub next_offset: u32,
@@ -13,6 +34,22 @@ pub(super) struct CatalogPaging {
 }
 
 impl State {
+    pub(super) fn catalog_categories(&self) -> Vec<String> {
+        let mut categories = vec!["movie".to_owned(), "series".to_owned()];
+        for catalog in self
+            .addons
+            .iter()
+            .filter(|addon| !addon.disabled)
+            .flat_map(|addon| &addon.manifest.catalogs)
+            .filter(|catalog| compatible_catalog(catalog))
+        {
+            if !categories.contains(&catalog.kind) {
+                categories.push(catalog.kind.clone());
+            }
+        }
+        categories
+    }
+
     pub(super) fn install(&mut self, input: String) {
         if self.config_busy {
             return;
@@ -32,12 +69,7 @@ impl State {
                 a.manifest
                     .catalogs
                     .iter()
-                    .filter(|c| {
-                        c.kind == self.kind
-                            && !c.extra.iter().any(|e| {
-                                e.is_required && !matches!(e.name.as_str(), "search" | "skip")
-                            })
-                    })
+                    .filter(|c| c.kind == self.kind && compatible_catalog(c))
                     .map(|c| (a.clone(), c.clone()))
             })
             .collect()
@@ -176,7 +208,8 @@ impl State {
                 let mut added = 0;
                 let titles = Arc::make_mut(&mut self.metas);
                 for meta in metas {
-                    if !meta.id.trim().is_empty()
+                    if matches!(meta.kind.as_str(), "movie" | "series")
+                        && !meta.id.trim().is_empty()
                         && seen.insert((meta.kind.clone(), meta.id.clone()))
                     {
                         titles.push(meta);

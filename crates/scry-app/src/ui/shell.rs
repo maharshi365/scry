@@ -183,27 +183,23 @@ fn sidebar(s: &State) -> El {
             .w_full(),
         );
         if page == Page::Watching {
-            sidebar = sidebar
-                .child(
+            for kind in s.catalog_categories() {
+                let (key, glyph) = match kind.as_str() {
+                    "movie" => ("movies".to_owned(), &icons::MOVIE),
+                    "series" => ("series".to_owned(), &icons::TV),
+                    _ => (format!("category-{kind}"), &icons::MOVIE),
+                };
+                sidebar = sidebar.child(
                     nav_action(
-                        "movies",
-                        "Movies",
-                        &icons::MOVIE,
-                        s.navigation.page == Page::Discover && s.kind == "movie",
-                        |s| s.choose_kind("movie"),
-                    )
-                    .w_full(),
-                )
-                .child(
-                    nav_action(
-                        "series",
-                        "TV shows",
-                        &icons::TV,
-                        s.navigation.page == Page::Discover && s.kind == "series",
-                        |s| s.choose_kind("series"),
+                        &key,
+                        &super::catalog::category_label(&kind),
+                        glyph,
+                        s.navigation.page == Page::Discover && s.kind == kind,
+                        move |s| s.choose_kind(&kind),
                     )
                     .w_full(),
                 );
+            }
         }
     }
     sidebar = sidebar.child(el().grow(1.0));

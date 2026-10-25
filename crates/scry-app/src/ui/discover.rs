@@ -16,11 +16,7 @@ pub(super) fn discover(s: &State, cx: &Cx<State>) -> El {
         .min_h(0.0)
         .min_w(0.0)
         .child(heading(if s.displayed_query.is_empty() {
-            if s.kind == "series" {
-                "TV shows".to_owned()
-            } else {
-                "Movies".to_owned()
-            }
+            super::catalog::category_label(&s.kind)
         } else {
             format!("Results for “{}”", s.displayed_query)
         }));
@@ -32,14 +28,14 @@ pub(super) fn discover(s: &State, cx: &Cx<State>) -> El {
                 .radius(16.0)
                 .fill(theme().card)
                 .child(heading("No catalogs installed"))
-                .child(label("Add Cinemeta to browse movies and TV shows."))
+                .child(label("Add a catalog provider to browse titles."))
                 .child(action("setup-cinemeta", "Open add-ons", |s| {
                     s.navigate(super::Page::Addons);
                 })),
         );
     } else if s.metas.is_empty() && !s.loading {
         body = body.child(label(
-            "No titles found. Try searching for a movie or TV show.",
+            "No supported titles found. Try searching for a movie or TV show.",
         ));
     }
     if s.catalog_paging.failed {

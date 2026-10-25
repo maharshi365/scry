@@ -1,6 +1,72 @@
 use super::*;
 
 #[test]
+fn manifest_categories_browse_mixed_media_and_hide_when_disabled() {
+    for category in ["anime", "documentary"] {
+        let mut s = init();
+        s.addons = vec![serde_json::from_value(serde_json::json!({
+            "manifest_url":"https://example.com/manifest.json",
+            "manifest":{"id":"category-provider", "name":"Category provider", "catalogs":[
+                {"id":"trending", "type":category},
+                {"id":"popular", "type":category, "extra":[{"name":"skip"}]},
+                {"id":"filtered", "type":"hidden", "extra":[{"name":"genre", "isRequired":true}]}
+            ]}
+        })).unwrap()];
+        let mut rt = rune::Runtime::new(s, view, (1000.0, 800.0), rune::Env::default());
+        rt.frame(0.0);
+        assert!(rt.find("category-hidden").is_none());
+        tap(&mut rt, &format!("category-{category}"));
+        assert_eq!(rt.state.kind, category);
+        assert_eq!(rt.state.catalog.as_ref().unwrap().1.id, "trending");
+        rt.update(|s, _| {
+            s.apply_catalog_page(
+                s.catalog_id,
+                0,
+                Ok(vec![
+                    catalog_title("movie", 1),
+                    catalog_title("series", 2),
+                    catalog_title("channel", 3),
+                ]),
+            );
+        });
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        assert_eq!(
+            rt.state
+                .metas
+                .iter()
+                .map(|m| m.kind.as_str())
+                .collect::<Vec<_>>(),
+            ["movie", "series"]
+        );
+        tap(&mut rt, "title-1");
+        assert_eq!(rt.state.detail.as_ref().unwrap().kind, "series");
+        assert_eq!(rt.state.detail_namespace, "category-provider");
+        rt.update(|s, _| s.addons[0].disabled = true);
+        assert!(rt.find(&format!("category-{category}")).is_none());
+    }
+}
+
+#[test]
+fn kitsu_details_keep_title_and_episode_library_identity() {
+    let mut s = init();
+    s.detail_namespace = "community.anime.kitsu".into();
+    s.detail = Some(
+        serde_json::from_value(serde_json::json!({
+            "id":"kitsu:11", "type":"series", "name":"Naruto",
+            "videos":[{"id":"kitsu:11:1", "season":1, "episode":1, "title":"Episode 1"}]
+        }))
+        .unwrap(),
+    );
+    let parent = s.parent_media().unwrap();
+    assert_eq!(parent.key.id, "kitsu:11");
+    assert_eq!(parent.key.namespace, "community.anime.kitsu");
+    s.select_episode(0);
+    assert_eq!(s.selected_video_id.as_deref(), Some("kitsu:11:1"));
+}
+
+#[test]
 fn completed_catalogs_have_no_title_count_footer() {
     for kind in ["movie", "series"] {
         let (mut s, tx) = state_with_events();

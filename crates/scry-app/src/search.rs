@@ -36,7 +36,7 @@ pub fn plan(addons: Vec<Addon>) -> Result<Vec<Request>, &'static str> {
             continue;
         }
         for (catalog_index, catalog) in addon.manifest.catalogs.iter().enumerate() {
-            if matches!(catalog.kind.as_str(), "movie" | "series")
+            if !catalog.kind.trim().is_empty()
                 && catalog.extra.iter().any(|extra| extra.name == "search")
                 && !catalog
                     .extra
@@ -94,7 +94,8 @@ impl Results {
                     metas
                         .into_iter()
                         .filter(|meta| {
-                            meta.kind == request.catalog.kind && !meta.id.trim().is_empty()
+                            matches!(meta.kind.as_str(), "movie" | "series")
+                                && !meta.id.trim().is_empty()
                         })
                         .take(RESULT_LIMIT)
                         .map(|meta| SearchResult {
@@ -179,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn plans_all_movie_and_series_search_catalogs_not_browse_or_required_filters() {
+    fn plans_all_category_search_catalogs_not_browse_or_required_filters() {
         let requests = plan(vec![addon(
             "provider",
             json!([
@@ -195,9 +196,40 @@ mod tests {
                 .iter()
                 .map(|r| r.catalog.kind.as_str())
                 .collect::<Vec<_>>(),
-            ["movie", "series"]
+            ["movie", "series", "channel"]
         );
         assert_eq!(requests[0].catalog.id, "movie");
+    }
+
+    #[test]
+    fn category_search_accepts_playable_types_and_preserves_provider_ids() {
+        for category in ["anime", "documentary"] {
+            let request = plan(vec![addon("provider", json!([searchable(category)]))])
+                .unwrap()
+                .pop()
+                .unwrap();
+            let mut results = Results::default();
+            results.record(
+                0,
+                &request,
+                Ok(vec![
+                    meta("series", "kitsu:11", "Naruto"),
+                    meta("movie", "kitsu:2245", "Naruto movie"),
+                    meta("channel", "live", "Unsupported"),
+                    meta("movie", " ", "Missing identity"),
+                ]),
+            );
+            let (found, warnings) = results.snapshot("Naruto");
+            assert!(warnings.is_empty());
+            assert_eq!(
+                found
+                    .iter()
+                    .map(|r| (r.meta.kind.as_str(), r.meta.id.as_str()))
+                    .collect::<Vec<_>>(),
+                [("series", "kitsu:11"), ("movie", "kitsu:2245")]
+            );
+            assert!(found.iter().all(|r| r.addon.manifest.id == "provider"));
+        }
     }
 
     #[test]

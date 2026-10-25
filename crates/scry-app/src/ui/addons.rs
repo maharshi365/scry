@@ -11,7 +11,7 @@ use super::{
         text::{heading, label},
     },
 };
-use crate::services::CINEMETA;
+use crate::services::{CINEMETA, KITSU};
 use rune::{El, col, el, icon, row, text};
 
 struct Supported {
@@ -22,13 +22,20 @@ struct Supported {
     logo: Option<&'static str>,
 }
 
-const SUPPORTED: [Supported; 2] = [
+const SUPPORTED: [Supported; 3] = [
     Supported {
         id: "com.linvo.cinemeta",
         name: "Cinemeta",
         url: CINEMETA,
         description: "Movie and TV series catalogs, metadata, and episode release dates.",
         logo: None,
+    },
+    Supported {
+        id: "community.anime.kitsu",
+        name: "Anime Kitsu",
+        url: KITSU,
+        description: "Anime catalogs, search, metadata, and episodes using Kitsu IDs.",
+        logo: Some("https://i.imgur.com/7N6XGoO.png"),
     },
     Supported {
         id: "com.stremio.torrentio.addon",

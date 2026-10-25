@@ -77,16 +77,31 @@ fn addon_artwork_uses_installed_manifests_and_curated_available_logos() {
     s.navigation.page = Page::Addons;
     assert_eq!(
         visible_artwork(&s),
-        vec!["https://torrentio.strem.fun/images/logo_v1.png"]
+        vec![
+            "https://i.imgur.com/7N6XGoO.png",
+            "https://torrentio.strem.fun/images/logo_v1.png"
+        ]
     );
     s.addons = vec![serde_json::from_value(serde_json::json!({
         "manifest_url":"https://example.com/manifest.json",
         "disabled":true,
         "manifest":{"id":"com.stremio.torrentio.addon", "name":"Configured Torrentio", "logo":"https://example.com/custom.png"}
     })).unwrap()];
-    assert_eq!(visible_artwork(&s), vec!["https://example.com/custom.png"]);
+    assert_eq!(
+        visible_artwork(&s),
+        vec![
+            "https://example.com/custom.png",
+            "https://i.imgur.com/7N6XGoO.png"
+        ]
+    );
     s.addons.push(s.addons[0].clone());
-    assert_eq!(visible_artwork(&s), vec!["https://example.com/custom.png"]);
+    assert_eq!(
+        visible_artwork(&s),
+        vec![
+            "https://example.com/custom.png",
+            "https://i.imgur.com/7N6XGoO.png"
+        ]
+    );
     s.navigation.page = Page::Discover;
     assert!(visible_artwork(&s).is_empty());
 }
@@ -122,8 +137,12 @@ fn addon_cards_show_cached_logos_and_keep_fallbacks_and_status_separate() {
         "Cinemeta has no logo"
     );
     assert!(
-        rt.find("addon-logo-2").is_some(),
+        rt.find("addon-logo-3").is_some(),
         "available Torrentio uses its curated logo"
+    );
+    assert!(
+        rt.find("addon-logo-fallback-2").is_some(),
+        "uncached Kitsu keeps its fallback"
     );
     let elements = rt.elements();
     let logo = elements

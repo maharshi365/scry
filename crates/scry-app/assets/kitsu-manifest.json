@@ -1,0 +1,16 @@
+{
+  "id": "community.anime.kitsu",
+  "name": "Anime Kitsu",
+  "logo": "https://i.imgur.com/7N6XGoO.png",
+  "resources": ["catalog", "meta", "subtitles"],
+  "types": ["anime", "movie", "series"],
+  "idPrefixes": ["kitsu", "mal", "anilist", "anidb"],
+  "catalogs": [
+    {"id": "kitsu-anime-trending", "name": "Kitsu Trending", "type": "anime"},
+    {"id": "kitsu-anime-airing", "name": "Kitsu Top Airing", "type": "anime", "extra": [{"name": "genre"}, {"name": "skip"}]},
+    {"id": "kitsu-anime-popular", "name": "Kitsu Most Popular", "type": "anime", "extra": [{"name": "genre"}, {"name": "skip"}]},
+    {"id": "kitsu-anime-rating", "name": "Kitsu Highest Rated", "type": "anime", "extra": [{"name": "genre"}, {"name": "skip"}]},
+    {"id": "kitsu-anime-list", "name": "Kitsu", "type": "anime", "extra": [{"name": "search", "isRequired": true}, {"name": "lastVideosIds"}, {"name": "skip"}]},
+    {"id": "kitsu-anime-last-videos", "name": "Last videos", "type": "series", "extra": [{"name": "lastVideosIds", "isRequired": true}]}
+  ]
+}

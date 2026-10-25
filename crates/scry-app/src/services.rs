@@ -20,6 +20,7 @@ use tokio::{
 pub use crate::search::SearchResult;
 
 pub const CINEMETA: &str = "https://v3-cinemeta.strem.io/manifest.json";
+pub const KITSU: &str = "https://anime-kitsu.strem.fun/manifest.json";
 
 #[derive(Clone, Debug)]
 pub struct LibraryPoster {
@@ -173,9 +174,11 @@ impl Services {
 
     fn load(&self) {
         let (inbox, config, data) = (self.inbox.clone(), self.config.clone(), self.data.clone());
+        // Capture this before the library worker can create the shared database.
+        let initialize = !data.join(scry_library::DATABASE_NAME).exists();
         self.runtime.spawn(async move {
             let result: Result<Vec<Addon>> = async {
-                let addons = tokio::task::spawn_blocking(move || load(&data))
+                let addons = tokio::task::spawn_blocking(move || load(&data, initialize))
                     .await
                     .context("Cannot load add-ons configuration")??;
                 *config.lock().await = addons.clone();
@@ -355,10 +358,7 @@ impl Services {
                     .send(Event::Search(
                         generation,
                         Vec::new(),
-                        vec![
-                            "No installed add-on has a compatible movie or series search catalog"
-                                .into(),
-                        ],
+                        vec!["No installed add-on has a compatible search catalog".into()],
                         true,
                     ))
                     .await;
@@ -752,8 +752,18 @@ struct StoredManifest {
     disabled: bool,
 }
 
-fn load(data: &std::path::Path) -> Result<Vec<Addon>> {
+fn load(data: &std::path::Path, initialize: bool) -> Result<Vec<Addon>> {
     let records = database(data)?.load_addons()?;
+    if initialize && records.is_empty() {
+        let addons = vec![Addon {
+            manifest_url: KITSU.into(),
+            manifest: serde_json::from_str(include_str!("../assets/kitsu-manifest.json"))
+                .context("Cannot read the built-in Kitsu manifest")?,
+            disabled: false,
+        }];
+        save(data, &addons)?;
+        return Ok(addons);
+    }
     if records.len() > 32 {
         bail!("At most 32 installed add-ons are supported");
     }
@@ -1008,6 +1018,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn fresh_configuration_includes_kitsu_but_removal_survives_restart() {
+        let directory = tempfile::tempdir().unwrap();
+        let addons = load(directory.path(), true).unwrap();
+        assert_eq!(addons.len(), 1);
+        let kitsu = &addons[0];
+        assert_eq!(kitsu.manifest.id, "community.anime.kitsu");
+        assert!(kitsu.supports("meta", "series", "kitsu:11"));
+        assert!(kitsu.manifest.catalogs.iter().any(|c| c.kind == "anime"));
+        assert_eq!(load(directory.path(), false).unwrap().len(), 1);
+        save(directory.path(), &[]).unwrap();
+        assert!(load(directory.path(), false).unwrap().is_empty());
+    }
+
+    #[test]
     fn library_artwork_requires_matching_identity_and_a_nonempty_poster() {
         let media = scry_library::Media {
             key: scry_library::MediaKey::new("test", scry_library::MediaKind::Movie, "film"),
@@ -1046,7 +1070,7 @@ mod tests {
         .unwrap();
         addon.disabled = true;
         save(directory.path(), &[addon.clone()]).unwrap();
-        let loaded = load(directory.path()).unwrap();
+        let loaded = load(directory.path(), false).unwrap();
         assert!(loaded[0].disabled);
         assert_eq!(loaded[0].manifest_url, addon.manifest_url);
         assert_eq!(loaded[0].manifest.name, "Example");
@@ -1056,7 +1080,7 @@ mod tests {
         );
         addon.disabled = false;
         save(directory.path(), &[addon]).unwrap();
-        assert!(!load(directory.path()).unwrap()[0].disabled);
+        assert!(!load(directory.path(), false).unwrap()[0].disabled);
     }
 
     #[test]
@@ -1069,14 +1093,14 @@ mod tests {
         }))
         .unwrap();
         save(data, &[addon]).unwrap();
-        let first = load(data).unwrap();
+        let first = load(data, false).unwrap();
         assert_eq!(first[0].manifest.id, "example");
         assert_eq!(
             first[0].manifest_url,
             "https://example.com/private-token/manifest.json"
         );
         save(data, &[]).unwrap();
-        let removed = load(data).unwrap();
+        let removed = load(data, false).unwrap();
         assert!(removed.is_empty());
         assert!(data.join(scry_library::DATABASE_NAME).exists());
         assert!(!data.join("addons.json").exists());
