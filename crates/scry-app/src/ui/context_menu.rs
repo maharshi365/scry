@@ -145,9 +145,7 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> Option<El> {
             point.y.min(bounds[3] - 360.0).max(8.0),
         );
     if let Some(Target::Title(media)) = item {
-        menu = menu
-            .child(label(media.title.clone()))
-            .children(dismiss_watching(s, media));
+        menu = menu.children(dismiss_watching(s, media));
         if matches!(media.key.kind, MediaKind::Movie | MediaKind::Series) {
             let media = media.clone();
             menu = menu.child(menu_item(
@@ -188,11 +186,7 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> Option<El> {
         inventory,
     }) = item
     {
-        menu = menu.child(label(format!(
-            "{} · {}",
-            parent.title,
-            super::episodes::season_label(*season)
-        )));
+        menu = menu.child(label(super::episodes::season_label(*season)));
         for (key, title, watched) in [
             ("season-watched", "Mark all episodes watched", true),
             ("season-unwatched", "Mark all episodes unwatched", false),
