@@ -70,6 +70,9 @@ fn providers(s: &State) -> Vec<(String, usize)> {
             providers.push((addon.clone(), 1));
         }
     }
+    if !s.local_source_files().is_empty() {
+        providers.push(("Local files".into(), s.local_source_files().len()));
+    }
     providers
 }
 
@@ -107,7 +110,10 @@ pub(super) fn provider_menu(s: &State, cx: &Cx<State>) -> Option<El> {
     let visible = u16::try_from(providers.len().saturating_add(1).min(4)).unwrap_or(4);
     let mut filters = col().key("source-filters").w_full().gap(6.0).child(filter(
         "source-all",
-        format!("All add-ons · {}", s.streams.len()),
+        format!(
+            "All sources · {}",
+            s.streams.len() + s.local_source_files().len()
+        ),
         s.stream_provider.is_none(),
         |s| {
             s.stream_provider = None;
@@ -145,9 +151,21 @@ pub(super) fn provider_menu(s: &State, cx: &Cx<State>) -> Option<El> {
 pub(super) fn view(s: &State) -> El {
     let t = theme();
     let sources = visible_sources(s);
-    let visible = sources.len();
+    let local_files = if s
+        .stream_provider
+        .as_deref()
+        .is_none_or(|p| p == "Local files")
+    {
+        s.local_source_files()
+    } else {
+        &[]
+    };
+    let visible = sources.len() + local_files.len();
     let count = if s.stream_provider.is_some() {
-        format!("{visible} of {} sources", s.streams.len())
+        format!(
+            "{visible} of {} sources",
+            s.streams.len() + s.local_source_files().len()
+        )
     } else {
         format!("{visible} source{}", if visible == 1 { "" } else { "s" })
     };
@@ -203,7 +221,7 @@ pub(super) fn view(s: &State) -> El {
             .child(
                 action(
                     "source-select",
-                    s.stream_provider.as_deref().unwrap_or("All add-ons"),
+                    s.stream_provider.as_deref().unwrap_or("All sources"),
                     |s| {
                         s.season_menu_open = false;
                         s.source_menu_open = !s.source_menu_open;
@@ -234,6 +252,35 @@ pub(super) fn view(s: &State) -> El {
     );
 
     let mut list = col().key("detail-body").w_full().gap(8.0);
+    for file in local_files {
+        let path = std::path::Path::new(&file.root_path).join(&file.relative_path);
+        let title = s
+            .detail
+            .as_ref()
+            .map_or_else(String::new, |meta| meta.name.clone());
+        list = list.child(
+            card()
+                .key(format!("local-source-{}", file.id))
+                .w_full()
+                .padding(12.0)
+                .gap(6.0)
+                .child(text("Local file").font(type_::ITEM_TITLE).color(t.text))
+                .child(label(file.relative_path.clone()))
+                .child(label(format!("{} MiB", file.size / 1_048_576)))
+                .child(
+                    super::primitives::button::Button::new(
+                        format!("local-source-play-{}", file.id),
+                        "Play local file",
+                    )
+                    .on_press(move |s: &mut State| {
+                        s.play_media_source(
+                            crate::services::Source::Local(path.clone()),
+                            title.clone(),
+                        );
+                    }),
+                ),
+        );
+    }
     for (index, message) in s.warnings.iter().enumerate() {
         list = list.child(
             col()
@@ -263,7 +310,7 @@ pub(super) fn view(s: &State) -> El {
         } else if s.stream_provider.is_some() && !s.streams.is_empty() {
             (
                 "No sources from this add-on",
-                "Choose All add-ons to see the other sources.",
+                "Choose All sources to see the other sources.",
             )
         } else {
             (

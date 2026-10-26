@@ -19,3 +19,10 @@ fn main() -> anyhow::Result<()> {
     }
     ui::run()
 }
+mod local_media;
+#[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    reason = "Invalid metadata fixtures must fail the test"
+)]
+mod local_media_tests;

@@ -301,7 +301,23 @@ impl State {
         self.error = None;
         self.loading = true;
         self.status = "Loading streams…".into();
+        self.local.sources.files.clear();
+        self.local.sources.generation = self.stream_id;
+        self.local.sources.pending = self.services.is_some();
+        self.local.sources.remote_done = false;
+        let local_kind = if kind == "series" {
+            scry_library::MediaKind::Episode
+        } else {
+            scry_library::MediaKind::Movie
+        };
+        let key = super::library_view::key(&self.detail_namespace, local_kind, &id);
         if let Some(services) = &mut self.services {
+            services.local_sources(
+                self.stream_id,
+                key.namespace,
+                if kind == "series" { "episode" } else { "movie" }.into(),
+                id.clone(),
+            );
             services.streams(self.stream_id, self.addons.clone(), kind, id);
         }
     }

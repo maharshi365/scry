@@ -122,6 +122,21 @@ fn request_library_updates(s: &mut State) -> bool {
 )]
 fn apply(s: &mut State, event: Event) {
     match event {
+        Event::LocalMedia(result) => s.apply_local_snapshot(result),
+        Event::LocalCandidates(id, candidates) => s.apply_local_candidates(id, candidates),
+        Event::LocalChoice(id, candidate) => s.apply_local_choice(id, candidate),
+        Event::LocalProgress(message) => s.local.message = message,
+        Event::LocalSources(id, result) if id == s.stream_id => {
+            s.local.sources.pending = false;
+            match result {
+                Ok(files) => {
+                    s.local.sources.files = files;
+                    s.local.sources.generation = id;
+                }
+                Err(error) => s.warnings.push(error),
+            }
+            s.maybe_quick_play();
+        }
         Event::GuideDetails(generation, found) => s.apply_guide_details(generation, found),
         Event::WatchMetadata(token, media, watched, result) => {
             s.apply_watch_metadata(token, media, watched, result);
@@ -213,22 +228,8 @@ fn apply(s: &mut State, event: Event) {
             } else {
                 format!("{} streams", s.streams.len())
             };
-            if done && s.library.quick_play == Some(s.detail_id) {
-                s.library.quick_play = None;
-                let playable: Vec<_> = s
-                    .streams
-                    .iter()
-                    .filter(|(_, stream)| stream.validate_playback().is_ok())
-                    .collect();
-                if playable.len() == 1 {
-                    let stream = playable[0].1.clone();
-                    let title = s
-                        .detail
-                        .as_ref()
-                        .map_or_else(String::new, |meta| meta.name.clone());
-                    s.play(stream, title);
-                }
-            }
+            s.local.sources.remote_done = done;
+            s.maybe_quick_play();
         }
         Event::Playing(id, path) if id == s.player.generation => {
             s.player.report = Some(path);

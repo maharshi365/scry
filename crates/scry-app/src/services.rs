@@ -1,5 +1,6 @@
 //! Background work and the narrow, bounded boundary to the native UI.
 mod addon_storage;
+pub(crate) mod local_media;
 mod metadata;
 use addon_storage::load;
 #[cfg(test)]
@@ -55,6 +56,14 @@ impl LibraryPoster {
 
 #[derive(Debug)]
 pub enum Event {
+    LocalMedia(Result<local_media::Snapshot, String>),
+    LocalCandidates(i64, Vec<local_media::Candidate>),
+    LocalChoice(i64, local_media::Candidate),
+    LocalProgress(String),
+    LocalSources(
+        u64,
+        Result<Vec<scry_library::local_media::LocalFile>, String>,
+    ),
     GuideDetails(u64, Vec<(scry_library::Media, Meta)>),
     WatchMetadata(u64, scry_library::Media, bool, Result<Box<Meta>, String>),
     SeriesTrackingDetails(u64, Vec<(scry_library::MediaKey, Option<Meta>)>, bool),
@@ -111,6 +120,8 @@ pub enum Control {
 }
 
 pub struct Services {
+    local_busy: Arc<std::sync::atomic::AtomicBool>,
+    local_cancel: Arc<std::sync::atomic::AtomicBool>,
     runtime: Arc<Runtime>,
     client: Client,
     inbox: Inbox,
@@ -163,6 +174,8 @@ impl Services {
                 rt.block_on(player_loop(lifecycle, command_rx, output, folder));
             })?;
         let services = Self {
+            local_busy: Arc::default(),
+            local_cancel: Arc::default(),
             runtime,
             client: Client::with_cache_dir(
                 scry_app::project_dir(true).map(|dir| dir.join("metadata-http")),
@@ -446,8 +459,9 @@ impl Services {
             task.abort();
         }
         let (client, inbox) = (self.client.clone(), self.inbox.clone());
+        let data = self.data.clone();
         self.detail_task = Some(self.runtime.spawn(async move {
-            let found = metadata::fetch_from(
+            let mut found = metadata::fetch_from(
                 &client,
                 &addons,
                 &namespace,
@@ -459,6 +473,21 @@ impl Services {
                 },
             )
             .await;
+            if found.is_none() {
+                let (owner, kind, id) = (namespace.clone(), meta.kind.clone(), meta.id.clone());
+                let cached = tokio::task::spawn_blocking(move || {
+                    scry_library::Library::open(data.join(scry_library::DATABASE_NAME))?
+                        .local_metadata(&owner, &kind, &id)
+                })
+                .await;
+                if let Ok(Ok(Some(json))) = cached
+                    && let Ok(cached) = serde_json::from_str::<Meta>(&json)
+                    && cached.id == meta.id
+                    && cached.kind == meta.kind
+                {
+                    found = Some((cached, namespace.clone()));
+                }
+            }
             let result = found.map_or_else(
                 || {
                     if meta.kind == "movie" {
@@ -800,6 +829,7 @@ impl Services {
     }
 
     pub fn shutdown_then(&mut self, finished: impl FnOnce() + Send + 'static) {
+        self.cancel_local_scan();
         for task in self.watch_tasks.drain(..) {
             task.abort();
         }

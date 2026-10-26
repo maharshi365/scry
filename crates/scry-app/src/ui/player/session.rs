@@ -41,6 +41,10 @@ impl State {
             self.error = Some(error.to_string());
             return;
         }
+        self.play_media_source(Source::Stream(stream), title);
+    }
+
+    pub(in crate::ui) fn play_media_source(&mut self, source: Source, title: String) {
         self.save_library_progress();
         self.library.playing = self.library_media();
         self.library.watched_pending = 0.0;
@@ -68,7 +72,7 @@ impl State {
             .as_ref()
             .map(|meta| (meta.kind.clone(), meta.id.clone()));
         self.player.video_id = self.selected_video_id.clone();
-        self.play_source(Source::Stream(stream), title);
+        self.play_source(source, title);
     }
 
     pub(in crate::ui) fn play_source(&mut self, source: Source, title: String) {

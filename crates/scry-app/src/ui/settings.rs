@@ -15,6 +15,7 @@ pub(super) fn view(s: &State) -> El {
     let mut content = col()
         .w_full()
         .gap(24.0)
+        .child(super::local_media::settings(s))
         .child(heading("Guide"))
         .child(label("Applies to every Guide channel, not regular playback. Published programs stay in place when settings change."))
         .child(source_settings(s))

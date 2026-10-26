@@ -14,6 +14,7 @@ mod events;
 mod formatting;
 mod guide;
 mod library_view;
+mod local_media;
 mod navigation;
 mod player;
 mod poster_grid;
@@ -57,6 +58,7 @@ pub struct State {
     poster_viewport: Option<[f32; 4]>,
     poster_route: u64,
     library: LibraryUi,
+    local: local_media::LocalUi,
     calendar: calendar::CalendarUi,
     stats: stats::StatsUi,
     guide: guide::GuideUi,

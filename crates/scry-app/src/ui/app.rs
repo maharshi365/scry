@@ -94,6 +94,7 @@ impl State {
             poster_viewport: None,
             poster_route: 0,
             library: LibraryUi::default(),
+            local: super::local_media::LocalUi::default(),
             calendar: super::calendar::CalendarUi::default(),
             stats: super::stats::StatsUi::default(),
             guide: super::guide::GuideUi::default(),
@@ -191,6 +192,7 @@ fn setup(s: &mut State, wake: rune::Waker) {
             }
             s.services = Some(services);
             s.events = Some(events);
+            s.request_local(crate::services::local_media::Request::Refresh);
         }
         Err(error) => {
             s.config_busy = false;

@@ -21,6 +21,7 @@ mod dropdowns;
 mod episodes;
 mod layout;
 mod library;
+mod local_media;
 mod navigation;
 mod playback;
 mod player;
