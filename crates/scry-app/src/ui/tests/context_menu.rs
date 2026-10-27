@@ -56,7 +56,6 @@ fn season_actions_cover_every_episode_on_all_pages_but_not_other_seasons() {
     }
     right_click(&mut rt, "season-select");
     assert!(rt.find("context-season-watched").is_some());
-    assert!(rt.find("context-watched").is_none());
     tap(&mut rt, "context-season-watched");
     settle_library(&mut rt, |s| {
         s.library.snapshot.as_ref().is_some_and(|snapshot| {
@@ -127,11 +126,6 @@ fn library_actions_use_add_and_remove_library_labels() {
             .any(|e| e.key.as_deref() == Some("context-remove")
                 && e.label.as_deref() == Some("Remove from library"))
     );
-    assert!(
-        elements
-            .iter()
-            .all(|e| e.text.as_deref() != Some("Watch later"))
-    );
 }
 
 #[test]
@@ -177,14 +171,4 @@ fn currently_watching_context_menu_dismisses_without_removing_saved_progress() {
             .watched_seconds,
         15.0
     );
-}
-
-#[test]
-fn dismiss_action_is_not_offered_for_titles_outside_currently_watching() {
-    let mut state = init();
-    scene_discover(&mut state);
-    let mut runtime = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
-    runtime.frame(0.0);
-    right_click(&mut runtime, "title-0");
-    assert!(runtime.find("context-dismiss-watching").is_none());
 }

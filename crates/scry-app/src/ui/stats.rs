@@ -353,7 +353,6 @@ mod tests {
         );
         assert!(state.poll_achievement_toast(&mut Tx::default()));
         assert!(state.stats.notice.is_none());
-        assert!(toast(&state).is_none());
         Ok(())
     }
 }

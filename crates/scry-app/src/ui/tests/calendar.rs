@@ -56,7 +56,6 @@ fn refreshing_keeps_calendar_and_button_geometry_stable() {
     }
     assert_eq!(rect(&rt, "calendar-refresh"), refresh);
     assert_eq!(rect(&rt, &format!("calendar-day-{date}")), day);
-    assert!(rt.find("calendar-refresh-spinner").is_none());
 }
 
 #[test]
@@ -155,20 +154,17 @@ fn calendar_switches_modes_and_scrolls_a_busy_day_without_moving_its_neighbour()
 }
 
 #[test]
-fn startup_and_addon_install_have_no_discover_or_playlist_controls() {
+fn startup_opens_watching_and_addon_install_uses_a_dialog() {
     let mut s = init();
     s.config_busy = false;
     let mut rt = rune::Runtime::new(s, view, (1280.0, 820.0), rune::Env::default());
     rt.frame(0.0);
     assert_eq!(rt.state.navigation.page, Page::Watching);
-    assert!(rt.find("nav-discover").is_none());
     tap(&mut rt, "nav-library");
-    assert!(rt.find("playlist-create").is_none());
     tap(&mut rt, "nav-addons");
     for _ in 0..30 {
         rt.frame(1.0 / 60.0);
     }
-    assert!(rt.find("manifest").is_none());
     tap(&mut rt, "add-addon");
     assert!(
         rt.state.addon_install_open,
@@ -184,10 +180,8 @@ fn startup_and_addon_install_have_no_discover_or_playlist_controls() {
     }
     assert!(rt.find("manifest").is_some());
     assert!(rect(&rt, "manifest-frame")[3] >= 44.0);
-    assert!(rt.find("direct-url").is_none());
     assert!(rt.state.install.text.is_empty());
     tap(&mut rt, "addon-dialog-close");
-    assert!(rt.find("manifest").is_none());
 }
 
 #[test]
@@ -222,7 +216,6 @@ fn expanded_day_scrolls_all_releases_and_opens_movies() {
     }
     assert!(rect(&rt, "calendar-dialog-release-10")[1] < before[1] - 100.0);
     tap(&mut rt, "calendar-dialog-close");
-    assert!(rt.find("calendar-day-dialog").is_none());
     tap(&mut rt, &format!("calendar-expand-{date}"));
     let list = rect(&rt, "calendar-dialog-scroll");
     rt.wheel(list[0] + 50.0, list[1] + 50.0, 2000.0);

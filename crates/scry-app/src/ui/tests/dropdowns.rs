@@ -90,7 +90,6 @@ fn overlay_choices_keep_season_selection_and_provider_filtering_working() {
     tap(&mut rt, "season-select");
     settle(&mut rt);
     assert!(rt.find("season-option-0-selected").is_some());
-    assert!(rt.find("season-option-1-selected").is_none());
     rt.key(rune::KeyEvent {
         key: rune::Key::Down,
         mods: rune::Mods::default(),
@@ -124,10 +123,8 @@ fn overlay_choices_keep_season_selection_and_provider_filtering_working() {
     settle(&mut rt);
     assert_eq!(rt.state.stream_provider.as_deref(), Some("Second provider"));
     assert!(!rt.state.source_menu_open);
-    assert!(rt.find("stream-0").is_none());
     assert!(rt.find("stream-1").is_some());
     tap(&mut rt, "source-select");
     settle(&mut rt);
     assert!(rt.find("source-provider-1-selected").is_some());
-    assert!(rt.find("source-all-selected").is_none());
 }

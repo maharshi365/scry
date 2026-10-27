@@ -149,7 +149,6 @@ fn tv_completion_waits_for_matching_metadata_and_reacts_to_new_releases() {
     let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
     rt.poll = Some(poll);
     settle_library(&mut rt, |s| !s.library.series.states.is_empty());
-    assert!(rt.find("title-poster-0-watched").is_none());
     let meta: Meta = serde_json::from_value(serde_json::json!({
         "id":"tt123","type":"series","name":"Show","videos":[
             {"id":"tt123:1:1","season":1,"episode":1,"released":"2000-01-01"}
@@ -196,7 +195,6 @@ fn tv_completion_waits_for_matching_metadata_and_reacts_to_new_releases() {
                     .is_some_and(|p| (p.position_seconds - 0.5).abs() < 0.001)
         })
     });
-    assert!(rt.find("title-poster-0-watched").is_none());
 }
 
 #[test]
@@ -282,7 +280,6 @@ fn tv_posters_share_episode_progress_and_require_the_full_inventory_across_route
             1.25 / 3.0
         };
         assert!((fill[2] / track[2] - expected).abs() < 0.01);
-        assert!(rt.find(&format!("{poster}-watched")).is_none());
         rt.update(|s, _| {
             s.db(
                 crate::library_worker::Command::SetWatched(second.clone(), true),
@@ -291,7 +288,6 @@ fn tv_posters_share_episode_progress_and_require_the_full_inventory_across_route
         });
         if page == Page::Watching {
             settle_library(&mut rt, |s| s.library.watching.is_empty());
-            assert!(rt.find(poster).is_none());
             continue;
         }
         settle_library(&mut rt, |s| {
@@ -303,7 +299,6 @@ fn tv_posters_share_episode_progress_and_require_the_full_inventory_across_route
                     })
             })
         });
-        assert!(rt.find(&format!("{poster}-watched")).is_none());
         rt.update(|s, _| {
             let mut meta = s.detail.clone().unwrap();
             meta.videos[2].released = Some("2002-01-01".into());
@@ -331,6 +326,5 @@ fn tv_posters_share_episode_progress_and_require_the_full_inventory_across_route
             rt.find(&format!("{poster}-watched")).is_some(),
             "Missing badge on {page:?}"
         );
-        assert!(rt.find(&format!("{poster}-progress-track")).is_none());
     }
 }

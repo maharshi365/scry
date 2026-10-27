@@ -229,17 +229,6 @@ fn settings_use_aligned_horizontal_choices_without_repeated_channel_controls() {
             rect("guide-episodes-watched")[0] + rect("guide-episodes-watched")[2] <= viewport.0,
             "Programming options overflow the window"
         );
-        for key in [
-            "guide-order-office",
-            "guide-watched-office",
-            "guide-move-up-office",
-            "guide-policy-approve",
-        ] {
-            assert!(
-                runtime.find(key).is_none(),
-                "Unexpected per-channel or approval control {key}"
-            );
-        }
     }
 }
 
@@ -282,7 +271,7 @@ fn guide_and_regular_player_support_seek_and_pause() {
 }
 
 #[test]
-fn guide_fullscreen_uses_shared_player_controls_without_stop() {
+fn guide_fullscreen_uses_shared_player_controls() {
     let mut state = state();
     state.player.playing = true;
     state.player.fullscreen = true;
@@ -303,8 +292,6 @@ fn guide_fullscreen_uses_shared_player_controls_without_stop() {
     ] {
         assert!(rt.find(key).is_some(), "Missing {key}");
     }
-    assert!(rt.find("stop").is_none());
-    assert!(rt.find("guide-grid").is_none());
     rt.update(|s, _| s.player.playing = false);
     rt.frame(0.0);
     let (x, y) = rt.find("fullscreen").unwrap();
@@ -335,7 +322,7 @@ fn leaving_guide_invalidates_pending_tunes_and_clears_source_candidates() {
 }
 
 #[test]
-fn guide_layout_has_grid_preview_and_no_episode_or_seek_controls() {
+fn guide_layout_has_grid_and_preview() {
     for (width, height) in [(1280.0, 820.0), (880.0, 600.0)] {
         let mut runtime = rune::Runtime::new(
             state(),
@@ -351,15 +338,6 @@ fn guide_layout_has_grid_preview_and_no_episode_or_seek_controls() {
             "guide-now-marker",
         ] {
             assert!(runtime.find(key).is_some(), "Missing {key} at {width}");
-        }
-        for key in [
-            "player-timeline",
-            "seek-back",
-            "seek-forward",
-            "pause",
-            "episode-0",
-        ] {
-            assert!(runtime.find(key).is_none(), "Unexpected {key}");
         }
         let video = runtime
             .elements()

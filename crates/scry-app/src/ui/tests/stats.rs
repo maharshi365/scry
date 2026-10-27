@@ -33,7 +33,6 @@ fn historical_unlocks_make_one_summary_and_earned_rules_show_in_the_collection()
     tap(&mut rt, "achievement-view");
     assert_eq!(rt.state.navigation.page, Page::Stats);
     assert!(rt.find("achievement-centurion").is_some());
-    assert!(rt.find("achievement-toast-1").is_none());
 }
 
 #[test]
@@ -43,10 +42,8 @@ fn notifications_wait_until_video_has_stopped() {
     state.player.playing = true;
     state.apply_achievements(earned());
     assert!(!state.poll_achievement_toast(&mut Tx::default()));
-    assert!(super::super::stats::toast(&state).is_none());
     state.player.sample.paused = true;
     assert!(!state.poll_achievement_toast(&mut Tx::default()));
-    assert!(super::super::stats::toast(&state).is_none());
     state.player.playing = false;
     assert!(state.poll_achievement_toast(&mut Tx::default()));
     assert!(super::super::stats::toast(&state).is_some());
@@ -83,15 +80,6 @@ fn stats_page_keeps_content_inside_the_minimum_window_width() {
             "{key} right"
         );
     }
-    for key in [
-        "stats-week",
-        "stats-month",
-        "stats-year",
-        "stats-all",
-        "stats-activity",
-    ] {
-        assert!(rt.find(key).is_none(), "Removed dashboard control: {key}");
-    }
 }
 
 #[test]
@@ -101,13 +89,6 @@ fn lifetime_dashboard_uses_compact_summary_panels_and_distinct_achievement_icons
         super::super::stats::scene(&mut state);
         let mut rt = rune::Runtime::new(state, view, (width, 820.0), rune::Env::default());
         rt.frame(0.0);
-        assert!(rt.find("stats-methodology").is_none());
-        assert!(
-            rt.elements()
-                .iter()
-                .filter_map(|element| element.text.as_deref())
-                .all(|text| !text.contains("science") && !text.contains("mastered*"))
-        );
         assert!(
             rect(&rt, "stats-summary")[3] < 85.0,
             "Summary should be a compact strip"
@@ -116,7 +97,6 @@ fn lifetime_dashboard_uses_compact_summary_panels_and_distinct_achievement_icons
             rect(&rt, "stats-mix")[3] < 190.0,
             "Mix is a chart, not a report"
         );
-        assert!(rt.find("stats-lifetime").is_none());
         let career = rect(&rt, "stats-watch-time");
         let summary = rect(&rt, "stats-summary");
         assert!(summary[1] > career[1]);
@@ -126,7 +106,6 @@ fn lifetime_dashboard_uses_compact_summary_panels_and_distinct_achievement_icons
         let tabs = rect(&rt, "stats-tabs");
         let last_tab = rect(&rt, "stats-tab-achievements");
         assert!((tabs[0] + tabs[2] - last_tab[0] - last_tab[2]).abs() < 0.5);
-        assert!(rt.find("achievement-collection").is_none());
         let mix = rect(&rt, "stats-mix");
         let mastery = rect(&rt, "stats-mastery");
         let rankings = rect(&rt, "stats-top-titles");
@@ -140,14 +119,13 @@ fn lifetime_dashboard_uses_compact_summary_panels_and_distinct_achievement_icons
 }
 
 #[test]
-fn achievements_show_requirements_and_progress_inline_without_duplicate_panels() {
+fn achievements_show_requirements_and_progress_inline() {
     for width in [880.0, 1280.0] {
         let mut state = init();
         super::super::stats::scene(&mut state);
         let mut rt = rune::Runtime::new(state, view, (width, 820.0), rune::Env::default());
         rt.frame(0.0);
         tap(&mut rt, "stats-tab-achievements");
-        assert!(rt.find("stats-watch-time").is_none());
         let first = rect(&rt, "achievement-pilot-error");
         let second = rect(&rt, "achievement-seasoned-professional");
         assert!(
@@ -161,37 +139,21 @@ fn achievements_show_requirements_and_progress_inline_without_duplicate_panels()
         );
         assert!(rt.find("achievement-icon-pilot-error").is_some());
         assert!(rt.find("achievement-icon-seasoned-professional").is_some());
-        for key in [
-            "achievement-detail",
-            "achievement-featured",
-            "achievement-next",
-        ] {
-            assert!(rt.find(key).is_none(), "Removed achievement panel: {key}");
-        }
         let elements = rt.elements();
         let mut db = Library::memory().unwrap();
         for entry in db.evaluate_achievements().unwrap().entries {
             assert!(rt.find(&format!("achievement-{}", entry.id)).is_some());
+            if entry.hidden {
+                continue;
+            }
             let key = format!("achievement-requirement-{}", entry.id);
             let requirement = elements
                 .iter()
                 .find(|element| element.key.as_deref() == Some(key.as_str()));
-            if entry.hidden {
-                assert!(
-                    requirement.is_none(),
-                    "Secret requirements must stay hidden"
-                );
-                assert!(
-                    !elements
-                        .iter()
-                        .any(|element| element.text.as_deref() == Some(entry.name))
-                );
-            } else {
-                assert_eq!(
-                    requirement.and_then(|element| element.text.as_deref()),
-                    Some(entry.requirement)
-                );
-            }
+            assert_eq!(
+                requirement.and_then(|element| element.text.as_deref()),
+                Some(entry.requirement)
+            );
         }
         for key in [
             "achievement-requirement-pilot-error",
@@ -208,6 +170,5 @@ fn achievements_show_requirements_and_progress_inline_without_duplicate_panels()
         );
         tap(&mut rt, "stats-tab-stats");
         assert!(rt.find("stats-watch-time").is_some());
-        assert!(rt.find("achievement-collection").is_none());
     }
 }

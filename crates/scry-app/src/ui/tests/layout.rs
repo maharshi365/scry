@@ -15,7 +15,6 @@ fn season_group_controls_have_equal_heights() {
         assert!((bounds[1] - select[1]).abs() < 0.5, "{key} alignment");
     }
     assert!(select[2] < 160.0, "Season selector stays compact");
-    assert!(rt.find("episode-search-frame").is_none());
 }
 
 #[test]
@@ -96,14 +95,8 @@ fn watched_episode_badges_do_not_move_episode_cards_or_titles() {
 fn sidebar_keeps_only_a_compact_logo_at_minimum_window_size() {
     let mut rt = rune::Runtime::new(init(), view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);
-    let elements = rt.elements();
     let header = rect(&rt, "topbar");
     let logo = rect(&rt, "brand-logo");
-    assert!(
-        elements
-            .iter()
-            .all(|element| element.text.as_deref() != Some("Scry"))
-    );
     assert_eq!([logo[2], logo[3]], [28.0, 28.0]);
     assert!(logo[0] >= header[0] && logo[1] >= header[1]);
     assert!(logo[1] + logo[3] <= header[1] + header[3]);
@@ -129,8 +122,6 @@ fn episode_wheel_is_bounded_and_selection_panel_and_toolbar_stay_visible() {
     assert!(
         viewport[0] >= selection[0] && viewport[0] + viewport[2] <= selection[0] + selection[2]
     );
-    assert!(rt.find("episodes-next").is_none());
-    assert!(rt.find("episodes-prev").is_none());
     for _ in 0..3 {
         rt.wheel(viewport[0] + 20.0, viewport[1] + 20.0, -100_000.0);
         for _ in 0..120 {

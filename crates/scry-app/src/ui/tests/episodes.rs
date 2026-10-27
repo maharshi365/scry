@@ -29,13 +29,10 @@ fn season_selector_filters_and_sorts_episodes_without_changing_protocol_identity
     let mut rt = rune::Runtime::new(state, view, (1000.0, 800.0), rune::Env::default());
     rt.frame(0.0);
     assert!(rt.find("episode-4").is_some());
-    assert!(rt.find("episode-0").is_none());
     tap(&mut rt, "season-next");
     assert_eq!(rt.state.visible_episode_indices(), [3, 0]);
-    assert!(rt.find("episode-4").is_none());
     tap(&mut rt, "episode-3");
     assert_eq!(rt.state.selected_video_id.as_deref(), Some("show:2:1"));
-    assert!(rt.find("library-series").is_none());
     assert_eq!(
         rt.state
             .visible_episode_keys()

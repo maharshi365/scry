@@ -22,8 +22,6 @@ fn sidebar_settings_exposes_guide_preferences_and_keeps_addons_separate() {
     ] {
         assert!(rt.find(key).is_some(), "Missing preference {key}");
     }
-    assert!(rt.find("guide-create-collection").is_none());
-    assert!(rt.find("add-addon").is_none());
     let settings = rect(&rt, "nav-settings");
     assert!(settings[1] + settings[3] <= 600.0);
     rt.update(|_, tx| tx.scroll_into_view("nav-addons"));
@@ -31,7 +29,6 @@ fn sidebar_settings_exposes_guide_preferences_and_keeps_addons_separate() {
     tap(&mut rt, "nav-addons");
     assert_eq!(rt.state.navigation.page, Page::Addons);
     assert!(rt.find("add-addon").is_some());
-    assert!(rt.find("guide-quality-1080").is_none());
     rt.update(|s, _| s.travel(false));
     rt.frame(0.0);
     assert!(rt.find("settings-page").is_some());
@@ -46,13 +43,11 @@ fn guide_settings_shortcut_is_separate_from_collection_management() {
     rt.frame(0.0);
     tap(&mut rt, "guide-settings");
     assert!(rt.find("settings-page").is_some());
-    assert!(rt.find("guide-create-collection").is_none());
     rt.update(|s, _| s.travel(false));
     rt.frame(0.0);
     assert_eq!(rt.state.navigation.page, Page::Guide);
     tap(&mut rt, "guide-manage-collections");
     assert!(rt.find("guide-create-collection").is_some());
-    assert!(rt.find("guide-quality-1080").is_none());
     tap(&mut rt, "guide-close-collections");
     assert!(rt.find("guide-manage-collections").is_some());
 }

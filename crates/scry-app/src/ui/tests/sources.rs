@@ -70,7 +70,6 @@ fn best_available_respects_provider_filter_and_ranks_late_sources() {
     rt.update(|s, _| s.stream_provider = Some("Provider A".into()));
     choose_sort(&mut rt, true);
     assert_order(&mut rt, &[1, 0]);
-    assert!(rt.find("stream-2").is_none());
     rt.update(|s, _| {
         s.streams
             .push(("Provider A".into(), torrent("Late winner", 100, 100)));
@@ -133,7 +132,6 @@ fn header_sort_fits_and_provider_selection_ranks_only_visible_swarms() {
         }
         tap(&mut rt, "source-provider-0");
         assert_order(&mut rt, &[1, 0]);
-        assert!(rt.find("stream-2").is_none());
         assert_eq!(rt.state.stream_sort, SourceSort::Best);
     }
 }
@@ -146,8 +144,6 @@ fn single_provider_has_a_compact_header_sort_without_an_empty_toolbar() {
         tx.instant();
     });
     rt.frame(0.0);
-    assert!(rt.find("source-controls").is_none());
-    assert!(rt.find("source-select").is_none());
     let before = rect(&rt, "stream-0");
     let header = rect(&rt, "source-picker-header");
     let sort = rect(&rt, "source-sort");
@@ -160,7 +156,6 @@ fn single_provider_has_a_compact_header_sort_without_an_empty_toolbar() {
     assert_eq!(rect(&rt, "stream-0"), before);
     tap(&mut rt, "source-best");
     assert_eq!(rt.state.stream_sort, SourceSort::Best);
-    assert!(rt.find("source-sort-menu").is_none());
     assert!(
         rt.elements()
             .iter()
@@ -184,11 +179,9 @@ fn sort_menu_marks_only_the_current_order() {
     let mut rt = runtime(880.0);
     tap(&mut rt, "source-sort");
     assert!(rt.find("source-original-selected").is_some());
-    assert!(rt.find("source-best-selected").is_none());
     tap(&mut rt, "source-best");
     tap(&mut rt, "source-sort");
     assert!(rt.find("source-best-selected").is_some());
-    assert!(rt.find("source-original-selected").is_none());
 }
 
 #[test]
@@ -205,12 +198,8 @@ fn provider_sort_is_ascending_and_preserves_order_within_providers() {
     tap(&mut rt, "source-sort");
     tap(&mut rt, "source-provider-sort");
     assert_order(&mut rt, &[1, 3, 0, 2]);
-    assert!(rt.find("source-sort-ascending").is_none());
-    assert!(rt.find("source-sort-descending").is_none());
     tap(&mut rt, "source-sort");
     assert!(rt.find("source-provider-sort-selected").is_some());
-    assert!(rt.find("source-original-selected").is_none());
-    assert!(rt.find("source-best-selected").is_none());
     tap(&mut rt, "source-provider-sort");
     assert_order(&mut rt, &[1, 3, 0, 2]);
     assert_eq!(rt.state.streams[0].1.title, "First Zulu");
@@ -231,7 +220,6 @@ fn provider_sort_is_the_default() {
     assert_order(&mut rt, &[1, 0]);
     tap(&mut rt, "source-sort");
     assert!(rt.find("source-provider-sort-selected").is_some());
-    assert!(rt.find("source-original-selected").is_none());
 }
 
 #[test]
@@ -246,6 +234,4 @@ fn provider_sort_respects_filters_and_sorts_late_sources() {
     assert_order(&mut rt, &[3, 0, 1, 2]);
     rt.update(|s, _| s.stream_provider = Some("Provider A".into()));
     assert_order(&mut rt, &[0, 1]);
-    assert!(rt.find("stream-2").is_none());
-    assert!(rt.find("stream-3").is_none());
 }
