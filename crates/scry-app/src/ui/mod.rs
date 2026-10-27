@@ -100,6 +100,7 @@ pub struct State {
     stream_provider: Option<String>,
     stream_best_first: bool,
     source_menu_open: bool,
+    source_sort_open: bool,
     warnings: Vec<String>,
     error: Option<String>,
     status: String,

@@ -36,20 +36,21 @@ fn dropdowns_overlay_without_moving_content_and_dismiss_without_navigation() {
         for (trigger, menu) in [
             ("season-select", "season-menu"),
             ("source-select", "source-menu"),
+            ("source-sort", "source-sort-menu"),
         ] {
-            if trigger == "source-select" {
+            if trigger != "season-select" {
                 rt.update(|s, _| s.selected_video_id = Some("show:1:1".into()));
                 settle(&mut rt);
             }
-            let keys = if trigger == "source-select" {
+            let keys = if trigger == "season-select" {
+                vec!["topbar", "season-select", "episode-4"]
+            } else {
                 vec![
                     "topbar",
                     "show-episodes",
                     "source-picker-header",
                     "stream-0",
                 ]
-            } else {
-                vec!["topbar", "season-select", "episode-4"]
             };
             let before: Vec<_> = keys.into_iter().map(|key| (key, rect(&rt, key))).collect();
             tap(&mut rt, trigger);
@@ -66,13 +67,21 @@ fn dropdowns_overlay_without_moving_content_and_dismiss_without_navigation() {
             });
             settle(&mut rt);
             assert_eq!(rt.state.navigation.page, Page::Detail);
-            assert!(!rt.state.season_menu_open && !rt.state.source_menu_open);
+            assert!(
+                !rt.state.season_menu_open
+                    && !rt.state.source_menu_open
+                    && !rt.state.source_sort_open
+            );
             tap(&mut rt, trigger);
             settle(&mut rt);
             rt.pointer_down(10.0, 10.0);
             rt.pointer_up(10.0, 10.0);
             settle(&mut rt);
-            assert!(!rt.state.season_menu_open && !rt.state.source_menu_open);
+            assert!(
+                !rt.state.season_menu_open
+                    && !rt.state.source_menu_open
+                    && !rt.state.source_sort_open
+            );
             for (key, bounds) in before {
                 assert_eq!(rect(&rt, key), bounds);
             }

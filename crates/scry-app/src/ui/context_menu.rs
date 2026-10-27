@@ -49,6 +49,7 @@ impl State {
             .collect();
         self.season_menu_open = false;
         self.source_menu_open = false;
+        self.source_sort_open = false;
         let inventory = self.detail.as_ref().map_or_else(Vec::new, |meta| {
             crate::media_metadata::episode_inventory(&parent.key, meta)
         });

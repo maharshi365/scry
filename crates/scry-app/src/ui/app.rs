@@ -132,6 +132,7 @@ impl State {
             stream_provider: None,
             stream_best_first: false,
             source_menu_open: false,
+            source_sort_open: false,
             warnings: Vec::new(),
             error: None,
             status: String::new(),

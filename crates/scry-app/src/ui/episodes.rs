@@ -75,6 +75,7 @@ impl State {
         self.streams.clear();
         self.stream_provider = None;
         self.source_menu_open = false;
+        self.source_sort_open = false;
         self.warnings.clear();
         self.error = None;
         self.loading = false;
@@ -118,6 +119,7 @@ impl State {
         self.stream_provider = None;
         self.loading = false;
         self.source_menu_open = false;
+        self.source_sort_open = false;
         self.warnings.clear();
         self.error = None;
         self.refresh_library();

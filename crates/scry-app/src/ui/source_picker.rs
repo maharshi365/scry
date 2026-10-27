@@ -7,7 +7,7 @@ use super::{
         tokens::{accent, edge, panel, theme, type_, warning},
     },
     primitives::{
-        input_group::input_group,
+        button::menu_item,
         surface::{card, dropdown, scroll},
         text::label,
     },
@@ -138,6 +138,60 @@ pub(super) fn provider_menu(s: &State, cx: &Cx<State>) -> Option<El> {
     )
 }
 
+fn sort_option(key: &str, title: &str, best: bool, selected: bool) -> El {
+    let mut option = menu_item(key, title, move |s: &mut State| {
+        s.stream_best_first = best;
+        s.source_sort_open = false;
+    })
+    .label(if selected {
+        format!("{title}, selected")
+    } else {
+        title.to_owned()
+    })
+    .child(el().grow(1.0));
+    if selected {
+        option = option.child(
+            icon(&icons::CHECK, 14.0)
+                .key(format!("{key}-selected"))
+                .color(accent()),
+        );
+    }
+    option
+}
+
+pub(super) fn sort_menu(s: &State, cx: &Cx<State>) -> Option<El> {
+    if !s.source_sort_open {
+        return None;
+    }
+    cx.layout("source-sort")?;
+    Some(
+        dropdown(
+            "source-sort-menu",
+            "source-sort",
+            180.0,
+            2.0 * (super::design::tokens::control::HEIGHT + 6.0),
+            |s: &mut State| s.source_sort_open = false,
+        )
+        .child(
+            col()
+                .w_full()
+                .gap(6.0)
+                .child(sort_option(
+                    "source-best",
+                    "Best available",
+                    true,
+                    s.stream_best_first,
+                ))
+                .child(sort_option(
+                    "source-original",
+                    "Original order",
+                    false,
+                    !s.stream_best_first,
+                )),
+        ),
+    )
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "Declarative source picker layout keeps provider filters and source-card bindings together"
@@ -157,18 +211,40 @@ pub(super) fn view(s: &State) -> El {
             .center_y()
             .gap(12.0)
             .child(
-                text("Sources")
-                    .font(type_::SECTION_TITLE)
-                    .color(t.text)
-                    .grow(1.0),
+                col()
+                    .key("source-heading")
+                    .w(0.0)
+                    .grow(1.0)
+                    .min_w(0.0)
+                    .gap(4.0)
+                    .child(text("Sources").font(type_::SECTION_TITLE).color(t.text))
+                    .child(
+                        label(if s.loading {
+                            format!("{count} · searching…")
+                        } else {
+                            count
+                        })
+                        .key("source-count")
+                        .w_full(),
+                    ),
             )
             .child(
-                label(if s.loading {
-                    format!("{count} · searching…")
-                } else {
-                    count
-                })
-                .key("source-count"),
+                action(
+                    "source-sort",
+                    if s.stream_best_first {
+                        "Best available"
+                    } else {
+                        "Original order"
+                    },
+                    |s| {
+                        s.season_menu_open = false;
+                        s.source_menu_open = false;
+                        s.source_sort_open = !s.source_sort_open;
+                    },
+                )
+                .gap(6.0)
+                .label("Sort sources")
+                .child(icon(&icons::DOWN, 14.0).color(t.text)),
             ),
     );
     if let Some(video) = s.detail.as_ref().and_then(|meta| {
@@ -191,47 +267,24 @@ pub(super) fn view(s: &State) -> El {
         );
     }
     let providers = providers(s);
-    let mut source_controls = input_group()
-        .key("source-controls")
-        .w_full()
-        .gap(0.0)
-        .radius(super::design::tokens::control::RADIUS)
-        .border(1.0, edge())
-        .fill(panel());
     if providers.len() > 1 {
-        source_controls = source_controls
-            .child(
+        header = header.child(
+            row().key("source-controls").w_full().child(
                 action(
                     "source-select",
                     s.stream_provider.as_deref().unwrap_or("All add-ons"),
                     |s| {
                         s.season_menu_open = false;
+                        s.source_sort_open = false;
                         s.source_menu_open = !s.source_menu_open;
                     },
                 )
-                .w(0.0)
-                .grow(1.0)
-                .radius(0.0)
-                .border(0.0, edge())
+                .w_full()
                 .gap(6.0)
                 .child(icon(&icons::DOWN, 14.0).color(t.text)),
-            )
-            .child(
-                el().w(1.0)
-                    .h(super::design::tokens::control::HEIGHT)
-                    .fill(edge()),
-            );
+            ),
+        );
     }
-    header = header.child(
-        source_controls.child(
-            select_action("source-best", "Best available", s.stream_best_first, |s| {
-                s.stream_best_first = !s.stream_best_first;
-                s.source_menu_open = false;
-            })
-            .radius(0.0)
-            .border(0.0, edge()),
-        ),
-    );
 
     let mut list = col().key("detail-body").w_full().gap(8.0);
     for (index, message) in s.warnings.iter().enumerate() {

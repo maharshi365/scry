@@ -201,6 +201,7 @@ impl State {
         self.streams.clear();
         self.stream_provider = None;
         self.source_menu_open = false;
+        self.source_sort_open = false;
         self.loading = false;
         match self.navigation.page {
             Page::Guide | Page::Settings => self.refresh_guide(),

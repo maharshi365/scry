@@ -139,6 +139,7 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
         if let Some(menu) = super::source_picker::provider_menu(s, cx) {
             root = root.child(menu);
         }
+        root = root.children(super::source_picker::sort_menu(s, cx));
     }
     if let Some(menu) = super::context_menu::view(s, cx) {
         root = root.child(menu);

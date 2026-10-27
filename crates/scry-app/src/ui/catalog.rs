@@ -275,6 +275,7 @@ impl State {
         self.episode_season = None;
         self.season_menu_open = false;
         self.source_menu_open = false;
+        self.source_sort_open = false;
         self.library.snapshot = None;
         self.streams.clear();
         self.warnings.clear();
@@ -293,6 +294,7 @@ impl State {
     pub(super) fn find_streams(&mut self, kind: String, id: String) {
         self.stream_id += 1;
         self.source_menu_open = false;
+        self.source_sort_open = false;
         self.stream_provider = None;
         self.selected_video_id = Some(id.clone());
         self.refresh_library();

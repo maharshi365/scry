@@ -486,6 +486,7 @@ fn season_selector(s: &State) -> El {
     bar = bar.child(
         action("season-select", season_label(current), |s| {
             s.source_menu_open = false;
+            s.source_sort_open = false;
             s.season_menu_open = !s.season_menu_open;
         })
         .w(0.0)
