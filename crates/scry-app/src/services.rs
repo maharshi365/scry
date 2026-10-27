@@ -75,6 +75,7 @@ pub enum Event {
     Playing(u64, PathBuf),
     Ready(u64),
     Metrics(u64, Sample),
+    TorrentMetrics(u64, Option<scry_torrents::Stats>),
     Stopped(u64, Option<String>),
     PlayerWarning(u64, String),
 }
@@ -131,6 +132,7 @@ pub struct Services {
     watch_tasks: Vec<tokio::task::JoinHandle<()>>,
     control: Option<watch::Sender<Option<Control>>>,
     commands: Option<mpsc::Sender<(u64, Vec<String>)>>,
+    stream_stats: watch::Sender<Option<u64>>,
     player: Option<JoinHandle<()>>,
 }
 
@@ -157,13 +159,14 @@ impl Services {
         let inbox = Inbox { tx, wake };
         let (control, lifecycle) = watch::channel(None);
         let (commands, command_rx) = mpsc::channel(16);
+        let (stream_stats, stats_rx) = watch::channel(None);
         let rt = runtime.clone();
         let output = inbox.clone();
         let folder = data.clone();
         let player = std::thread::Builder::new()
             .name("scry-player".into())
             .spawn(move || {
-                rt.block_on(player_loop(lifecycle, command_rx, output, folder));
+                rt.block_on(player_loop(lifecycle, command_rx, stats_rx, output, folder));
             })?;
         let services = Self {
             runtime,
@@ -186,6 +189,7 @@ impl Services {
             watch_tasks: Vec::new(),
             control: Some(control),
             commands: Some(commands),
+            stream_stats,
             player: Some(player),
         };
         services.load();
@@ -853,6 +857,16 @@ impl Services {
         }));
     }
 
+    pub fn observe_stream_stats(&self, generation: Option<u64>) {
+        self.stream_stats.send_if_modified(|current| {
+            if *current == generation {
+                return false;
+            }
+            *current = generation;
+            true
+        });
+    }
+
     pub fn control(&self, command: Control) -> Result<()> {
         match command {
             Control::Command(id, args) => self
@@ -930,6 +944,7 @@ fn direct_url(stream: &Stream) -> Result<Option<String>> {
 async fn player_loop(
     mut lifecycle: watch::Receiver<Option<Control>>,
     mut commands: mpsc::Receiver<(u64, Vec<String>)>,
+    stream_stats: watch::Receiver<Option<u64>>,
     inbox: Inbox,
     data: PathBuf,
 ) {
@@ -970,6 +985,9 @@ async fn player_loop(
                         ended = Some(true);
                     }
                     inbox.notify(Event::Metrics(generation, sample));
+                    if *stream_stats.borrow() == Some(generation) {
+                        inbox.notify(Event::TorrentMetrics(generation, torrents.as_ref().and_then(Torrents::stats)));
+                    }
                     if let Some(failed) = ended {
                         destroy_player(&mut player);
                         if let Some(report) = report.take() { let _ = report.finish(failed); }

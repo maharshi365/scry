@@ -9,7 +9,9 @@ use std::{
 };
 use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
-    Graphics::Gdi::{CreateRectRgn, DeleteObject, ScreenToClient, SetWindowRgn},
+    Graphics::Gdi::{
+        CombineRgn, CreateRectRgn, DeleteObject, RGN_DIFF, ScreenToClient, SetWindowRgn,
+    },
     System::SystemServices::SS_NOTIFY,
     UI::{
         Input::KeyboardAndMouse::{GetDoubleClickTime, ReleaseCapture, SetCapture, SetFocus},
@@ -178,11 +180,19 @@ pub(super) fn pointer_position(host: &Host, scale: f32) -> VideoPointer {
     ])
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) struct Clip {
+    width: i32,
+    height: i32,
+    bottom: i32,
+    overlay: Option<[i32; 4]>,
+}
+
 #[expect(
     clippy::cast_possible_truncation,
     reason = "Rounded native pixel height intentionally saturates to i32"
 )]
-pub(super) fn cover_bottom(host: &Host, height: f32) {
+pub(super) fn cover(host: &Host, bottom: f32, overlay: Option<[f32; 4]>) {
     let child = host.0.child.load(Ordering::Acquire) as HWND;
     if child.is_null() {
         return;
@@ -191,15 +201,29 @@ pub(super) fn cover_bottom(host: &Host, height: f32) {
         return;
     };
     // SAFETY: the child is live on this UI thread. GetClientRect writes a local
-    // RECT. A successful SetWindowRgn transfers region ownership to Windows;
-    // failure leaves ownership here, so only that path deletes it.
+    // RECT. Regions are local owned GDI objects; CombineRgn copies their data.
+    // A successful SetWindowRgn transfers region ownership to Windows;
+    // failure leaves ownership here, so only that path deletes the final region.
     unsafe {
         let mut rect: RECT = std::mem::zeroed();
         if GetClientRect(child, &raw mut rect) == 0 {
             return;
         }
-        let height = height.round().max(0.0) as i32;
-        let next = (rect.right, rect.bottom, height);
+        let bottom = bottom.round().max(0.0) as i32;
+        let overlay = overlay.map(|[x, y, w, h]| {
+            [
+                x.round() as i32,
+                y.round() as i32,
+                (x + w).round() as i32,
+                (y + h).round() as i32,
+            ]
+        });
+        let next = Clip {
+            width: rect.right,
+            height: rect.bottom,
+            bottom,
+            overlay,
+        };
         if *clip == Some(next) {
             return;
         }
@@ -208,14 +232,31 @@ pub(super) fn cover_bottom(host: &Host, height: f32) {
             if window.is_null() {
                 continue;
             }
-            if height == 0 {
+            if bottom == 0 && overlay.is_none() {
                 success &= SetWindowRgn(window, ptr::null_mut(), 1) != 0;
                 continue;
             }
-            let region = CreateRectRgn(0, 0, rect.right, (rect.bottom - height).max(0));
+            let region = CreateRectRgn(0, 0, rect.right, rect.bottom.saturating_sub(bottom).max(0));
             if region.is_null() {
                 success = false;
-            } else if SetWindowRgn(window, region, 1) == 0 {
+                continue;
+            }
+            if let Some([left, top, right, bottom]) = overlay {
+                let hole = CreateRectRgn(left, top, right, bottom);
+                if hole.is_null() {
+                    DeleteObject(region);
+                    success = false;
+                    continue;
+                }
+                let combined = CombineRgn(region, region, hole, RGN_DIFF);
+                DeleteObject(hole);
+                if combined == 0 {
+                    DeleteObject(region);
+                    success = false;
+                    continue;
+                }
+            }
+            if SetWindowRgn(window, region, 1) == 0 {
                 DeleteObject(region);
                 success = false;
             }
@@ -233,6 +274,63 @@ mod tests {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DestroyWindow, SendMessageW,
     };
+
+    #[test]
+    fn overlay_excludes_only_its_rectangle_and_restores_video_on_dismiss() -> Result<()> {
+        use windows_sys::Win32::Graphics::Gdi::{GetWindowRgn, PtInRegion};
+        let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
+        // SAFETY: built-in class and NUL-terminated string, no borrowed creation data.
+        // The windows are owned and destroyed by this test thread below.
+        let child = unsafe {
+            CreateWindowExW(
+                0,
+                class.as_ptr(),
+                ptr::null(),
+                0,
+                0,
+                0,
+                200,
+                200,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null(),
+            )
+        };
+        anyhow::ensure!(!child.is_null(), "Cannot create clipping test window");
+        let host = Host::default();
+        host.0.child.store(child as isize, Ordering::Release);
+        let input = create(child, host.clone())?;
+        host.0.input.store(input as isize, Ordering::Release);
+        host.place([0.0, 0.0, 200.0, 200.0], 1.0);
+        host.cover(20.0, Some([100.0, 60.0, 80.0, 100.0]), 1.0);
+        // SAFETY: the region is owned locally; both windows are live on this thread.
+        // GetWindowRgn copies rather than transfers the window's region.
+        let checks = unsafe {
+            let region = CreateRectRgn(0, 0, 0, 0);
+            let mut checks = Vec::new();
+            for window in [child, input] {
+                checks.push(GetWindowRgn(window, region) != 0);
+                checks.push(PtInRegion(region, 50, 100) != 0);
+                checks.push(PtInRegion(region, 120, 100) == 0);
+                checks.push(PtInRegion(region, 50, 190) == 0);
+            }
+            host.cover(20.0, None, 1.0);
+            for window in [child, input] {
+                checks.push(GetWindowRgn(window, region) != 0);
+                checks.push(PtInRegion(region, 120, 100) != 0);
+                checks.push(PtInRegion(region, 50, 190) == 0);
+            }
+            DeleteObject(region);
+            DestroyWindow(child);
+            checks
+        };
+        assert!(
+            checks.iter().all(|passed| *passed),
+            "Clipping checks: {checks:?}"
+        );
+        Ok(())
+    }
 
     #[test]
     fn layered_video_input_child_can_be_created() -> Result<()> {

@@ -4,6 +4,7 @@ mod interaction;
 mod session;
 pub(super) mod shortcuts;
 pub(crate) mod state;
+pub(super) mod stats;
 use super::{
     Page, State,
     controls::action,
@@ -60,12 +61,7 @@ fn surface(s: &State, scale: f32, compact: bool) -> El {
             s.player.interaction.scale = scale;
             if s.player.playing && matches!(s.navigation.page, Page::Player | Page::Guide) {
                 s.host.place(rect, scale);
-                let cover = if s.player.fullscreen && s.player.interaction.visible {
-                    s.player.interaction.controls_rect.map_or(100.0, |r| r[3])
-                } else {
-                    0.0
-                };
-                s.host.cover_bottom(cover, scale);
+                s.cover_player();
                 if s.player.ready {
                     s.host.show();
                 }
@@ -351,6 +347,7 @@ fn controls(s: &State) -> El {
         .child(icon_button(s, "audio", "Cycle audio track", &AUDIO, |s| {
             s.player_action(PlayerAction::CycleAudio);
         }))
+        .child(stats::trigger(s))
         .child(fullscreen_button(s));
     control_panel(s, buttons)
 }
@@ -367,9 +364,7 @@ fn control_panel(s: &State, buttons: El) -> El {
         .child(buttons)
         .on_layout(|s: &mut State, rect| {
             s.player.interaction.controls_rect = Some(rect);
-            if s.player.fullscreen {
-                s.host.cover_bottom(rect[3], s.player.interaction.scale);
-            }
+            s.cover_player();
         })
         .on_pointer_move(|s: &mut State, p| {
             s.player.interaction.pointer(

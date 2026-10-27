@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+mod stats;
+pub use stats::Stats;
+
 use anyhow::{Context, Result, bail};
 use axum::{
     Router,

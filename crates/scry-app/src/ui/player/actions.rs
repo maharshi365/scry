@@ -72,7 +72,8 @@ impl State {
         match self.host.set_fullscreen(fullscreen || self.app_fullscreen) {
             Ok(()) => {
                 self.player.fullscreen = fullscreen;
-                self.host.cover_bottom(0.0, self.player.interaction.scale);
+                self.host.cover(0.0, None, self.player.interaction.scale);
+                self.player.stats_overlay.dismiss();
                 self.player.interaction.reset();
             }
             Err(error) => self.error = Some(error.to_string()),

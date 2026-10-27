@@ -273,6 +273,11 @@ fn apply(s: &mut State, event: Event) {
             s.player.sample = sample;
             s.observe_library_progress();
         }
+        Event::TorrentMetrics(id, stats)
+            if id == s.player.generation && s.player.playing && s.player.torrent_source =>
+        {
+            s.player.torrent_stats = stats;
+        }
         Event::Stopped(id, error) if id == s.player.generation => {
             if s.navigation.page != Page::Guide {
                 s.set_fullscreen(false);
@@ -284,6 +289,9 @@ fn apply(s: &mut State, event: Event) {
             s.player.ready = false;
             s.player.seek_preview = None;
             s.player.sample.cache_s = None;
+            s.player.stats_overlay.dismiss();
+            s.player.torrent_stats = None;
+            s.player.torrent_source = false;
             s.host.hide();
             s.status = "Playback stopped".into();
             if error.is_some() {

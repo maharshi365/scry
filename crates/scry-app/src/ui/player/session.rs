@@ -16,6 +16,9 @@ impl State {
         self.player.ready = false;
         self.player.seek_preview = None;
         self.player.interaction.reset();
+        self.player.stats_overlay.dismiss();
+        self.player.torrent_stats = None;
+        self.player.torrent_source = false;
         self.player.sample.cache_s = None;
         self.host.hide();
         self.send(Control::Stop(self.player.generation));
@@ -99,6 +102,9 @@ impl State {
                 }
                 self.player.title = title;
                 self.player.sample = Sample::default();
+                self.player.stats_overlay.dismiss();
+                self.player.torrent_stats = None;
+                self.player.torrent_source = matches!(&source, Source::Stream(stream) | Source::Channel(stream, _) if stream.url.is_none() && stream.info_hash.is_some());
                 self.player.interaction.reset();
                 self.player.seek_preview = None;
                 self.player.muted = false;

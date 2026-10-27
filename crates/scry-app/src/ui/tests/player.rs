@@ -121,6 +121,180 @@ fn player_does_not_offer_a_stop_button() {
 }
 
 #[test]
+fn stats_hover_floats_over_video_and_stays_open_across_the_gap() {
+    let mut rt = player_runtime();
+    let video = rect(&rt, "video");
+    let controls = rect(&rt, "player-controls");
+    assert!(rt.find("player-stats-overlay").is_none());
+    let (x, y) = rt.find("player-stats").unwrap();
+    rt.pointer_move(x, y);
+    rt.frame(0.0);
+    let [px, py, pw, ph] = rect(&rt, "player-stats-overlay");
+    assert!(py < controls[1] && px >= video[0]);
+    assert!(px + pw <= video[0] + video[2]);
+    assert_eq!(rect(&rt, "video"), video);
+    assert_eq!(rect(&rt, "player-controls"), controls);
+    rt.pointer_move(x, py + ph + 1.0);
+    rt.frame(0.0);
+    rt.pointer_move(px + pw / 2.0, py + ph / 2.0);
+    rt.frame(0.0);
+    rt.update(|s, tx| {
+        s.player
+            .stats_overlay
+            .poll(std::time::Instant::now() + std::time::Duration::from_secs(1));
+        tx.instant();
+    });
+    rt.frame(0.0);
+    assert!(rt.find("player-stats-overlay").is_some());
+    assert!(!rt.state.player.sample.paused);
+    rt.pointer_move(0.0, 0.0);
+    rt.frame(0.0);
+    rt.update(|s, tx| {
+        s.player
+            .stats_overlay
+            .poll(std::time::Instant::now() + std::time::Duration::from_secs(1));
+        tx.instant();
+    });
+    rt.frame(0.0);
+    assert!(rt.find("player-stats-overlay").is_none());
+}
+
+#[test]
+fn stats_escape_dismisses_before_fullscreen_and_stop_clears_stats() {
+    let mut rt = player_runtime();
+    key(&mut rt, rune::Key::Text("f".into()));
+    tap(&mut rt, "player-stats");
+    assert!(rt.find("player-stats-overlay").is_some());
+    key(&mut rt, rune::Key::Escape);
+    assert!(rt.find("player-stats-overlay").is_none());
+    assert!(rt.state.player.fullscreen);
+    tap(&mut rt, "player-stats");
+    rt.update(|s, tx| {
+        s.stop();
+        tx.instant();
+    });
+    rt.frame(0.0);
+    assert!(!rt.state.player.stats_overlay.is_open());
+    assert!(rt.find("player-stats-overlay").is_none());
+}
+
+#[test]
+fn torrent_stats_are_source_specific_and_ignore_old_generations() {
+    let mut rt = player_runtime();
+    tap(&mut rt, "player-stats");
+    assert!(rt.find("player-torrent-stats").is_none());
+    rt.update(|s, tx| {
+        s.player.torrent_source = true;
+        tx.instant();
+    });
+    rt.frame(0.0);
+    assert!(rt.find("player-torrent-stats").is_some());
+    let (sender, receiver) = tokio::sync::mpsc::channel(4);
+    rt.state.events = Some(receiver);
+    sender
+        .try_send(Event::TorrentMetrics(
+            rt.state.player.generation + 1,
+            Some(scry_torrents::Stats {
+                downloaded_bytes: Some(250),
+                total_bytes: 1000,
+                ..scry_torrents::Stats::default()
+            }),
+        ))
+        .unwrap();
+    poll(&mut rt.state, 0.0, &mut Tx::default());
+    assert!(rt.state.player.torrent_stats.is_none());
+    sender
+        .try_send(Event::TorrentMetrics(
+            rt.state.player.generation,
+            Some(scry_torrents::Stats {
+                downloaded_bytes: Some(250),
+                total_bytes: 1000,
+                ..scry_torrents::Stats::default()
+            }),
+        ))
+        .unwrap();
+    poll(&mut rt.state, 0.0, &mut Tx::default());
+    assert_eq!(
+        rt.state
+            .player
+            .torrent_stats
+            .as_ref()
+            .unwrap()
+            .downloaded_bytes,
+        Some(250)
+    );
+    rt.state.stop();
+    assert!(rt.state.player.torrent_stats.is_none());
+}
+
+#[test]
+fn fullscreen_stats_hover_does_not_hide_controls_or_intercept_video_layout() {
+    let mut rt = player_runtime();
+    key(&mut rt, rune::Key::Text("f".into()));
+    let video = rect(&rt, "video");
+    tap(&mut rt, "player-stats");
+    let [x, y, w, h] = rect(&rt, "player-stats-overlay");
+    rt.pointer_move(x + w / 2.0, y + h / 2.0);
+    rt.frame(0.0);
+    tap(&mut rt, "player-stats-overlay");
+    assert!(
+        rt.state
+            .player
+            .interaction
+            .finish_click(std::time::Instant::now() + std::time::Duration::from_secs(1))
+            .is_none()
+    );
+    assert!(!rt.state.player.sample.paused);
+    assert_eq!(rect(&rt, "video"), video);
+    assert!(rt.find("player-controls").is_some());
+    assert!(x >= 0.0 && y >= 0.0 && x + w <= 880.0 && y + h <= 600.0);
+}
+
+#[test]
+fn stats_panel_formats_live_values_and_selected_file_progress() {
+    let mut rt = player_runtime();
+    rt.update(|s, tx| {
+        s.player.sample.video_bitrate = Some(24_600_000.0);
+        s.player.sample.cache_s = Some(38.2);
+        s.player.sample.dropped_frames = Some(0);
+        s.player.sample.hw_decoder = Some("d3d11va".into());
+        s.player.torrent_source = true;
+        s.player.torrent_stats = Some(scry_torrents::Stats {
+            downloaded_bytes: Some(2_100_000_000),
+            total_bytes: 8_400_000_000,
+            download_bytes_per_second: Some(8_400_000.0),
+            upload_bytes_per_second: Some(300_000.0),
+            peers: Some(24),
+        });
+        tx.instant();
+    });
+    rt.frame(0.0);
+    tap(&mut rt, "player-stats");
+    for value in [
+        "24.6 Mb/s",
+        "38.2 s",
+        "d3d11va",
+        "8.4 MB/s",
+        "0.3 MB/s",
+        "24",
+        "2.1 GB / 8.4 GB",
+        "25%",
+    ] {
+        assert!(
+            rt.elements()
+                .iter()
+                .any(|element| element.text.as_deref() == Some(value)),
+            "Missing {value}"
+        );
+    }
+    let track = rect(&rt, "player-torrent-progress-track");
+    let fill = rect(&rt, "player-torrent-progress-fill");
+    assert!((fill[2] - track[2] * 0.25).abs() < 1.0);
+    let [x, y, w, h] = rect(&rt, "player-stats-overlay");
+    assert!(x >= 0.0 && y >= 0.0 && x + w <= 880.0 && y + h <= 600.0);
+}
+
+#[test]
 fn video_double_click_enters_and_exits_fullscreen_without_pausing() {
     let mut rt = player_runtime();
     tap(&mut rt, "video");

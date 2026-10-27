@@ -110,15 +110,58 @@ fn contains([x, y, w, h]: [f32; 4], [px, py]: [f64; 2]) -> bool {
 }
 
 impl State {
+    pub(in crate::ui) fn cover_player(&self) {
+        let interaction = &self.player.interaction;
+        let bottom = if self.player.fullscreen && interaction.visible {
+            interaction.controls_rect.map_or(100.0, |r| r[3])
+        } else {
+            0.0
+        };
+        let overlay = if self.player.stats_overlay.is_open() {
+            self.player
+                .stats_overlay
+                .rect
+                .zip(interaction.video_rect)
+                .map(|([x, y, w, h], video)| [x - video[0], y - video[1], w, h])
+        } else {
+            None
+        };
+        self.host.cover(bottom, overlay, interaction.scale);
+    }
+
     pub(in crate::ui) fn poll_player_interaction(&mut self, tx: &mut rune::Tx) -> bool {
         let clicks = self.host.video_clicks();
+        let overlay_was = self.player.stats_overlay.is_open();
+        let active = self.player.playing
+            && (self.navigation.page == super::Page::Player
+                || self.navigation.page == super::Page::Guide && self.player.fullscreen);
+        if active {
+            let now = Instant::now();
+            match self.host.pointer_position(self.player.interaction.scale) {
+                VideoPointer::Inside(point) => {
+                    self.player.stats_overlay.pointer(Some(point), now, tx);
+                }
+                VideoPointer::Outside => self.player.stats_overlay.pointer(None, now, tx),
+                VideoPointer::Unavailable => {}
+            }
+        } else {
+            self.player.stats_overlay.dismiss();
+        }
+        let overlay_changed = self.player.stats_overlay.poll(Instant::now())
+            || overlay_was != self.player.stats_overlay.is_open();
+        if let Some(services) = &self.services {
+            services.observe_stream_stats(
+                (active && self.player.stats_overlay.is_open() && self.player.torrent_source)
+                    .then_some(self.player.generation),
+            );
+        }
         if !self.player.playing
             || !matches!(
                 self.navigation.page,
                 super::Page::Player | super::Page::Guide
             )
         {
-            return false;
+            return overlay_changed;
         }
         let now = Instant::now();
         let mut acted = false;
@@ -147,16 +190,15 @@ impl State {
                     now,
                 );
             }
-            interaction.idle(now);
-            let cover = if interaction.visible {
-                interaction.controls_rect.map_or(100.0, |r| r[3])
-            } else {
-                0.0
-            };
-            self.host.cover_bottom(cover, interaction.scale);
+            if !self.player.stats_overlay.is_open() {
+                interaction.idle(now);
+            }
         }
+        self.cover_player();
         tx.wake_after(Duration::from_millis(50));
-        let changed = acted || was != (self.player.interaction.visible, self.player.fullscreen);
+        let changed = overlay_changed
+            || acted
+            || was != (self.player.interaction.visible, self.player.fullscreen);
         if changed {
             tx.instant();
         }

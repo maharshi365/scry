@@ -143,6 +143,9 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
     if let Some(menu) = super::context_menu::view(s, cx) {
         root = root.child(menu);
     }
+    if let Some(panel) = super::player::stats::panel(s) {
+        root = root.child(panel);
+    }
     if s.addon_install_open {
         root = root.child(super::addons::install_dialog(s));
     }
@@ -162,7 +165,11 @@ fn fullscreen_player(s: &State, scale: f32) -> El {
     if let Some(error) = &s.error {
         content = content.child(label(error.clone()));
     }
-    content.children(super::stats::toast(s))
+    content = content.children(super::stats::toast(s));
+    if let Some(panel) = super::player::stats::panel(s) {
+        content = content.child(panel);
+    }
+    content
 }
 
 fn sidebar(s: &State) -> El {

@@ -60,7 +60,7 @@ struct NativeHost {
     window: Mutex<Option<rune::WindowHandle>>,
     restore: Mutex<Option<Windowed>>,
     clicks: Mutex<std::collections::VecDeque<super::VideoClick>>,
-    clip: Mutex<Option<(i32, i32, i32)>>,
+    clip: Mutex<Option<video_input::Clip>>,
 }
 
 struct Windowed {
@@ -199,8 +199,12 @@ impl VideoHost for Host {
         }
     }
 
-    fn cover_bottom(&self, height: f32, scale: f32) {
-        video_input::cover_bottom(self, height * scale);
+    fn cover(&self, bottom: f32, overlay: Option<[f32; 4]>, scale: f32) {
+        video_input::cover(
+            self,
+            bottom * scale,
+            overlay.map(|rect| rect.map(|v| v * scale)),
+        );
     }
 
     fn video_clicks(&self) -> Vec<super::VideoClick> {

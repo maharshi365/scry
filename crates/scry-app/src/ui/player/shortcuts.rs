@@ -35,6 +35,10 @@ pub(in crate::ui) fn handle(s: &mut State, event: &KeyEvent, focus: Focus) -> bo
     if !matches!(s.navigation.page, Page::Player | Page::Guide) || !s.player.playing {
         return false;
     }
+    if event.key == rune::Key::Escape && s.player.stats_overlay.is_open() {
+        s.player.stats_overlay.dismiss();
+        return true;
+    }
     if s.player.fullscreen && event.key == rune::Key::Escape && focus == Focus::Screen {
         s.set_fullscreen(false);
         return true;

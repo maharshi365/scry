@@ -37,7 +37,8 @@ pub trait VideoHost: Clone + Default {
     fn place(&self, rect: [f32; 4], scale: f32);
     fn show(&self);
     fn hide(&self);
-    fn cover_bottom(&self, _height: f32, _scale: f32) {}
+    /// Exclude controls and a video-local overlay rectangle from native video and input.
+    fn cover(&self, _bottom: f32, _overlay: Option<[f32; 4]>, _scale: f32) {}
     fn video_clicks(&self) -> Vec<VideoClick> {
         Vec::new()
     }
