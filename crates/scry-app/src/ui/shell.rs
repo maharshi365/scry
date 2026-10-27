@@ -1,4 +1,4 @@
-//! Sidebar, topbar, page dispatch, and shared status messages.
+//! Sidebar, topbar, and page dispatch.
 use super::{
     Page, State,
     addons::addons,
@@ -9,14 +9,12 @@ use super::{
     },
     detail::detail,
     discover::discover,
-    formatting::excerpt,
     library_view,
     player::player,
     primitives::{
         button::{Button, Variant},
         input_group::input_group,
         surface::scroll,
-        text::label,
     },
 };
 use rune::{Cx, El, col, el, row, text};
@@ -87,33 +85,6 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
         Page::Detail => detail(s),
         Page::Player => player(s, cx.env().scale),
     });
-    if let Some(error) = &s.error {
-        content = content.child(
-            text(error.clone())
-                .key("error")
-                .font(type_::BODY)
-                .color(tokens::danger()),
-        );
-    }
-    if let Some(error) = &s.library.error {
-        content = content.child(label(format!("Library: {error}")));
-    }
-    if s.navigation.page == Page::Discover
-        && let Some(warning) = s.warnings.first()
-    {
-        content = content.child(label(format!(
-            "Add-on notice: {}{}",
-            excerpt(warning, 140),
-            if s.warnings.len() > 1 {
-                " · more providers reported a problem"
-            } else {
-                ""
-            }
-        )));
-    }
-    if !matches!(s.navigation.page, Page::Detail | Page::Player) && !s.status.is_empty() {
-        content = content.child(label(s.status.clone()).key("status"));
-    }
     let mut body = row().grow(1.0).min_w(0.0).min_h(0.0).w_full();
     if s.navigation.page != Page::Detail {
         body = body.child(sidebar(s));
@@ -163,9 +134,6 @@ fn fullscreen_player(s: &State, scale: f32) -> El {
         .h_full()
         .fill(tokens::video())
         .child(player(s, scale));
-    if let Some(error) = &s.error {
-        content = content.child(label(error.clone()));
-    }
     content = content.children(super::stats::toast(s));
     if let Some(panel) = super::player::stats::panel(s) {
         content = content.child(panel);
