@@ -46,9 +46,18 @@ fn quick_play_buttons_choose_the_first_matching_saved_video() {
 
 #[test]
 fn quick_play_buttons_are_disabled_without_matching_items() {
-    let mut rt = rune::Runtime::new(init(), view, (1000.0, 820.0), rune::Env::default());
-    rt.frame(0.0);
-    for key in ["play-next-movie", "play-next-show"] {
+    for (kind, parent, key) in [
+        (MediaKind::Movie, None, "play-next-show"),
+        (
+            MediaKind::Episode,
+            Some(MediaKey::new("test", MediaKind::Series, "show")),
+            "play-next-movie",
+        ),
+    ] {
+        let mut s = init();
+        s.apply_up_next_entries(vec![(media(kind, "saved", parent), None)]);
+        let mut rt = rune::Runtime::new(s, view, (1000.0, 820.0), rune::Env::default());
+        rt.frame(0.0);
         assert!(
             !rt.elements()
                 .iter()
@@ -58,6 +67,48 @@ fn quick_play_buttons_are_disabled_without_matching_items() {
         );
         tap(&mut rt, key);
         assert_eq!(rt.state.navigation.page, Page::Watching);
+    }
+}
+
+#[test]
+fn empty_up_next_section_is_hidden_with_or_without_currently_watching_items() {
+    for watching in [false, true] {
+        for loaded in [false, true] {
+            let mut s = init();
+            s.library.up_next_loaded = loaded;
+            if watching {
+                s.library.watching = vec![(
+                    media(MediaKind::Movie, "in-progress", None),
+                    Progress {
+                        position_seconds: 25.0,
+                        duration_seconds: 100.0,
+                    },
+                )];
+            }
+            let mut rt = rune::Runtime::new(s, view, (1000.0, 820.0), rune::Env::default());
+            rt.frame(0.0);
+            for key in [
+                "up-next-heading",
+                "up-next-empty",
+                "up-next-pages",
+                "play-next-movie",
+                "play-next-show",
+            ] {
+                assert!(rt.find(key).is_none(), "{key}");
+            }
+            assert_eq!(rt.find("watching-open-0").is_some(), watching);
+            assert_eq!(rt.find("watching-empty").is_some(), !watching);
+            rt.update(|s, _| {
+                s.apply_up_next_entries(vec![(media(MediaKind::Movie, "next", None), None)]);
+            });
+            settle_grid(&mut rt);
+            assert!(rt.find("up-next-heading").is_some());
+            assert!(rt.find("up-next-open-0").is_some());
+            rt.update(|s, _| s.apply_up_next_entries(vec![]));
+            settle_grid(&mut rt);
+            assert!(rt.find("up-next-heading").is_none());
+            assert!(rt.find("play-next-movie").is_none());
+        }
     }
 }
 

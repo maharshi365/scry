@@ -224,17 +224,8 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> El {
         } else if split > 0 {
             cards = append_rows(cards, s, &saved, 0..split, columns, 0, prefix);
         }
-        cards = cards.child(super::library_view::up_next_header(s).pb(POSTER_GAP));
-        if s.library.up_next.is_empty() {
-            cards = cards.child(
-                label(if !s.library.up_next_loaded && s.library.worker.is_some() {
-                    "Loading your library…"
-                } else {
-                    "No unwatched movies or released episodes in your library."
-                })
-                .key("up-next-empty"),
-            );
-        } else {
+        if !s.library.up_next.is_empty() {
+            cards = cards.child(super::library_view::up_next_header(s).pb(POSTER_GAP));
             cards = append_rows(
                 cards,
                 s,
@@ -244,8 +235,8 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> El {
                 split.div_ceil(columns),
                 "up-next",
             );
+            cards = cards.child(super::library_view::up_next_pages(s).key("up-next-pages"));
         }
-        cards = cards.child(super::library_view::up_next_pages(s).key("up-next-pages"));
     } else {
         cards = append_rows(cards, s, &saved, 0..count, columns, 0, prefix);
         if s.navigation.page == Page::Discover
