@@ -29,6 +29,7 @@ mod series;
 mod settings;
 mod sources;
 mod stats;
+mod subtitles;
 mod title_screen;
 mod up_next;
 mod watch_rules;

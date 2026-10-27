@@ -1,5 +1,30 @@
 use super::super::design::tokens::{self, control, type_};
-use rune::{El, Icon, Tx, icon, row, text};
+use rune::{El, Icon, Tx, col, el, icon, row, text};
+
+pub(in crate::ui) fn tab<S: 'static>(
+    key: &str,
+    title: &str,
+    selected: bool,
+    select: impl Fn(&mut S) + 'static,
+) -> El {
+    col()
+        .child(
+            Button::new(key, title)
+                .variant(Variant::Ghost)
+                .selected(selected)
+                .on_press(select)
+                .role("tab")
+                .fill(tokens::transparent())
+                .border(0.0, tokens::transparent_edge())
+                .radius(0.0)
+                .px(16.0),
+        )
+        .child(el().w_full().h(2.0).fill(if selected {
+            tokens::accent()
+        } else {
+            tokens::transparent()
+        }))
+}
 
 pub(in crate::ui) fn menu_item<S: 'static>(
     key: impl Into<String>,

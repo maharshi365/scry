@@ -17,6 +17,10 @@ impl State {
         self.player.seek_preview = None;
         self.player.interaction.reset();
         self.player.stats_overlay.dismiss();
+        self.player.subtitles = super::subtitles::Subtitles::default();
+        if let Some(services) = &mut self.services {
+            services.cancel_subtitles();
+        }
         self.player.torrent_stats = None;
         self.player.torrent_source = false;
         self.player.sample.cache_s = None;
@@ -103,6 +107,8 @@ impl State {
                 self.player.title = title;
                 self.player.sample = Sample::default();
                 self.player.stats_overlay.dismiss();
+                self.player.subtitles = super::subtitles::Subtitles::default();
+                self.player.subtitles.defaults = self.subtitle_preferences.clone();
                 self.player.torrent_stats = None;
                 self.player.torrent_source = matches!(&source, Source::Stream(stream) | Source::Channel(stream, _) if stream.url.is_none() && stream.info_hash.is_some());
                 self.player.interaction.reset();
@@ -110,6 +116,25 @@ impl State {
                 self.player.muted = false;
                 self.player.report = None;
                 self.status = "Loading…".into();
+                let stream = match &source {
+                    Source::Stream(stream) | Source::Channel(stream, _) => Some(stream.clone()),
+                    Source::Local(_) => None,
+                };
+                let identity = self.player.meta_id.as_ref().map(|(kind, id)| {
+                    (
+                        kind.clone(),
+                        self.player.video_id.clone().unwrap_or_else(|| id.clone()),
+                    )
+                });
+                self.player.subtitles.searching = true;
+                if let Some(services) = &mut self.services {
+                    services.subtitles(
+                        self.player.generation,
+                        identity,
+                        stream,
+                        self.addons.clone(),
+                    );
+                }
                 self.send(Control::Play(self.player.generation, target, source));
             }
             Err(error) => self.error = Some(error.to_string()),

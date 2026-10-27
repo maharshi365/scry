@@ -1,6 +1,8 @@
 //! Background work and the narrow, bounded boundary to the native UI.
 mod addon_storage;
 mod metadata;
+mod subtitle_settings;
+mod subtitle_sources;
 use addon_storage::load;
 #[cfg(test)]
 use addon_storage::save;
@@ -17,6 +19,7 @@ use std::{
     thread::JoinHandle,
     time::{Duration, Instant},
 };
+pub use subtitle_sources::{ExternalSubtitle, SubtitleFile};
 use tokio::{
     runtime::Runtime,
     sync::{Mutex, mpsc, watch},
@@ -55,6 +58,11 @@ impl LibraryPoster {
 
 #[derive(Debug)]
 pub enum Event {
+    SubtitlePreferences(Result<scry_playback::subtitles::Preferences, String>),
+    SubtitlePreferencesSaved(Result<(), String>),
+    Subtitles(u64, scry_playback::subtitles::Snapshot),
+    SubtitleSources(u64, Vec<ExternalSubtitle>, bool, bool),
+    SubtitleFile(u64, u64, Result<Arc<SubtitleFile>, String>),
     GuideDetails(u64, Vec<(scry_library::Media, Meta)>),
     WatchMetadata(u64, scry_library::Media, bool, Result<Box<Meta>, String>),
     SeriesTrackingDetails(u64, Vec<(scry_library::MediaKey, Option<Meta>)>, bool),
@@ -110,10 +118,14 @@ pub enum Source {
 pub enum Control {
     Play(u64, PlaybackTarget, Source),
     Command(u64, Vec<String>),
+    SubtitleAppearance(u64, scry_playback::subtitles::Preferences),
     Stop(u64),
 }
 
 pub struct Services {
+    subtitle_settings: mpsc::Sender<scry_playback::subtitles::Preferences>,
+    subtitle_task: Option<tokio::task::JoinHandle<()>>,
+    subtitle_file_task: Option<tokio::task::JoinHandle<()>>,
     runtime: Arc<Runtime>,
     client: Client,
     inbox: Inbox,
@@ -131,12 +143,21 @@ pub struct Services {
     guide_task: Option<tokio::task::JoinHandle<()>>,
     watch_tasks: Vec<tokio::task::JoinHandle<()>>,
     control: Option<watch::Sender<Option<Control>>>,
-    commands: Option<mpsc::Sender<(u64, Vec<String>)>>,
+    commands: Option<mpsc::Sender<Control>>,
     stream_stats: watch::Sender<Option<u64>>,
     player: Option<JoinHandle<()>>,
 }
 
 impl Services {
+    pub fn save_subtitle_preferences(
+        &self,
+        preferences: scry_playback::subtitles::Preferences,
+    ) -> Result<()> {
+        self.subtitle_settings
+            .try_send(preferences)
+            .map_err(|_| anyhow::anyhow!("Subtitle settings are busy; try again"))
+    }
+
     pub fn cancel_streams(&mut self) {
         if let Some(task) = self.stream_task.take() {
             task.abort();
@@ -157,6 +178,7 @@ impl Services {
         );
         let (tx, rx) = mpsc::channel(64);
         let inbox = Inbox { tx, wake };
+        let subtitle_settings = subtitle_settings::start(&runtime, data.clone(), inbox.clone());
         let (control, lifecycle) = watch::channel(None);
         let (commands, command_rx) = mpsc::channel(16);
         let (stream_stats, stats_rx) = watch::channel(None);
@@ -169,6 +191,9 @@ impl Services {
                 rt.block_on(player_loop(lifecycle, command_rx, stats_rx, output, folder));
             })?;
         let services = Self {
+            subtitle_settings,
+            subtitle_task: None,
+            subtitle_file_task: None,
             runtime,
             client: Client::with_cache_dir(
                 scry_app::project_dir(true).map(|dir| dir.join("metadata-http")),
@@ -869,11 +894,11 @@ impl Services {
 
     pub fn control(&self, command: Control) -> Result<()> {
         match command {
-            Control::Command(id, args) => self
+            command @ (Control::Command(_, _) | Control::SubtitleAppearance(_, _)) => self
                 .commands
                 .as_ref()
                 .context("Player is closed")?
-                .try_send((id, args))
+                .try_send(command)
                 .map_err(|_| anyhow::anyhow!("Player is busy; try again")),
             command => self
                 .control
@@ -894,6 +919,8 @@ impl Services {
         }
         for task in [
             &mut self.catalog_task,
+            &mut self.subtitle_task,
+            &mut self.subtitle_file_task,
             &mut self.search_task,
             &mut self.detail_task,
             &mut self.stream_task,
@@ -943,7 +970,7 @@ fn direct_url(stream: &Stream) -> Result<Option<String>> {
 )]
 async fn player_loop(
     mut lifecycle: watch::Receiver<Option<Control>>,
-    mut commands: mpsc::Receiver<(u64, Vec<String>)>,
+    mut commands: mpsc::Receiver<Control>,
     stream_stats: watch::Receiver<Option<u64>>,
     inbox: Inbox,
     data: PathBuf,
@@ -966,7 +993,7 @@ async fn player_loop(
                     if changed.is_err() { break; }
                     lifecycle.borrow_and_update().clone()
                 }
-                args = commands.recv() => args.map(|(id, args)| Control::Command(id, args)),
+                args = commands.recv() => args,
                 _ = tick.tick(), if player.is_some() => {
                     let Some(engine) = player.as_ref() else { continue; };
                     let mut ended = None;
@@ -980,6 +1007,7 @@ async fn player_loop(
                         }
                     }
                     let sample = engine.sample(started.elapsed().as_secs_f64());
+                    inbox.notify(Event::Subtitles(generation, scry_playback::subtitles::Snapshot::read(engine.as_ref())));
                     if let Some(active) = &mut report
                         && active.sample(&sample).is_err() {
                         ended = Some(true);
@@ -1001,6 +1029,26 @@ async fn player_loop(
         let Some(command) = command else {
             break;
         };
+        if let Control::SubtitleAppearance(id, preferences) = command {
+            if id == generation
+                && let Some(engine) = &player
+            {
+                let mut failed = false;
+                for command in preferences.commands() {
+                    let refs: Vec<_> = command.iter().map(String::as_str).collect();
+                    failed |= engine.command(&refs).is_err();
+                }
+                if failed {
+                    inbox
+                        .send(Event::PlayerWarning(
+                            generation,
+                            "Some subtitle appearance settings are not available".into(),
+                        ))
+                        .await;
+                }
+            }
+            continue;
+        }
         if let Control::Command(id, args) = command {
             if id != generation {
                 continue;
@@ -1083,6 +1131,9 @@ async fn player_loop(
                             }
                         };
                         let engine: Box<dyn PlaybackEngine> = Box::new(Player::open(target)?);
+                        engine.command(&["set", "sid", "no"])?;
+                        engine.command(&["set", "secondary-sid", "no"])?;
+                        engine.command(&["set", "sub-auto", "no"])?;
                         if let Some(starts_at) = scheduled_start {
                             let offset = chrono::Utc::now()
                                 .timestamp()
@@ -1128,7 +1179,7 @@ async fn player_loop(
                 clippy::unreachable,
                 reason = "Control::Command is handled above and always continues before lifecycle teardown"
             )]
-            Control::Command(_, _) => unreachable!(),
+            Control::Command(_, _) | Control::SubtitleAppearance(_, _) => unreachable!(),
         }
     }
     destroy_player(&mut player);

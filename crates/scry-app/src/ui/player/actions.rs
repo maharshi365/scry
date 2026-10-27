@@ -10,7 +10,10 @@ pub(crate) enum PlayerAction {
     SeekTo(f64),
     SetVolume(u32),
     ChangeVolume(i32),
-    CycleSubtitles,
+    ToggleSubtitles,
+    ShowSubtitles,
+    SubtitleDelay(i32),
+    SubtitleSize(i32),
     CycleAudio,
     ToggleFullscreen,
 }
@@ -59,7 +62,10 @@ impl State {
                 self.command(&["set", "mute", "no"]);
                 self.command(&["set", "volume", &self.player.volume.to_string()]);
             }
-            PlayerAction::CycleSubtitles => self.command(&["cycle", "sid"]),
+            PlayerAction::ToggleSubtitles => self.toggle_subtitles(),
+            PlayerAction::ShowSubtitles => self.show_subtitles(),
+            PlayerAction::SubtitleDelay(direction) => self.adjust_subtitle_delay(direction),
+            PlayerAction::SubtitleSize(direction) => self.adjust_subtitle_size(direction),
             PlayerAction::CycleAudio => self.command(&["cycle", "aid"]),
             PlayerAction::ToggleFullscreen => self.set_fullscreen(!self.player.fullscreen),
         }

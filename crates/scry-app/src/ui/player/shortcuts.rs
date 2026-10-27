@@ -23,7 +23,12 @@ const BINDINGS: &[Binding<PlayerAction>] = &[
     plain(KeyMatch::Text("m"), PlayerAction::ToggleMute),
     plain(KeyMatch::Text("j"), PlayerAction::SeekRelative(-10)),
     plain(KeyMatch::Text("l"), PlayerAction::SeekRelative(10)),
-    plain(KeyMatch::Text("c"), PlayerAction::CycleSubtitles),
+    plain(KeyMatch::Text("c"), PlayerAction::ToggleSubtitles),
+    plain(KeyMatch::Text("s"), PlayerAction::ShowSubtitles),
+    plain(KeyMatch::Text("g"), PlayerAction::SubtitleDelay(-1)),
+    plain(KeyMatch::Text("h"), PlayerAction::SubtitleDelay(1)),
+    plain(KeyMatch::Text("-"), PlayerAction::SubtitleSize(-1)),
+    plain(KeyMatch::Text("="), PlayerAction::SubtitleSize(1)),
     plain(KeyMatch::Text("f"), PlayerAction::ToggleFullscreen),
     plain(KeyMatch::Left, PlayerAction::SeekRelative(-5)),
     plain(KeyMatch::Right, PlayerAction::SeekRelative(5)),
@@ -34,6 +39,10 @@ const BINDINGS: &[Binding<PlayerAction>] = &[
 pub(in crate::ui) fn handle(s: &mut State, event: &KeyEvent, focus: Focus) -> bool {
     if !matches!(s.navigation.page, Page::Player | Page::Guide) || !s.player.playing {
         return false;
+    }
+    if event.key == rune::Key::Escape && s.player.subtitles.overlay.is_open() {
+        s.player.subtitles.overlay.dismiss();
+        return true;
     }
     if event.key == rune::Key::Escape && s.player.stats_overlay.is_open() {
         s.player.stats_overlay.dismiss();

@@ -13,6 +13,12 @@ pub enum VideoPointer {
     Outside,
     Inside([f64; 2]),
 }
+
+#[derive(Clone, Copy)]
+pub struct VideoOverlay {
+    pub rect: [f32; 4],
+    pub radius: f32,
+}
 mod browser;
 mod navigation;
 pub use browser::open_browser;
@@ -37,8 +43,13 @@ pub trait VideoHost: Clone + Default {
     fn place(&self, rect: [f32; 4], scale: f32);
     fn show(&self);
     fn hide(&self);
-    /// Exclude controls and a video-local overlay rectangle from native video and input.
-    fn cover(&self, _bottom: f32, _overlay: Option<[f32; 4]>, _scale: f32) {}
+    /// # Errors
+    /// Returns an error when the native subtitle file picker fails or is unavailable.
+    fn pick_subtitle(&self) -> Result<Option<std::path::PathBuf>> {
+        anyhow::bail!("Subtitle file selection is not supported on this platform")
+    }
+    /// Exclude controls and a rounded video-local overlay from native video and input.
+    fn cover(&self, _bottom: f32, _overlay: Option<VideoOverlay>, _scale: f32) {}
     fn video_clicks(&self) -> Vec<VideoClick> {
         Vec::new()
     }

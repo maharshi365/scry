@@ -5,13 +5,12 @@ mod session;
 pub(super) mod shortcuts;
 pub(crate) mod state;
 pub(super) mod stats;
+pub(super) mod subtitles;
 use super::{
     Page, State,
     controls::action,
     design::{
-        icons::{
-            AUDIO, BACK, CAPTIONS, EXIT_FULLSCREEN, FORWARD, FULLSCREEN, MUTED, PAUSE, PLAY, VOLUME,
-        },
+        icons::{AUDIO, BACK, EXIT_FULLSCREEN, FORWARD, FULLSCREEN, MUTED, PAUSE, PLAY, VOLUME},
         tokens::{panel, theme, type_, video},
     },
     formatting::clock,
@@ -335,15 +334,7 @@ fn controls(s: &State) -> El {
             .key("player-time"),
         )
         .child(el().grow(1.0))
-        .child(icon_button(
-            s,
-            "subtitles",
-            "Cycle subtitles (C)",
-            &CAPTIONS,
-            |s| {
-                s.player_action(PlayerAction::CycleSubtitles);
-            },
-        ))
+        .child(subtitles::trigger(s))
         .child(icon_button(s, "audio", "Cycle audio track", &AUDIO, |s| {
             s.player_action(PlayerAction::CycleAudio);
         }))

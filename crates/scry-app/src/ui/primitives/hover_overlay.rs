@@ -4,10 +4,18 @@ use std::time::{Duration, Instant};
 
 const LEAVE_DELAY: Duration = Duration::from_millis(150);
 
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum Mode {
+    #[default]
+    Closed,
+    Hover,
+    Pinned,
+}
+
 /// Caller-owned state shared by a trigger and its out-of-flow panel.
 #[derive(Default)]
 pub(in crate::ui) struct HoverOverlay {
-    open: bool,
+    mode: Mode,
     trigger_inside: bool,
     panel_inside: bool,
     close_at: Option<Instant>,
@@ -18,12 +26,20 @@ pub(in crate::ui) struct HoverOverlay {
 
 impl HoverOverlay {
     pub fn is_open(&self) -> bool {
-        self.open
+        self.mode != Mode::Closed
     }
 
     pub fn show(&mut self) {
-        self.open = true;
+        if self.mode == Mode::Closed {
+            self.mode = Mode::Hover;
+        }
         self.close_at = None;
+    }
+
+    /// Interactive panels stay open after a click or keyboard activation.
+    pub fn pin(&mut self) {
+        self.show();
+        self.mode = Mode::Pinned;
     }
 
     pub fn dismiss(&mut self) {
@@ -58,14 +74,14 @@ impl HoverOverlay {
             })
         };
         self.trigger_inside = contains(self.trigger_rect);
-        self.panel_inside = self.open && contains(self.rect);
+        self.panel_inside = self.is_open() && contains(self.rect);
         self.update_hover(now, tx);
     }
 
     fn update_hover(&mut self, now: Instant, tx: &mut Tx) {
         if self.trigger_inside || self.panel_inside {
             self.show();
-        } else if self.open {
+        } else if self.mode == Mode::Hover {
             self.close_at.get_or_insert(now + LEAVE_DELAY);
             tx.wake_after(LEAVE_DELAY);
         }
@@ -105,7 +121,14 @@ pub(in crate::ui) fn trigger<S: 'static>(
                         ..
                     }
                 );
-            if dismiss && state(s).is_open() {
+            let tab = matches!(
+                event,
+                rune::PhysicalInput::Key {
+                    key: rune::PhysicalKeyCode::Tab,
+                    ..
+                }
+            );
+            if dismiss && state(s).is_open() && !(tab && state(s).mode == Mode::Pinned) {
                 state(s).dismiss();
                 tx.instant();
                 return matches!(
@@ -130,6 +153,7 @@ pub(in crate::ui) fn panel<S: 'static>(
 ) -> El {
     card()
         .key(key)
+        .radius(super::super::design::tokens::overlay::RADIUS)
         .role("group")
         .w(width)
         .padding(16.0)
@@ -146,6 +170,19 @@ pub(in crate::ui) fn panel<S: 'static>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pinned_interactive_panel_survives_pointer_leaving_until_dismissed() {
+        let mut overlay = HoverOverlay::default();
+        let mut tx = Tx::default();
+        let now = Instant::now();
+        overlay.pin();
+        overlay.hover(false, false, now, &mut tx);
+        assert!(!overlay.poll(now + LEAVE_DELAY * 2));
+        assert!(overlay.is_open());
+        overlay.dismiss();
+        assert!(!overlay.is_open());
+    }
 
     #[test]
     fn leaving_both_surfaces_closes_but_crossing_the_gap_does_not() {

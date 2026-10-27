@@ -8,6 +8,25 @@ use rune::{
     tok::{self, TextStyle},
 };
 
+pub(in crate::ui) mod subtitle {
+    // libmpv colors use AARRGGBB, not CSS RRGGBBAA.
+    pub const TEXT_COLORS: &[(&str, &str)] = &[
+        ("White", "#FFFFFFFF"),
+        ("Yellow", "#FFFFFF00"),
+        ("Green", "#FF00FF00"),
+    ];
+    pub const BACKGROUND_COLORS: &[(&str, &str)] = &[
+        ("Transparent", "#00000000"),
+        ("50% black", "#80000000"),
+        ("Black", "#FF000000"),
+    ];
+    pub const OUTLINE_COLORS: &[(&str, &str)] = &[
+        ("Black", "#FF000000"),
+        ("White", "#FFFFFFFF"),
+        ("None", "#00000000"),
+    ];
+}
+
 pub(in crate::ui) fn theme() -> tok::Theme {
     tok::theme(true)
 }
@@ -122,6 +141,10 @@ pub(in crate::ui) fn badge_edge(color: Color) -> Color {
 pub(in crate::ui) mod focus {
     pub const WIDTH: f32 = 2.0;
     pub const OFFSET: f32 = 2.0;
+}
+
+pub(in crate::ui) mod overlay {
+    pub const RADIUS: f32 = 12.0;
 }
 
 pub(in crate::ui) mod opacity {

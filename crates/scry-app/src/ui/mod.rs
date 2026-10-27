@@ -72,6 +72,8 @@ pub struct State {
     events: Option<tokio::sync::mpsc::Receiver<Event>>,
     navigation: NavigationState,
     player: PlayerState,
+    subtitle_preferences: scry_playback::subtitles::Preferences,
+    subtitle_settings: player::subtitles::SettingsUi,
     addons: Vec<Addon>,
     config_busy: bool,
     install: TextEdit,

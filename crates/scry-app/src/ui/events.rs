@@ -123,6 +123,26 @@ fn request_library_updates(s: &mut State, tx: &mut Tx) -> bool {
 )]
 fn apply(s: &mut State, event: Event) {
     match event {
+        Event::SubtitlePreferences(result) => {
+            s.subtitle_settings.busy = false;
+            match result {
+                Ok(preferences) => s.subtitle_preferences = preferences,
+                Err(error) => s.subtitle_settings.error = Some(error),
+            }
+            if s.player.playing {
+                s.player.subtitles.defaults = s.subtitle_preferences.clone();
+                s.apply_subtitle_appearance();
+            }
+        }
+        Event::SubtitlePreferencesSaved(result) => {
+            s.subtitle_settings.busy = false;
+            s.subtitle_settings.error = result.err();
+        }
+        Event::Subtitles(id, snapshot) => s.apply_subtitle_snapshot(id, snapshot),
+        Event::SubtitleSources(id, sources, done, failed) => {
+            s.apply_subtitle_sources(id, sources, done, failed);
+        }
+        Event::SubtitleFile(id, request, file) => s.apply_subtitle_file(id, request, file),
         Event::GuideDetails(generation, found) => s.apply_guide_details(generation, found),
         Event::WatchMetadata(token, media, watched, result) => {
             s.apply_watch_metadata(token, media, watched, result);
@@ -237,6 +257,7 @@ fn apply(s: &mut State, event: Event) {
             }
         }
         Event::Playing(id, path) if id == s.player.generation => {
+            s.apply_subtitle_appearance();
             s.player.report = Some(path);
             s.status = "Loading…".into();
             let volume = s.player.volume.to_string();
@@ -286,6 +307,7 @@ fn apply(s: &mut State, event: Event) {
             s.library.playing = None;
             s.refresh_library();
             s.player.playing = false;
+            s.player.subtitles = super::player::subtitles::Subtitles::default();
             s.player.ready = false;
             s.player.seek_preview = None;
             s.player.sample.cache_s = None;

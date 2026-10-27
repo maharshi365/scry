@@ -211,6 +211,8 @@ impl From<VideoFields> for Video {
 #[serde(rename_all = "camelCase")]
 pub struct Stream {
     #[serde(default)]
+    pub subtitles: Vec<Subtitle>,
+    #[serde(default)]
     pub name: String,
     #[serde(default)]
     pub title: String,
@@ -227,6 +229,31 @@ pub struct Stream {
 
 #[derive(Clone)]
 pub struct Client(http_cache::HttpCache);
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct Subtitle {
+    pub id: String,
+    pub lang: String,
+    pub url: String,
+    #[serde(default)]
+    pub label: String,
+}
+
+impl Subtitle {
+    /// # Errors
+    /// Rejects URLs that are not plain HTTP(S) resources.
+    pub fn validate_url(&self) -> Result<Url> {
+        let url = Url::parse(&self.url).map_err(|_| anyhow::anyhow!("Invalid subtitle URL"))?;
+        if !matches!(url.scheme(), "http" | "https")
+            || url.host_str().is_none()
+            || !url.username().is_empty()
+            || url.password().is_some()
+        {
+            bail!("Unsupported subtitle URL");
+        }
+        Ok(url)
+    }
+}
 
 fn optional_text<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
@@ -608,6 +635,60 @@ impl Client {
             .take(100)
             .collect())
     }
+
+    /// # Errors
+    /// Returns a URL-free error for failed or invalid subtitle resources.
+    pub async fn subtitles(
+        &self,
+        addon: &Addon,
+        kind: &str,
+        id: &str,
+        hints: &serde_json::Value,
+    ) -> Result<Vec<Subtitle>> {
+        #[derive(Deserialize)]
+        struct Response {
+            subtitles: Vec<Subtitle>,
+        }
+        let mut url = resource_url(&addon.manifest_url, "subtitles", kind, id, None)?;
+        let mut extras = Vec::new();
+        for key in ["videoHash", "videoSize", "filename"] {
+            let value = hints.get(key).and_then(|v| match v {
+                serde_json::Value::String(s) => Some(s.clone()),
+                serde_json::Value::Number(n) => Some(n.to_string()),
+                _ => None,
+            });
+            if let Some(value) = value.filter(|s| !s.is_empty() && s.len() <= 1024) {
+                let escaped: String =
+                    url::form_urlencoded::byte_serialize(value.as_bytes()).collect();
+                extras.push(format!("{key}={}", escaped.replace('+', "%20")));
+            }
+        }
+        if !extras.is_empty() {
+            url.path_segments_mut()
+                .map_err(|()| anyhow::anyhow!("Invalid subtitle resource"))?
+                .pop()
+                .push(id);
+            url.set_path(&format!("{}/{}.json", url.path(), extras.join("&")));
+        }
+        Ok(self
+            .json_mode::<Response>(url, false)
+            .await?
+            .subtitles
+            .into_iter()
+            .take(100)
+            .filter(|s| !s.id.is_empty() && s.validate_url().is_ok())
+            .collect())
+    }
+
+    /// # Errors
+    /// Returns a private error for failed or oversized subtitle downloads.
+    pub async fn subtitle_bytes(&self, subtitle: &Subtitle) -> Result<std::sync::Arc<Vec<u8>>> {
+        Ok(self
+            .0
+            .get(subtitle.validate_url()?, 4 * 1024 * 1024, false)
+            .await?
+            .bytes)
+    }
 }
 
 #[cfg(test)]
@@ -617,6 +698,28 @@ impl Client {
 )]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn subtitle_resources_keep_variants_and_reject_unsafe_urls() {
+        let (url, server) = serve("200 OK", r#"{"subtitles":[{"id":"one","lang":"eng","url":"https://example.com/one.srt","label":"Full dialogue"},{"id":"two","lang":"eng","url":"https://example.com/two.ass"},{"id":"bad","lang":"eng","url":"file:///private"}]}"#).await;
+        let addon: Addon = serde_json::from_value(serde_json::json!({"manifest_url":url.as_str(),"manifest":{"id":"subs","name":"Subtitles","resources":["subtitles"]}})).unwrap();
+        let subtitles = Client::new()
+            .unwrap()
+            .subtitles(&addon, "series", "tt1:1:2", &serde_json::Value::Null)
+            .await
+            .unwrap();
+        server.await.unwrap();
+        assert_eq!(subtitles.len(), 2);
+        assert_eq!(subtitles[0].label, "Full dialogue");
+        assert_eq!(subtitles[1].id, "two");
+        let subtitle = Subtitle {
+            id: "x".into(),
+            lang: "eng".into(),
+            label: String::new(),
+            url: "https://user:secret@example.com/sub.srt".into(),
+        };
+        assert!(!format!("{:#}", subtitle.validate_url().unwrap_err()).contains("secret"));
+    }
 
     async fn serve(status: &str, body: &str) -> (Url, tokio::task::JoinHandle<()>) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};

@@ -1,6 +1,7 @@
 //! Small dynamic binding to libmpv's stable C client API. No mpv subprocess or webview.
 mod cache_budget;
 mod process;
+pub mod subtitles;
 pub mod telemetry;
 
 use crate::telemetry::Sample;
@@ -118,6 +119,7 @@ impl VideoRenderer {
 }
 
 pub trait PlaybackEngine {
+    fn property(&self, name: &str) -> Option<String>;
     /// # Errors
     /// Returns an error if the engine cannot load the source.
     fn load(&self, url: &str) -> Result<()>;
@@ -392,6 +394,9 @@ fn classify_end(reason: c_int, error: c_int) -> Option<PlaybackEvent> {
 }
 
 impl PlaybackEngine for Player {
+    fn property(&self, name: &str) -> Option<String> {
+        self.property(name)
+    }
     fn load(&self, url: &str) -> Result<()> {
         self.load(url)
     }

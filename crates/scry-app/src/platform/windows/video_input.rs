@@ -10,7 +10,8 @@ use std::{
 use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
     Graphics::Gdi::{
-        CombineRgn, CreateRectRgn, DeleteObject, RGN_DIFF, ScreenToClient, SetWindowRgn,
+        CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, RGN_DIFF, ScreenToClient,
+        SetWindowRgn,
     },
     System::SystemServices::SS_NOTIFY,
     UI::{
@@ -185,14 +186,14 @@ pub(super) struct Clip {
     width: i32,
     height: i32,
     bottom: i32,
-    overlay: Option<[i32; 4]>,
+    overlay: Option<[i32; 5]>,
 }
 
 #[expect(
     clippy::cast_possible_truncation,
     reason = "Rounded native pixel height intentionally saturates to i32"
 )]
-pub(super) fn cover(host: &Host, bottom: f32, overlay: Option<[f32; 4]>) {
+pub(super) fn cover(host: &Host, bottom: f32, overlay: Option<crate::platform::VideoOverlay>) {
     let child = host.0.child.load(Ordering::Acquire) as HWND;
     if child.is_null() {
         return;
@@ -210,12 +211,14 @@ pub(super) fn cover(host: &Host, bottom: f32, overlay: Option<[f32; 4]>) {
             return;
         }
         let bottom = bottom.round().max(0.0) as i32;
-        let overlay = overlay.map(|[x, y, w, h]| {
+        let overlay = overlay.map(|overlay| {
+            let [x, y, w, h] = overlay.rect;
             [
                 x.round() as i32,
                 y.round() as i32,
                 (x + w).round() as i32,
                 (y + h).round() as i32,
+                (overlay.radius * 2.0).round().max(0.0) as i32,
             ]
         });
         let next = Clip {
@@ -241,8 +244,8 @@ pub(super) fn cover(host: &Host, bottom: f32, overlay: Option<[f32; 4]>) {
                 success = false;
                 continue;
             }
-            if let Some([left, top, right, bottom]) = overlay {
-                let hole = CreateRectRgn(left, top, right, bottom);
+            if let Some([left, top, right, bottom, diameter]) = overlay {
+                let hole = CreateRoundRectRgn(left, top, right, bottom, diameter, diameter);
                 if hole.is_null() {
                     DeleteObject(region);
                     success = false;
@@ -276,7 +279,7 @@ mod tests {
     };
 
     #[test]
-    fn overlay_excludes_only_its_rectangle_and_restores_video_on_dismiss() -> Result<()> {
+    fn overlay_preserves_video_at_rounded_corners_and_restores_video_on_dismiss() -> Result<()> {
         use windows_sys::Win32::Graphics::Gdi::{GetWindowRgn, PtInRegion};
         let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
         // SAFETY: built-in class and NUL-terminated string, no borrowed creation data.
@@ -303,7 +306,14 @@ mod tests {
         let input = create(child, host.clone())?;
         host.0.input.store(input as isize, Ordering::Release);
         host.place([0.0, 0.0, 200.0, 200.0], 1.0);
-        host.cover(20.0, Some([100.0, 60.0, 80.0, 100.0]), 1.0);
+        host.cover(
+            20.0,
+            Some(crate::platform::VideoOverlay {
+                rect: [100.0, 60.0, 80.0, 100.0],
+                radius: 12.0,
+            }),
+            1.0,
+        );
         // SAFETY: the region is owned locally; both windows are live on this thread.
         // GetWindowRgn copies rather than transfers the window's region.
         let checks = unsafe {
@@ -313,6 +323,8 @@ mod tests {
                 checks.push(GetWindowRgn(window, region) != 0);
                 checks.push(PtInRegion(region, 50, 100) != 0);
                 checks.push(PtInRegion(region, 120, 100) == 0);
+                checks.push(PtInRegion(region, 100, 60) != 0);
+                checks.push(PtInRegion(region, 112, 62) == 0);
                 checks.push(PtInRegion(region, 50, 190) == 0);
             }
             host.cover(20.0, None, 1.0);

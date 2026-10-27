@@ -43,6 +43,11 @@ const SHORTCUTS: &[Registration] = &[
 ];
 
 pub(super) fn on_key(s: &mut State, event: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
+    if event.key == rune::Key::Escape && s.player.subtitles.overlay.is_open() {
+        s.player.subtitles.overlay.dismiss();
+        tx.instant();
+        return true;
+    }
     if s.player.fullscreen {
         s.player.interaction.reveal(std::time::Instant::now());
         if event.key == rune::Key::Tab {
@@ -109,6 +114,8 @@ impl State {
             events: None,
             navigation: super::navigation::NavigationState::default(),
             player: super::player::state::PlayerState::default(),
+            subtitle_preferences: scry_playback::subtitles::Preferences::default(),
+            subtitle_settings: super::player::subtitles::SettingsUi::default(),
             addons: Vec::new(),
             config_busy: true,
             install: TextEdit::new(""),
@@ -191,6 +198,7 @@ fn setup(s: &mut State, wake: rune::Waker) {
                 Err(_) => s.library.error = Some("Cannot start the local library".into()),
             }
             s.services = Some(services);
+            s.subtitle_settings.busy = true;
             s.events = Some(events);
         }
         Err(error) => {
@@ -226,6 +234,7 @@ pub(super) fn run() -> anyhow::Result<()> {
         poll: Some(poll),
         on_key: Some(on_key),
         scenes: &[
+            ("subtitles", super::player::subtitles::scene),
             ("stats", super::stats::scene),
             ("discover", scene_discover),
             ("detail", scene_detail),

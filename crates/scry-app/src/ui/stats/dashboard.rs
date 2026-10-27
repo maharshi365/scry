@@ -8,7 +8,7 @@ use crate::ui::{
         tokens::{self, type_},
     },
     primitives::{
-        button::{Button, Variant},
+        button::tab as tab_button,
         surface::{card, scroll},
         text::{heading, label},
     },
@@ -94,23 +94,9 @@ pub(super) fn small(value: impl Into<String>) -> El {
 }
 
 fn tab(key: &str, title: &str, selected: bool, target: StatsTab) -> El {
-    col()
-        .child(
-            Button::new(key, title)
-                .variant(Variant::Ghost)
-                .selected(selected)
-                .on_press(move |s: &mut State| s.stats.tab = target)
-                .role("tab")
-                .fill(tokens::transparent())
-                .border(0.0, tokens::transparent_edge())
-                .radius(0.0)
-                .px(16.0),
-        )
-        .child(el().w_full().h(2.0).fill(if selected {
-            tokens::accent()
-        } else {
-            tokens::transparent()
-        }))
+    tab_button(key, title, selected, move |s: &mut State| {
+        s.stats.tab = target;
+    })
 }
 
 pub(super) fn panel(key: &str, title: &str, glyph: &'static rune::Icon) -> El {

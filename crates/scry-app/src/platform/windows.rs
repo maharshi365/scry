@@ -1,5 +1,6 @@
 use super::VideoHost;
 pub(super) mod navigation;
+mod subtitle_dialog;
 mod video_input;
 use anyhow::{Result, bail};
 use rune::raw_window_handle::RawWindowHandle;
@@ -199,12 +200,19 @@ impl VideoHost for Host {
         }
     }
 
-    fn cover(&self, bottom: f32, overlay: Option<[f32; 4]>, scale: f32) {
+    fn cover(&self, bottom: f32, overlay: Option<super::VideoOverlay>, scale: f32) {
         video_input::cover(
             self,
             bottom * scale,
-            overlay.map(|rect| rect.map(|v| v * scale)),
+            overlay.map(|overlay| super::VideoOverlay {
+                rect: overlay.rect.map(|v| v * scale),
+                radius: overlay.radius * scale,
+            }),
         );
+    }
+
+    fn pick_subtitle(&self) -> Result<Option<std::path::PathBuf>> {
+        subtitle_dialog::pick(self)
     }
 
     fn video_clicks(&self) -> Vec<super::VideoClick> {

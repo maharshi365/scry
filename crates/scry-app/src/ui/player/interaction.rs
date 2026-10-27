@@ -117,12 +117,18 @@ impl State {
         } else {
             0.0
         };
-        let overlay = if self.player.stats_overlay.is_open() {
-            self.player
-                .stats_overlay
-                .rect
+        let open = if self.player.subtitles.overlay.is_open() {
+            &self.player.subtitles.overlay
+        } else {
+            &self.player.stats_overlay
+        };
+        let overlay = if open.is_open() {
+            open.rect
                 .zip(interaction.video_rect)
-                .map(|([x, y, w, h], video)| [x - video[0], y - video[1], w, h])
+                .map(|([x, y, w, h], video)| scry_app::platform::VideoOverlay {
+                    rect: [x - video[0], y - video[1], w, h],
+                    radius: super::super::design::tokens::overlay::RADIUS,
+                })
         } else {
             None
         };
@@ -130,6 +136,7 @@ impl State {
     }
 
     pub(in crate::ui) fn poll_player_interaction(&mut self, tx: &mut rune::Tx) -> bool {
+        let subtitles_was = self.player.subtitles.overlay.is_open();
         let clicks = self.host.video_clicks();
         let overlay_was = self.player.stats_overlay.is_open();
         let active = self.player.playing
@@ -140,15 +147,26 @@ impl State {
             match self.host.pointer_position(self.player.interaction.scale) {
                 VideoPointer::Inside(point) => {
                     self.player.stats_overlay.pointer(Some(point), now, tx);
+                    self.player.subtitles.overlay.pointer(Some(point), now, tx);
                 }
-                VideoPointer::Outside => self.player.stats_overlay.pointer(None, now, tx),
+                VideoPointer::Outside => {
+                    self.player.stats_overlay.pointer(None, now, tx);
+                    self.player.subtitles.overlay.pointer(None, now, tx);
+                }
                 VideoPointer::Unavailable => {}
             }
         } else {
             self.player.stats_overlay.dismiss();
+            self.player.subtitles.overlay.dismiss();
+        }
+        let subtitles_changed = self.player.subtitles.overlay.poll(Instant::now());
+        if self.player.subtitles.overlay.is_open() {
+            self.player.stats_overlay.dismiss();
         }
         let overlay_changed = self.player.stats_overlay.poll(Instant::now())
-            || overlay_was != self.player.stats_overlay.is_open();
+            || overlay_was != self.player.stats_overlay.is_open()
+            || subtitles_changed
+            || subtitles_was != self.player.subtitles.overlay.is_open();
         if let Some(services) = &self.services {
             services.observe_stream_stats(
                 (active && self.player.stats_overlay.is_open() && self.player.torrent_source)
@@ -168,6 +186,11 @@ impl State {
         let was = (self.player.interaction.visible, self.player.fullscreen);
         self.player.interaction.double_click = self.host.double_click_interval();
         for click in clicks {
+            if self.player.subtitles.overlay.is_open() {
+                self.player.subtitles.overlay.dismiss();
+                acted = true;
+                continue;
+            }
             if let Some(action) = self.player.interaction.click(click, self.player.fullscreen) {
                 self.player_action(action);
                 acted = true;
@@ -190,7 +213,7 @@ impl State {
                     now,
                 );
             }
-            if !self.player.stats_overlay.is_open() {
+            if !self.player.stats_overlay.is_open() && !self.player.subtitles.overlay.is_open() {
                 interaction.idle(now);
             }
         }

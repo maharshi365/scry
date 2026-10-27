@@ -124,7 +124,8 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
     if s.navigation.page == Page::Calendar && s.calendar.expanded_day.is_some() {
         root = root.child(super::calendar::day_dialog(s, cx));
     }
-    root
+    root.children(super::player::subtitles::panel(s))
+        .children(super::settings::language_menu(s))
 }
 
 fn fullscreen_player(s: &State, scale: f32) -> El {
@@ -138,7 +139,7 @@ fn fullscreen_player(s: &State, scale: f32) -> El {
     if let Some(panel) = super::player::stats::panel(s) {
         content = content.child(panel);
     }
-    content
+    content.children(super::player::subtitles::panel(s))
 }
 
 fn sidebar(s: &State) -> El {
