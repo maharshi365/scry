@@ -1,13 +1,13 @@
 use super::episodes::season_label;
 use super::{
     State,
-    controls::{action, select_action},
+    controls::action,
     design::{
         icons,
         tokens::{accent, edge, panel, theme, type_, warning},
     },
     primitives::{
-        button::menu_item,
+        button::{Button, Variant, menu_choice},
         surface::{card, dropdown, scroll},
         text::label,
     },
@@ -58,7 +58,7 @@ fn filter(
     selected: bool,
     f: impl Fn(&mut State) + 'static,
 ) -> El {
-    select_action(key, title, selected, f).w_full()
+    menu_choice(key, title, selected, f)
 }
 
 fn providers(s: &State) -> Vec<(String, usize)> {
@@ -107,18 +107,18 @@ pub(super) fn provider_menu(s: &State, cx: &Cx<State>) -> Option<El> {
     let visible = u16::try_from(providers.len().saturating_add(1).min(4)).unwrap_or(4);
     let mut filters = col().key("source-filters").w_full().gap(6.0).child(filter(
         "source-all",
-        format!("All add-ons · {}", s.streams.len()),
+        "All add-ons".into(),
         s.stream_provider.is_none(),
         |s| {
             s.stream_provider = None;
             s.source_menu_open = false;
         },
     ));
-    for (index, (provider, count)) in providers.into_iter().enumerate() {
+    for (index, (provider, _)) in providers.into_iter().enumerate() {
         let selected = s.stream_provider.as_ref() == Some(&provider);
         filters = filters.child(filter(
             format!("source-provider-{index}"),
-            format!("{provider} · {count}"),
+            provider.clone(),
             selected,
             move |s| {
                 s.stream_provider = Some(provider.clone());
@@ -139,24 +139,10 @@ pub(super) fn provider_menu(s: &State, cx: &Cx<State>) -> Option<El> {
 }
 
 fn sort_option(key: &str, title: &str, best: bool, selected: bool) -> El {
-    let mut option = menu_item(key, title, move |s: &mut State| {
+    menu_choice(key, title, selected, move |s: &mut State| {
         s.stream_best_first = best;
         s.source_sort_open = false;
     })
-    .label(if selected {
-        format!("{title}, selected")
-    } else {
-        title.to_owned()
-    })
-    .child(el().grow(1.0));
-    if selected {
-        option = option.child(
-            icon(&icons::CHECK, 14.0)
-                .key(format!("{key}-selected"))
-                .color(accent()),
-        );
-    }
-    option
 }
 
 pub(super) fn sort_menu(s: &State, cx: &Cx<State>) -> Option<El> {
@@ -200,70 +186,88 @@ pub(super) fn view(s: &State) -> El {
     let t = theme();
     let sources = visible_sources(s);
     let visible = sources.len();
-    let count = if s.stream_provider.is_some() {
-        format!("{visible} of {} sources", s.streams.len())
-    } else {
-        format!("{visible} source{}", if visible == 1 { "" } else { "s" })
-    };
-    let mut header = col().key("source-picker-header").w_full().gap(10.0).child(
-        row()
-            .w_full()
-            .center_y()
-            .gap(12.0)
-            .child(
-                col()
-                    .key("source-heading")
-                    .w(0.0)
-                    .grow(1.0)
-                    .min_w(0.0)
-                    .gap(4.0)
-                    .child(text("Sources").font(type_::SECTION_TITLE).color(t.text))
-                    .child(
-                        label(if s.loading {
-                            format!("{count} · searching…")
-                        } else {
-                            count
-                        })
-                        .key("source-count")
-                        .w_full(),
-                    ),
-            )
-            .child(
-                action(
-                    "source-sort",
-                    if s.stream_best_first {
-                        "Best available"
-                    } else {
-                        "Original order"
-                    },
-                    |s| {
-                        s.season_menu_open = false;
-                        s.source_menu_open = false;
-                        s.source_sort_open = !s.source_sort_open;
-                    },
-                )
-                .gap(6.0)
-                .label("Sort sources")
-                .child(icon(&icons::DOWN, 14.0).color(t.text)),
-            ),
-    );
-    if let Some(video) = s.detail.as_ref().and_then(|meta| {
+    let video = s.detail.as_ref().and_then(|meta| {
         meta.videos
             .iter()
             .find(|video| Some(&video.id) == s.selected_video_id.as_ref())
-    }) {
+    });
+    let mut controls = row().w_full().center_y().gap(8.0);
+    if let Some(video) = video {
+        let season = video.season;
+        controls = controls.child(
+            Button::new("season-select", season_label(season))
+                .variant(Variant::Ghost)
+                .on_press(|s: &mut State| {
+                    s.source_menu_open = false;
+                    s.source_sort_open = false;
+                    s.season_menu_open = !s.season_menu_open;
+                })
+                .on_secondary_press(move |s: &mut State, point, _| {
+                    s.open_season_menu(point, season);
+                })
+                .px(0.0)
+                .hover(super::design::tokens::transparent())
+                .cursor(rune::Cursor::Pointer)
+                .gap(6.0)
+                .child(icon(&icons::DOWN, 14.0).color(t.text_secondary)),
+        );
+    } else {
+        controls = controls.child(text("Sources").font(type_::SECTION_TITLE).color(t.text));
+    }
+    controls = controls.child(el().grow(1.0)).child(
+        Button::new(
+            "source-sort",
+            if s.stream_best_first {
+                "Best available"
+            } else {
+                "Original order"
+            },
+        )
+        .variant(Variant::Ghost)
+        .on_press(|s: &mut State| {
+            s.season_menu_open = false;
+            s.source_menu_open = false;
+            s.source_sort_open = !s.source_sort_open;
+        })
+        .px(0.0)
+        .hover(super::design::tokens::transparent())
+        .cursor(rune::Cursor::Pointer)
+        .gap(6.0)
+        .label("Sort sources")
+        .child(icon(&icons::DOWN, 14.0).color(t.text_secondary)),
+    );
+    let mut header = col()
+        .key("source-picker-header")
+        .w_full()
+        .gap(10.0)
+        .child(controls);
+    if let Some(video) = video {
         header = header.child(
-            label(format!(
-                "{} · Episode {}{}",
-                season_label(video.season),
-                video.episode.unwrap_or(0),
-                if video.title.trim().is_empty() {
-                    String::new()
-                } else {
-                    format!(" · {}", video.title.trim())
-                }
-            ))
-            .key("source-episode"),
+            row()
+                .w_full()
+                .min_w(0.0)
+                .center_y()
+                .gap(8.0)
+                .flex_wrap()
+                .child(
+                    text(if video.title.trim().is_empty() {
+                        "Title unavailable"
+                    } else {
+                        video.title.trim()
+                    })
+                    .key("source-episode")
+                    .wrap()
+                    .font(type_::EMPTY_TITLE)
+                    .color(t.text),
+                )
+                .child(
+                    label(video.episode.map_or_else(
+                        || "· Episode".into(),
+                        |episode| format!("· Episode {episode}"),
+                    ))
+                    .key("source-episode-number")
+                    .font(type_::BODY),
+                ),
         );
     }
     let providers = providers(s);

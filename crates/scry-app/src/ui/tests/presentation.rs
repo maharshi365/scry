@@ -165,7 +165,7 @@ fn episode_names_and_watched_badge_do_not_expose_tracking_mode() {
                 .as_deref()
                 .is_some_and(|text| text.contains("First Period"))
     }));
-    tap(&mut rt, "show-episodes");
+    tap(&mut rt, "detail-back");
     assert!(rt.find("episode-watched-0").is_some());
     let elements = rt.elements();
     assert!(
@@ -178,6 +178,40 @@ fn episode_names_and_watched_badge_do_not_expose_tracking_mode() {
             .as_deref()
             .is_none_or(|text| !text.contains("manual") && !text.contains("auto tracking"))
     }));
+}
+
+#[test]
+fn compact_source_header_keeps_controls_and_episode_on_two_rows() {
+    let mut s = init();
+    scene_detail(&mut s);
+    s.detail = Some(multi_season_series());
+    s.selected_video_id = Some("show:1:1".into());
+    let mut rt = rune::Runtime::new(s, view, (880.0, 650.0), rune::Env::default());
+    rt.frame(0.0);
+    assert!(rt.find("show-episodes").is_none());
+    assert!(rt.find("source-count").is_none());
+    let season = rect(&rt, "season-select");
+    let sort = rect(&rt, "source-sort");
+    let title = rect(&rt, "source-episode");
+    let episode = rect(&rt, "source-episode-number");
+    assert!((season[1] - sort[1]).abs() < 1.0);
+    assert!(title[1] >= season[1] + season[3]);
+    assert!(episode[0] >= title[0] + title[2]);
+    assert!(episode[1] < title[1] + title[3]);
+    assert!(
+        rt.elements()
+            .iter()
+            .all(|e| e.text.as_deref() != Some("Sources"))
+    );
+    tap(&mut rt, "source-sort");
+    tap(&mut rt, "source-original");
+    assert!(!rt.state.stream_best_first);
+    tap(&mut rt, "season-select");
+    tap(&mut rt, "season-option-1");
+    assert_eq!(rt.state.active_season(), Some(2));
+    assert!(rt.state.selected_video_id.is_none());
+    assert!(rt.find("episodes").is_some());
+    assert!(rt.state.streams.is_empty());
 }
 
 #[test]

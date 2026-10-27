@@ -45,12 +45,7 @@ fn dropdowns_overlay_without_moving_content_and_dismiss_without_navigation() {
             let keys = if trigger == "season-select" {
                 vec!["topbar", "season-select", "episode-4"]
             } else {
-                vec![
-                    "topbar",
-                    "show-episodes",
-                    "source-picker-header",
-                    "stream-0",
-                ]
+                vec!["topbar", "detail-back", "source-picker-header", "stream-0"]
             };
             let before: Vec<_> = keys.into_iter().map(|key| (key, rect(&rt, key))).collect();
             tap(&mut rt, trigger);
@@ -94,6 +89,8 @@ fn overlay_choices_keep_season_selection_and_provider_filtering_working() {
     let mut rt = runtime(880.0, 600.0);
     tap(&mut rt, "season-select");
     settle(&mut rt);
+    assert!(rt.find("season-option-0-selected").is_some());
+    assert!(rt.find("season-option-1-selected").is_none());
     rt.key(rune::KeyEvent {
         key: rune::Key::Down,
         mods: rune::Mods::default(),
@@ -122,10 +119,15 @@ fn overlay_choices_keep_season_selection_and_provider_filtering_working() {
     settle(&mut rt);
     tap(&mut rt, "source-select");
     settle(&mut rt);
+    assert!(rt.find("source-all-selected").is_some());
     tap(&mut rt, "source-provider-1");
     settle(&mut rt);
     assert_eq!(rt.state.stream_provider.as_deref(), Some("Second provider"));
     assert!(!rt.state.source_menu_open);
     assert!(rt.find("stream-0").is_none());
     assert!(rt.find("stream-1").is_some());
+    tap(&mut rt, "source-select");
+    settle(&mut rt);
+    assert!(rt.find("source-provider-1-selected").is_some());
+    assert!(rt.find("source-all-selected").is_none());
 }

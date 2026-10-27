@@ -225,7 +225,7 @@ fn tv_picker_searches_episodes_and_returns_from_sources_without_changing_season(
     assert_eq!(rt.state.selected_video_id.as_deref(), Some("show:1:2"));
     assert!(rt.find("source-picker").is_some());
     let stale = rt.state.stream_id;
-    tap(&mut rt, "show-episodes");
+    tap(&mut rt, "detail-back");
     assert!(rt.state.stream_id > stale);
     assert_eq!(rt.state.active_season(), Some(1));
     assert!(rt.state.selected_video_id.is_none());

@@ -119,7 +119,7 @@ fn header_sort_fits_and_provider_selection_ranks_only_visible_swarms() {
         choose_sort(&mut rt, true);
         assert_order(&mut rt, &[2, 0, 1]);
         let header = rect(&rt, "source-picker-header");
-        let heading = rect(&rt, "source-heading");
+        let heading = rect(&rt, "season-select");
         let provider = rect(&rt, "source-select");
         let sort = rect(&rt, "source-sort");
         assert!(heading[0] + heading[2] <= sort[0]);
@@ -149,7 +149,7 @@ fn single_provider_has_a_compact_header_sort_without_an_empty_toolbar() {
     let before = rect(&rt, "stream-0");
     let header = rect(&rt, "source-picker-header");
     let sort = rect(&rt, "source-sort");
-    let heading = rect(&rt, "source-heading");
+    let heading = rect(&rt, "season-select");
     assert!(sort[2] < header[2] * 0.65);
     assert!(sort[1] < heading[1] + heading[3] && sort[1] + sort[3] > heading[1]);
     assert!(heading[0] + heading[2] <= sort[0]);
@@ -164,6 +164,17 @@ fn single_provider_has_a_compact_header_sort_without_an_empty_toolbar() {
             .iter()
             .any(|e| e.text.as_deref() == Some("Best available"))
     );
+}
+
+#[test]
+fn season_and_sort_selectors_use_pointer_cursors() {
+    let mut rt = runtime(880.0);
+    for key in ["season-select", "source-sort"] {
+        let (x, y) = rt.find(key).unwrap();
+        rt.pointer_move(x, y);
+        rt.frame(1.0 / 60.0);
+        assert_eq!(rt.cursor(), rune::Cursor::Pointer, "{key}");
+    }
 }
 
 #[test]

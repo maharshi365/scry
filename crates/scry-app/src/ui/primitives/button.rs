@@ -49,6 +49,31 @@ pub(in crate::ui) fn segmented_group() -> El {
         .border(1.0, tokens::edge())
 }
 
+pub(in crate::ui) fn menu_choice<S: 'static>(
+    key: impl Into<String>,
+    title: impl Into<String>,
+    selected: bool,
+    f: impl Fn(&mut S) + 'static,
+) -> El {
+    let key = key.into();
+    let title = title.into();
+    let mut choice = menu_item(key.clone(), title.clone(), f)
+        .label(if selected {
+            format!("{title}, selected")
+        } else {
+            title
+        })
+        .child(el().grow(1.0));
+    if selected {
+        choice = choice.child(
+            icon(&super::super::design::icons::CHECK, 14.0)
+                .key(format!("{key}-selected"))
+                .color(tokens::accent()),
+        );
+    }
+    choice
+}
+
 pub(in crate::ui) fn segment<S: 'static>(
     key: impl Into<String>,
     title: impl Into<String>,

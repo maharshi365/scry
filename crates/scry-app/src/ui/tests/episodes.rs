@@ -43,7 +43,7 @@ fn season_selector_filters_and_sorts_episodes_without_changing_protocol_identity
             .collect::<Vec<_>>(),
         ["show:2:1", "show:2:2"]
     );
-    tap(&mut rt, "show-episodes");
+    tap(&mut rt, "detail-back");
     tap(&mut rt, "season-select");
     for _ in 0..30 {
         rt.frame(1.0 / 60.0);

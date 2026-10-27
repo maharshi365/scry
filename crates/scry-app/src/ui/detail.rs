@@ -3,14 +3,14 @@ use super::episodes::season_label;
 use super::{
     State,
     artwork::{poster, poster_overlay},
-    controls::{action, icon_action, select_action},
+    controls::{action, icon_action},
     design::{
         icons,
         tokens::{self, accent, panel, theme, type_},
     },
     library_view,
     primitives::{
-        button::{Button, Variant},
+        button::{Button, Variant, menu_choice},
         input_group::input_group,
         surface::{dropdown, scroll},
         text::label,
@@ -39,13 +39,6 @@ pub(super) fn detail(s: &State) -> El {
         if meta.kind == "series" && s.selected_video_id.is_none() {
             side = side.child(episodes(s, meta));
         } else {
-            if meta.kind == "series" {
-                side = side.child(action(
-                    "show-episodes",
-                    "Back to episodes",
-                    State::show_episodes,
-                ));
-            }
             side = side.child(source_picker::view(s).w_full());
         }
     }
@@ -88,15 +81,31 @@ fn backdrop(s: &State) -> El {
     surface
 }
 
+fn back_button(s: &State) -> El {
+    let to_episodes = s.selected_video_id.is_some()
+        && s.detail.as_ref().is_some_and(|meta| meta.kind == "series");
+    icon_action(
+        "detail-back",
+        if to_episodes {
+            "Back to episodes"
+        } else {
+            "Back to browsing"
+        },
+        &icons::LEFT,
+        move |s| {
+            if to_episodes {
+                s.show_episodes();
+            } else {
+                s.travel(false);
+            }
+        },
+    )
+}
+
 fn hero(s: &State, compact: bool) -> El {
     let mut navigation = input_group()
         .w_full()
-        .child(icon_action(
-            "detail-back",
-            "Back to browsing",
-            &icons::LEFT,
-            |s| s.travel(false),
-        ))
+        .child(back_button(s))
         .child(el().grow(1.0));
     if s.app_fullscreen {
         navigation = navigation.child(icon_action(
@@ -489,6 +498,7 @@ fn season_selector(s: &State) -> El {
             s.source_sort_open = false;
             s.season_menu_open = !s.season_menu_open;
         })
+        .cursor(rune::Cursor::Pointer)
         .w(0.0)
         .grow(1.0)
         .on_secondary_press(move |s: &mut State, point, _| s.open_season_menu(point, current))
@@ -516,11 +526,11 @@ pub(super) fn season_menu(s: &State, cx: &Cx<State>) -> Option<El> {
     let mut choices = col().w_full().gap(4.0);
     for (index, season) in seasons.iter().copied().enumerate() {
         choices = choices.child(
-            select_action(
+            menu_choice(
                 format!("season-option-{index}"),
                 season_label(season),
                 season == current,
-                move |s| {
+                move |s: &mut State| {
                     s.select_season(season);
                 },
             )
