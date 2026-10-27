@@ -128,7 +128,13 @@ impl State {
 
     pub(in crate::ui) fn mark_media_watched(&mut self, media: Media, watched: bool) {
         let runtime_key = media.key.clone();
-        let runtime_meta = self.watch_metadata(&media).cloned();
+        let runtime_meta = self.watch_metadata(&media).cloned().or_else(|| {
+            self.metas.iter().enumerate().find_map(|(index, meta)| {
+                self.result_media(index)
+                    .filter(|item| item.key == media.key)
+                    .map(|_| meta.clone())
+            })
+        });
         self.library.watch_pending.remove(&media.key);
         let date = self.known_release_date(&media);
         if !watched
@@ -241,6 +247,32 @@ impl State {
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn marking_a_catalog_movie_watched_keeps_runtime_without_a_release_date() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("library.db");
+        let mut s = crate::ui::app::init();
+        s.library.worker =
+            Some(crate::library_worker::Worker::start(path.clone(), Arc::new(|| {})).unwrap());
+        s.metas = Arc::new(vec![
+            serde_json::from_value(serde_json::json!({
+                "id":"tt123", "type":"movie", "name":"Movie", "runtime":"120 min"
+            }))
+            .unwrap(),
+        ]);
+        let media = s.result_media(0).unwrap();
+        s.mark_media_watched(media.clone(), true);
+        s.flush_known_runtimes();
+        std::thread::spawn(s.take_library_shutdown())
+            .join()
+            .unwrap();
+        let db = scry_library::Library::open(path).unwrap();
+        let stats = db.nerd_stats(scry_library::StatsPeriod::AllTime).unwrap();
+        assert!(db.watched_state(&media.key).unwrap().watched);
+        assert!((stats.movie_seconds - 7200.0).abs() < f64::EPSILON);
+        assert_eq!(stats.unknown_runtimes, 0);
+    }
 
     #[test]
     fn late_metadata_does_not_undo_a_newer_unwatched_action() {

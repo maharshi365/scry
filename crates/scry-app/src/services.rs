@@ -58,6 +58,8 @@ pub enum Event {
     GuideDetails(u64, Vec<(scry_library::Media, Meta)>),
     WatchMetadata(u64, scry_library::Media, bool, Result<Box<Meta>, String>),
     SeriesTrackingDetails(u64, Vec<(scry_library::MediaKey, Option<Meta>)>, bool),
+    MovieRuntimeDetails(u64, Vec<(scry_library::MediaKey, Option<Meta>)>, bool),
+    KnownRuntimes(Vec<(scry_library::MediaKey, f64)>),
     SeriesDetails(u64, Vec<(scry_library::MediaKey, Option<Meta>)>, bool),
     LibraryPosters(
         u64,
@@ -124,6 +126,7 @@ pub struct Services {
     library_poster_task: Option<tokio::task::JoinHandle<()>>,
     series_detail_task: Option<tokio::task::JoinHandle<()>>,
     series_tracking_task: Option<tokio::task::JoinHandle<()>>,
+    movie_runtime_task: Option<tokio::task::JoinHandle<()>>,
     guide_task: Option<tokio::task::JoinHandle<()>>,
     watch_tasks: Vec<tokio::task::JoinHandle<()>>,
     control: Option<watch::Sender<Option<Control>>>,
@@ -178,6 +181,7 @@ impl Services {
             library_poster_task: None,
             series_detail_task: None,
             series_tracking_task: None,
+            movie_runtime_task: None,
             guide_task: None,
             watch_tasks: Vec::new(),
             control: Some(control),
@@ -693,24 +697,45 @@ impl Services {
                         } else {
                             "series"
                         };
-                        let poster = metadata::fetch(
+                        let meta = metadata::fetch(
                             &client,
                             &addons,
                             &media.key.namespace,
                             kind,
                             &media.key.id,
-                            |meta| LibraryPoster::for_media(&media, &meta),
+                            |meta| {
+                                if let Some(poster) = LibraryPoster::for_media(&media, &meta) {
+                                    let values = crate::media_metadata::validated_movie_runtimes(
+                                        &media.key, &meta,
+                                    );
+                                    Some((poster, values))
+                                } else {
+                                    None
+                                }
+                            },
                         )
                         .await;
-                        (media.key, poster)
+                        (media.key, meta)
                     });
                 }
                 let Some(result) = tasks.join_next().await else {
                     break;
                 };
-                if let Ok(item) = result {
+                if let Ok((key, meta)) = result {
+                    let poster = if let Some((poster, values)) = meta {
+                        if !values.is_empty() {
+                            inbox.send(Event::KnownRuntimes(values)).await;
+                        }
+                        Some(poster)
+                    } else {
+                        None
+                    };
                     inbox
-                        .send(Event::LibraryPosters(generation, vec![item], false))
+                        .send(Event::LibraryPosters(
+                            generation,
+                            vec![(key, poster)],
+                            false,
+                        ))
                         .await;
                 }
             }
@@ -778,6 +803,56 @@ impl Services {
         }));
     }
 
+    pub fn movie_runtime_details(
+        &mut self,
+        generation: u64,
+        addons: Vec<Addon>,
+        keys: Vec<scry_library::MediaKey>,
+    ) {
+        if let Some(task) = self.movie_runtime_task.take() {
+            task.abort();
+        }
+        let (client, inbox) = (self.client.background(), self.inbox.clone());
+        let addons = Arc::new(addons);
+        self.movie_runtime_task = Some(self.runtime.spawn(async move {
+            let mut remaining = keys.into_iter().take(12);
+            let mut tasks = tokio::task::JoinSet::new();
+            loop {
+                while tasks.len() < 4 {
+                    let Some(key) = remaining.next() else { break };
+                    let (client, addons) = (client.clone(), addons.clone());
+                    tasks.spawn(async move {
+                        let meta = metadata::fetch(
+                            &client,
+                            &addons,
+                            &key.namespace,
+                            "movie",
+                            &key.id,
+                            |meta| {
+                                (!crate::media_metadata::validated_movie_runtimes(&key, &meta)
+                                    .is_empty())
+                                .then_some(meta)
+                            },
+                        )
+                        .await;
+                        (key, meta)
+                    });
+                }
+                let Some(result) = tasks.join_next().await else {
+                    break;
+                };
+                if let Ok(item) = result {
+                    inbox
+                        .send(Event::MovieRuntimeDetails(generation, vec![item], false))
+                        .await;
+                }
+            }
+            inbox
+                .send(Event::MovieRuntimeDetails(generation, vec![], true))
+                .await;
+        }));
+    }
+
     pub fn control(&self, command: Control) -> Result<()> {
         match command {
             Control::Command(id, args) => self
@@ -812,6 +887,7 @@ impl Services {
             &mut self.library_poster_task,
             &mut self.series_detail_task,
             &mut self.series_tracking_task,
+            &mut self.movie_runtime_task,
             &mut self.guide_task,
         ] {
             if let Some(task) = task.take() {

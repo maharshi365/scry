@@ -98,7 +98,7 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
         changed = true;
         apply(s, event);
     }
-    changed |= request_library_updates(s);
+    changed |= request_library_updates(s, tx);
     if let Some(delay) = s.metadata_retry_after() {
         tx.wake_after(delay);
     }
@@ -109,7 +109,8 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
     changed
 }
 
-fn request_library_updates(s: &mut State) -> bool {
+fn request_library_updates(s: &mut State, tx: &mut Tx) -> bool {
+    s.poll_movie_runtimes(tx);
     s.request_library_posters();
     s.request_series_states();
     s.request_series_tracking(false);
@@ -129,6 +130,10 @@ fn apply(s: &mut State, event: Event) {
         Event::SeriesTrackingDetails(generation, found, done) => {
             s.apply_series_tracking_details(generation, found, done);
         }
+        Event::MovieRuntimeDetails(generation, found, done) => {
+            s.apply_movie_runtime_details(generation, found, done);
+        }
+        Event::KnownRuntimes(values) => s.queue_known_runtimes(values),
         Event::SeriesDetails(generation, found, done) => {
             s.apply_series_details(generation, found, done);
         }
@@ -147,6 +152,7 @@ fn apply(s: &mut State, event: Event) {
                     s.retry_library_posters();
                     s.library.posters.cache.clear();
                     s.addons = addons;
+                    s.reset_movie_runtimes();
                     s.request_series_tracking(true);
                     if s.navigation.page == Page::Calendar {
                         s.fetch_calendar();

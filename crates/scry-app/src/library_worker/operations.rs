@@ -31,6 +31,12 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
             library.set_known_runtimes(&values)?;
             return Ok(Event::RuntimesStored);
         }
+        Command::MissingMovieRuntimes { generation, after } => {
+            return Ok(Event::MissingMovieRuntimes {
+                generation,
+                items: library.movies_missing_runtime(after.as_ref(), 12)?,
+            });
+        }
         Command::NerdStats { generation } => {
             return Ok(
                 match library.nerd_stats(scry_library::StatsPeriod::AllTime) {

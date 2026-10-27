@@ -13,6 +13,10 @@ pub enum Command {
         Vec<scry_library::EpisodeRelease>,
     ),
     Runtimes(Vec<(MediaKey, f64)>),
+    MissingMovieRuntimes {
+        generation: u64,
+        after: Option<MediaKey>,
+    },
     NerdStats {
         generation: u64,
     },
@@ -121,6 +125,10 @@ pub enum Event {
     },
     GuideMetadataStored,
     RuntimesStored,
+    MissingMovieRuntimes {
+        generation: u64,
+        items: Vec<Media>,
+    },
     NerdStats {
         generation: u64,
         data: scry_library::NerdStats,

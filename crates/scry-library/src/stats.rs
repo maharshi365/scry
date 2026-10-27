@@ -168,6 +168,29 @@ pub(super) fn finish_run(connection: &mut SqliteConnection, id: i64) -> Result<(
 }
 
 impl Library {
+    /// Read watched movies with missing runtimes in stable identity order.
+    /// The cursor remains valid when earlier movies receive runtimes.
+    /// # Errors
+    /// Returns an error for an invalid cursor, page size, or database read.
+    pub fn movies_missing_runtime(
+        &self,
+        after: Option<&crate::MediaKey>,
+        limit: u32,
+    ) -> Result<Vec<crate::Media>> {
+        let page = crate::Page::new(limit, 0)?;
+        anyhow::ensure!(
+            after.is_none_or(|key| key.kind == crate::MediaKind::Movie),
+            "invalid movie runtime cursor"
+        );
+        let connection = &mut *self.connection.borrow_mut();
+        let records = diesel::sql_query("SELECT m.* FROM media m JOIN effective_watched w USING(media_id) LEFT JOIN media_runtime r USING(media_id) WHERE m.kind='movie' AND w.watched=1 AND r.seconds IS NULL AND (m.namespace,m.external_id)>(?,?) ORDER BY m.namespace,m.external_id LIMIT ?")
+            .bind::<Text, _>(after.map_or("", |key| key.namespace.as_str()))
+            .bind::<Text, _>(after.map_or("", |key| key.id.as_str()))
+            .bind::<BigInt, _>(i64::from(page.limit))
+            .load::<crate::media::MediaRecord>(connection)?;
+        crate::media::hydrate(connection, records)
+    }
+
     /// Store known runtimes without changing watched state. Missing titles are skipped.
     /// # Errors
     /// Returns an error for invalid runtimes, oversized batches, or database writes.

@@ -1,4 +1,5 @@
 //! Library presentation and nonblocking worker integration.
+mod movie_runtimes;
 mod movie_status;
 mod posters;
 mod progress;
@@ -47,6 +48,7 @@ pub(super) struct LibraryUi {
     pub(in crate::ui) up_next_has_more: bool,
     pub(in crate::ui) quick_play: Option<u64>,
     pub(in crate::ui) movies: movie_status::MovieUi,
+    pub(in crate::ui) movie_runtimes: movie_runtimes::MovieRuntimeUi,
     pub(in crate::ui) series: series_status::SeriesUi,
     pub(in crate::ui) tracking: tracking::TrackingUi,
     pub next_episode: Option<Media>,
@@ -85,6 +87,7 @@ impl Default for LibraryUi {
             up_next_has_more: false,
             quick_play: None,
             movies: movie_status::MovieUi::default(),
+            movie_runtimes: movie_runtimes::MovieRuntimeUi::default(),
             series: series_status::SeriesUi::default(),
             tracking: tracking::TrackingUi::default(),
             next_episode: None,
@@ -346,6 +349,9 @@ impl State {
                 DbEvent::TrackedSeries { generation, items } => {
                     self.apply_tracked_series(generation, items);
                 }
+                DbEvent::MissingMovieRuntimes { generation, items } => {
+                    self.apply_missing_movie_runtimes(generation, items);
+                }
                 DbEvent::SeriesSynced { changed } => refresh |= changed,
                 DbEvent::SeriesStates { generation, states } => {
                     if generation == self.library.series.generation {
@@ -390,6 +396,7 @@ impl State {
                     let requested = self.library.pending.pop_front().unwrap_or(false);
                     refresh |= requested;
                     if requested {
+                        self.retry_movie_runtimes();
                         self.request_series_tracking(true);
                     }
                 }
@@ -397,10 +404,12 @@ impl State {
                     self.library.pending.pop_front();
                     self.library.error = Some(error);
                     self.library.tracking.busy = false;
+                    self.movie_runtimes_failed();
                 }
                 DbEvent::RequestError(error) => {
                     self.library.error = Some(error);
                     self.library.tracking.busy = false;
+                    self.movie_runtimes_failed();
                 }
             }
         }

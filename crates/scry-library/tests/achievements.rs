@@ -9,6 +9,60 @@ fn movie() -> Media {
 }
 
 #[test]
+fn missing_movie_runtime_scan_keeps_its_place_as_runtimes_are_stored() -> anyhow::Result<()> {
+    let mut db = Library::memory()?;
+    let mut movies = Vec::new();
+    for namespace in ["a", "b"] {
+        for index in 0..15 {
+            let item = Media {
+                key: MediaKey::new(namespace, MediaKind::Movie, format!("{index:02}")),
+                title: format!("Movie {index}"),
+                parent: None,
+            };
+            db.upsert_media(&item)?;
+            db.set_watched(&item.key, true)?;
+            movies.push(item);
+        }
+    }
+    let waiting = movie();
+    db.upsert_media(&waiting)?;
+    db.add_to_watchlist(&waiting.key)?;
+    let series = Media {
+        key: MediaKey::new("a", MediaKind::Series, "series"),
+        title: "Series".into(),
+        parent: None,
+    };
+    db.upsert_media(&series)?;
+    db.set_watched(&series.key, true)?;
+    let known = movies.remove(0);
+    db.set_known_runtimes(&[(known.key, 60.0)])?;
+    let mut after = None;
+    let mut found = Vec::new();
+    loop {
+        let page = db.movies_missing_runtime(after.as_ref(), 12)?;
+        if page.is_empty() {
+            break;
+        }
+        assert!(page.len() <= 12);
+        after = page.last().map(|item| item.key.clone());
+        // Leave one runtime unknown, as an offline or incomplete provider would.
+        db.set_known_runtimes(
+            &page
+                .iter()
+                .skip(1)
+                .map(|item| (item.key.clone(), 120.0))
+                .collect::<Vec<_>>(),
+        )?;
+        found.extend(page);
+    }
+    assert_eq!(found, movies);
+    assert_eq!(db.movies_missing_runtime(None, 12)?.len(), 3);
+    assert!(db.movies_missing_runtime(None, 201).is_err());
+    assert!(db.movies_missing_runtime(Some(&series.key), 12).is_err());
+    Ok(())
+}
+
+#[test]
 fn watched_titles_count_known_runtime_without_double_counting_playback() -> anyhow::Result<()> {
     let mut db = Library::memory()?;
     let item = movie();

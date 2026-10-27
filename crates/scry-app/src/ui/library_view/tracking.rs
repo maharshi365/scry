@@ -11,7 +11,7 @@ use std::{
 
 #[derive(Default)]
 pub(in crate::ui) struct TrackingUi {
-    pending_runtimes: HashMap<MediaKey, f64>,
+    pub(super) pending_runtimes: HashMap<MediaKey, f64>,
     generation: u64,
     offset: u32,
     pub busy: bool,
@@ -147,6 +147,10 @@ impl State {
             .tracking
             .pending_runtimes
             .extend(crate::media_metadata::known_runtimes(key, meta));
+    }
+
+    pub(in crate::ui) fn queue_known_runtimes(&mut self, values: Vec<(MediaKey, f64)>) {
+        self.library.tracking.pending_runtimes.extend(values);
     }
 
     pub(in crate::ui) fn flush_known_runtimes(&mut self) -> bool {

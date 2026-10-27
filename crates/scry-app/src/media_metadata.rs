@@ -133,6 +133,13 @@ pub(crate) fn known_runtimes(key: &MediaKey, meta: &Meta) -> Vec<(MediaKey, f64)
         .collect()
 }
 
+pub(crate) fn validated_movie_runtimes(key: &MediaKey, meta: &Meta) -> Vec<(MediaKey, f64)> {
+    if key.kind != MediaKind::Movie || meta.kind != "movie" || meta.id != key.id {
+        return Vec::new();
+    }
+    known_runtimes(key, meta)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
