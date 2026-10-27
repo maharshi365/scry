@@ -116,24 +116,98 @@ fn lifetime_dashboard_uses_compact_summary_panels_and_distinct_achievement_icons
             rect(&rt, "stats-mix")[3] < 190.0,
             "Mix is a chart, not a report"
         );
-        rt.update(|_, tx| tx.scroll_into_view("achievements-toggle"));
-        for _ in 0..60 {
-            rt.frame(1.0 / 60.0);
-        }
-        tap(&mut rt, "achievements-toggle");
+        assert!(rt.find("stats-lifetime").is_none());
+        let career = rect(&rt, "stats-watch-time");
+        let summary = rect(&rt, "stats-summary");
+        assert!(summary[1] > career[1]);
+        assert!(summary[1] + summary[3] <= career[1] + career[3]);
+        assert!(summary[0] > career[0]);
+        assert!(summary[0] + summary[2] < career[0] + career[2]);
+        let tabs = rect(&rt, "stats-tabs");
+        let last_tab = rect(&rt, "stats-tab-achievements");
+        assert!((tabs[0] + tabs[2] - last_tab[0] - last_tab[2]).abs() < 0.5);
+        assert!(rt.find("achievement-collection").is_none());
+        let mix = rect(&rt, "stats-mix");
+        let mastery = rect(&rt, "stats-mastery");
+        let rankings = rect(&rt, "stats-top-titles");
+        let health = rect(&rt, "stats-library-health");
+        let records = rect(&rt, "stats-records");
+        assert!((mix[2] - mastery[2]).abs() < 0.5);
+        assert!((mix[2] - rankings[2]).abs() < 0.5);
+        assert!((mastery[0] - health[0]).abs() < 0.5);
+        assert!((rankings[1] + rankings[3] - records[1] - records[3]).abs() < 0.5);
+    }
+}
+
+#[test]
+fn achievements_show_requirements_and_progress_inline_without_duplicate_panels() {
+    for width in [880.0, 1280.0] {
+        let mut state = init();
+        super::super::stats::scene(&mut state);
+        let mut rt = rune::Runtime::new(state, view, (width, 820.0), rune::Env::default());
+        rt.frame(0.0);
+        tap(&mut rt, "stats-tab-achievements");
+        assert!(rt.find("stats-watch-time").is_none());
         let first = rect(&rt, "achievement-pilot-error");
         let second = rect(&rt, "achievement-seasoned-professional");
         assert!(
-            (first[1] - second[1]).abs() < 0.5,
-            "Badges share a grid row"
+            second[1] >= first[1] + first[3],
+            "Achievements form a vertical list"
         );
-        assert!(first[3] <= 90.0, "Badges must stay compact");
         let last = rect(&rt, "achievement-full-time-viewer");
         assert!(
             (first[2] - last[2]).abs() < 0.5,
-            "The last row must not stretch into oversized cards"
+            "Achievement rows share the same width"
         );
         assert!(rt.find("achievement-icon-pilot-error").is_some());
         assert!(rt.find("achievement-icon-seasoned-professional").is_some());
+        for key in [
+            "achievement-detail",
+            "achievement-featured",
+            "achievement-next",
+        ] {
+            assert!(rt.find(key).is_none(), "Removed achievement panel: {key}");
+        }
+        let elements = rt.elements();
+        let mut db = Library::memory().unwrap();
+        for entry in db.evaluate_achievements().unwrap().entries {
+            assert!(rt.find(&format!("achievement-{}", entry.id)).is_some());
+            let key = format!("achievement-requirement-{}", entry.id);
+            let requirement = elements
+                .iter()
+                .find(|element| element.key.as_deref() == Some(key.as_str()));
+            if entry.hidden {
+                assert!(
+                    requirement.is_none(),
+                    "Secret requirements must stay hidden"
+                );
+                assert!(
+                    !elements
+                        .iter()
+                        .any(|element| element.text.as_deref() == Some(entry.name))
+                );
+            } else {
+                assert_eq!(
+                    requirement.and_then(|element| element.text.as_deref()),
+                    Some(entry.requirement)
+                );
+            }
+        }
+        for key in [
+            "achievement-requirement-pilot-error",
+            "achievement-status-pilot-error",
+            "achievement-requirement-expert",
+            "achievement-progress-expert",
+        ] {
+            assert!(rt.find(key).is_some(), "Inline detail missing: {key}");
+        }
+        assert!(
+            elements
+                .iter()
+                .any(|element| element.text.as_deref() == Some("Unlocked from watch history"))
+        );
+        tap(&mut rt, "stats-tab-stats");
+        assert!(rt.find("stats-watch-time").is_some());
+        assert!(rt.find("achievement-collection").is_none());
     }
 }

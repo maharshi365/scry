@@ -166,7 +166,6 @@ stats_icon!(BRIEFCASE, "briefcase-business");
 stats_icon!(TROPHY, "trophy");
 stats_icon!(CLOCK, "clock-3");
 stats_icon!(CHART, "chart-no-axes-combined");
-stats_icon!(HOURGLASS, "hourglass");
 
 #[cfg(test)]
 mod tests {
@@ -216,7 +215,6 @@ mod tests {
             source!(TROPHY, "trophy"),
             source!(CLOCK, "clock-3"),
             source!(CHART, "chart-no-axes-combined"),
-            source!(HOURGLASS, "hourglass"),
         ];
         for (icon, svg) in sources {
             assert!(

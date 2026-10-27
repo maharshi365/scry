@@ -26,13 +26,19 @@ pub(super) struct StatsUi {
     data: Option<NerdStats>,
     error: Option<&'static str>,
     entries: Vec<AchievementEntry>,
-    collection_open: bool,
-    selected_achievement: Option<&'static str>,
+    tab: StatsTab,
     historical_pending: usize,
     live_pending: Vec<AchievementEntry>,
     notice: Option<Notice>,
     notice_since: Option<Instant>,
     notice_sequence: u64,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum StatsTab {
+    #[default]
+    Stats,
+    Achievements,
 }
 
 struct Notice {
@@ -194,7 +200,7 @@ pub(super) fn toast(s: &State) -> Option<El> {
                         Button::new("achievement-view", "View achievements").on_press(
                             |s: &mut State| {
                                 s.dismiss_achievement_toast();
-                                s.stats.collection_open = true;
+                                s.stats.tab = StatsTab::Achievements;
                                 s.navigate(Page::Stats);
                                 s.navigation.reveal = Some("achievement-collection".into());
                             },
@@ -285,6 +291,52 @@ pub(super) fn scene(s: &mut State) {
 mod tests {
     use super::*;
     use anyhow::Context;
+
+    #[test]
+    fn refresh_preserves_dashboard_card_bounds() -> anyhow::Result<()> {
+        let keys = [
+            "stats-mix",
+            "stats-mastery",
+            "stats-top-titles",
+            "stats-library-health",
+            "stats-records",
+        ];
+        for width in [880.0, 1280.0] {
+            let mut state = crate::ui::app::init();
+            scene(&mut state);
+            let mut rt = rune::Runtime::new(
+                state,
+                crate::ui::shell::view,
+                (width, 820.0),
+                rune::Env::default(),
+            );
+            rt.frame(0.0);
+            let bounds = |rt: &rune::Runtime<State>| -> anyhow::Result<Vec<[f32; 4]>> {
+                let elements = rt.elements();
+                keys.iter()
+                    .map(|key| {
+                        elements
+                            .iter()
+                            .find(|element| element.key.as_deref() == Some(*key))
+                            .map(|element| element.rect)
+                            .with_context(|| format!("Missing {key}"))
+                    })
+                    .collect()
+            };
+            let before = bounds(&rt)?;
+            rt.update(|state, _| {
+                state.stats.pending = Some(1);
+                state.apply_stats(1, NerdStats::default());
+            });
+            rt.frame(0.0);
+            for (old, new) in before.iter().zip(bounds(&rt)?) {
+                for (a, b) in old.iter().zip(new) {
+                    assert!((a - b).abs() < 0.5, "Card moved after stats refresh");
+                }
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     fn elapsed_toast_is_automatically_dismissed() -> anyhow::Result<()> {

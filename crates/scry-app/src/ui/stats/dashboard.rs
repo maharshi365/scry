@@ -1,34 +1,53 @@
 use rune::{Color, El, col, el, icon, row, text};
 use scry_library::NerdStats;
 
-use super::{State, achievements};
+use super::{State, StatsTab, achievements};
 use crate::ui::{
     design::{
         icons,
         tokens::{self, type_},
     },
     primitives::{
-        surface::{badge, card, scroll},
+        button::{Button, Variant},
+        surface::{card, scroll},
         text::{heading, label},
     },
 };
 
 pub(super) fn view(s: &State) -> El {
     let mut content = col().key("nerd-stats-content").w_full().gap(12.0).child(
-        row()
-            .w_full()
-            .center_y()
-            .gap(12.0)
-            .child(
-                col()
-                    .grow(1.0)
-                    .min_w(0.0)
-                    .gap(3.0)
-                    .child(heading("Stats for Nerds"))
-                    .child(small("Your life in pixels. The numbers have receipts.")),
-            )
-            .child(badge("stats-lifetime", "ALL TIME", tokens::accent())),
+        row().w_full().center_y().gap(12.0).child(
+            col()
+                .grow(1.0)
+                .min_w(0.0)
+                .gap(3.0)
+                .child(heading("Stats for Nerds"))
+                .child(small("Your life in pixels. The numbers have receipts.")),
+        ),
     );
+    content = content.child(
+        row()
+            .key("stats-tabs")
+            .self_start()
+            .gap(4.0)
+            .role("tablist")
+            .label("Stats for Nerds")
+            .child(tab(
+                "stats-tab-stats",
+                "Stats",
+                s.stats.tab == StatsTab::Stats,
+                StatsTab::Stats,
+            ))
+            .child(tab(
+                "stats-tab-achievements",
+                "Achievements",
+                s.stats.tab == StatsTab::Achievements,
+                StatsTab::Achievements,
+            )),
+    );
+    if s.stats.tab == StatsTab::Achievements {
+        return scroll("nerd-stats-scroll", content.child(achievements::view(s)));
+    }
     if let Some(error) = s.stats.error {
         content = content.child(label(error));
     }
@@ -37,28 +56,23 @@ pub(super) fn view(s: &State) -> El {
     }
     if let Some(stats) = &s.stats.data {
         content = content
-            .child(hero(stats))
-            .child(summary(s, stats))
+            .child(hero(s, stats))
             .child(
-                row()
+                el().equal_columns(2)
                     .w_full()
                     .gap(12.0)
-                    .flex_wrap()
                     .child(mix(stats))
                     .child(mastery(stats.watch_seconds)),
             )
             .child(
-                row()
+                el().equal_columns(2)
                     .w_full()
                     .gap(12.0)
-                    .flex_wrap()
                     .child(rankings(stats))
                     .child(
                         col()
                             .key("stats-records-column")
-                            .w(0.0)
-                            .min_w(260.0)
-                            .grow(1.0)
+                            .min_w(0.0)
                             .gap(12.0)
                             .child(library_health(stats))
                             .child(records(stats)),
@@ -69,7 +83,6 @@ pub(super) fn view(s: &State) -> El {
             "Your questionable accomplishments will appear when the local library is ready.",
         ));
     }
-    content = content.child(achievements::view(s));
     scroll("nerd-stats-scroll", content)
 }
 
@@ -80,32 +93,45 @@ pub(super) fn small(value: impl Into<String>) -> El {
         .wrap()
 }
 
-pub(super) fn panel(key: &str, title: &str, glyph: &'static rune::Icon) -> El {
-    card()
-        .key(key)
-        .w(0.0)
-        .min_w(260.0)
-        .grow(1.0)
-        .padding(14.0)
-        .gap(8.0)
+fn tab(key: &str, title: &str, selected: bool, target: StatsTab) -> El {
+    col()
         .child(
-            row()
-                .gap(8.0)
-                .center_y()
-                .child(icon(glyph, 16.0).color(tokens::accent()))
-                .child(
-                    text(title)
-                        .font(type_::ITEM_TITLE)
-                        .color(tokens::theme().text)
-                        .truncate()
-                        .w(0.0)
-                        .min_w(0.0)
-                        .grow(1.0),
-                ),
+            Button::new(key, title)
+                .variant(Variant::Ghost)
+                .selected(selected)
+                .on_press(move |s: &mut State| s.stats.tab = target)
+                .role("tab")
+                .fill(tokens::transparent())
+                .border(0.0, tokens::transparent_edge())
+                .radius(0.0)
+                .px(16.0),
         )
+        .child(el().w_full().h(2.0).fill(if selected {
+            tokens::accent()
+        } else {
+            tokens::transparent()
+        }))
 }
 
-fn hero(stats: &NerdStats) -> El {
+pub(super) fn panel(key: &str, title: &str, glyph: &'static rune::Icon) -> El {
+    card().key(key).min_w(0.0).padding(14.0).gap(8.0).child(
+        row()
+            .gap(8.0)
+            .center_y()
+            .child(icon(glyph, 16.0).color(tokens::accent()))
+            .child(
+                text(title)
+                    .font(type_::ITEM_TITLE)
+                    .color(tokens::theme().text)
+                    .truncate()
+                    .w(0.0)
+                    .min_w(0.0)
+                    .grow(1.0),
+            ),
+    )
+}
+
+fn hero(s: &State, stats: &NerdStats) -> El {
     card()
         .key("stats-watch-time")
         .w_full()
@@ -151,6 +177,8 @@ fn hero(stats: &NerdStats) -> El {
         } else {
             "A suspiciously clean record. Enjoy it while it lasts."
         }))
+        .child(el().w_full().h(1.0).mt(10.0).mb(8.0).fill(tokens::edge()))
+        .child(summary(s, stats))
 }
 
 fn summary(s: &State, stats: &NerdStats) -> El {
@@ -160,8 +188,7 @@ fn summary(s: &State, stats: &NerdStats) -> El {
         .iter()
         .filter(|entry| entry.unlocked)
         .count();
-    let mut strip = card().key("stats-summary").w_full().padding(10.0).gap(8.0);
-    let mut values = row().w_full().gap(10.0);
+    let mut values = row().key("stats-summary").w_full().gap(10.0);
     for (key, title, value) in [
         ("stats-movies", "Movies", stats.movies_watched.to_string()),
         (
@@ -195,8 +222,7 @@ fn summary(s: &State, stats: &NerdStats) -> El {
                 .child(small(title)),
         );
     }
-    strip = strip.child(values);
-    strip
+    values
 }
 
 fn mix(stats: &NerdStats) -> El {
@@ -216,6 +242,7 @@ fn mix(stats: &NerdStats) -> El {
         "Equal-opportunity escapist"
     };
     panel("stats-mix", "Your viewing DNA", &icons::TV)
+        .min_h(160.0)
         .child(
             row()
                 .w_full()
@@ -274,6 +301,7 @@ fn mastery(seconds: f64) -> El {
         "You could have done this instead",
         &icons::GRADUATION,
     )
+    .min_h(160.0)
     .child(
         text(headline)
             .font(type_::STATS_NUMBER)
@@ -292,12 +320,12 @@ fn mastery(seconds: f64) -> El {
 }
 
 fn rankings(stats: &NerdStats) -> El {
-    let mut content = panel("stats-top-titles", "Your usual suspects", &icons::CHART);
+    let mut content = panel("stats-top-titles", "Your usual suspects", &icons::CHART).min_h(270.0);
     let largest = stats.top_titles.first().map_or(0.0, |title| title.seconds);
     if largest <= 0.0 {
         return content.child(small("Watch something. We’ll establish a pattern."));
     }
-    for (index, title) in stats.top_titles.iter().enumerate() {
+    for (index, title) in stats.top_titles.iter().take(5).enumerate() {
         content = content.child(
             row()
                 .w_full()
@@ -353,7 +381,7 @@ fn library_health(stats: &NerdStats) -> El {
         &icons::LIBRARY,
     )
     .w_full()
-    .grow(0.0)
+    .grow(1.0)
     .child(
         row()
             .w_full()
@@ -388,6 +416,7 @@ fn records(stats: &NerdStats) -> El {
     card()
         .key("stats-records")
         .w_full()
+        .grow(1.0)
         .padding(14.0)
         .gap(8.0)
         .child(
