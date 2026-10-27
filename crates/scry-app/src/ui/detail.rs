@@ -3,7 +3,7 @@ use super::episodes::season_label;
 use super::{
     State,
     artwork::{poster, poster_overlay},
-    controls::{action, icon_action},
+    controls::icon_action,
     design::{
         icons,
         tokens::{self, accent, panel, theme, type_},
@@ -291,7 +291,12 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
             "No episodes match your search."
         }));
     }
-    for index in s.visible_episode_indices() {
+    for (position, index) in s
+        .season_episode_indices()
+        .into_iter()
+        .take(range.end)
+        .enumerate()
+    {
         let video = &meta.videos[index];
         let selected = s.selected_video_id.as_deref() == Some(video.id.as_str());
         let mut status = row().w_full().h(22.0).center_y().gap(6.0).child(
@@ -356,6 +361,24 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
                 s.open_title_menu(p, item);
             })
             .w_full()
+            .on_layout(move |s: &mut State, rect| {
+                if s.episode_viewport.is_some_and(|viewport| {
+                    rect[1] <= viewport[1] && rect[1] + rect[3] > viewport[1]
+                }) {
+                    let offset = position / super::EPISODES_PER_PAGE * super::EPISODES_PER_PAGE;
+                    if s.episode_state_offset != Some(offset) {
+                        s.episode_state_offset = Some(offset);
+                        s.register_library_detail();
+                    }
+                }
+                if position + 1 == range.end
+                    && range.end == s.episode_range().end
+                    && s.episode_viewport
+                        .is_some_and(|viewport| rect[1] < viewport[1] + viewport[3] + 200.0)
+                {
+                    s.move_episode_page(true);
+                }
+            })
             .fill(if selected {
                 tokens::selected()
             } else {
@@ -399,60 +422,24 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
             ),
         );
     }
-    let mut pages = row().gap(8.0);
-    if range.start > 0 {
-        pages = pages.child(action("episodes-prev", "Previous 100", |s| {
-            s.move_episode_page(false);
-        }));
-    }
-    pages = pages.child(label(format!(
-        "Episodes {}–{} of {}",
-        if range.is_empty() { 0 } else { range.start + 1 },
-        range.end,
-        s.season_episode_indices().len()
-    )));
-    if range.end < s.season_episode_indices().len() {
-        pages = pages.child(action("episodes-next", "Next 100", |s| {
-            s.move_episode_page(true);
-        }));
-    }
     col()
         .w_full()
         .grow(1.0)
         .min_h(0.0)
         .gap(8.0)
-        .child(
-            text("EPISODES")
-                .font(type_::SECTION)
-                .color(t.text_secondary),
-        )
         .child(season_selector(s))
         .child(
-            super::controls::input_with_change(
-                "episode-search",
-                &s.episode_search,
-                "Search episodes…",
-                |s| &mut s.episode_search,
-                |_| {},
-                |s, _| {
-                    s.episode_offset = 0;
-                    s.register_library_detail();
-                    s.refresh_artwork();
-                },
+            scroll(
+                format!(
+                    "episodes-scroll-{}-{}-{:?}",
+                    s.navigation.route_key,
+                    0,
+                    s.active_season()
+                ),
+                episodes,
             )
-            .grow(0.0)
-            .w_full(),
+            .on_layout(|s: &mut State, rect| s.episode_viewport = Some(rect)),
         )
-        .child(scroll(
-            format!(
-                "episodes-scroll-{}-{}-{:?}",
-                s.navigation.route_key,
-                range.start,
-                s.active_season()
-            ),
-            episodes,
-        ))
-        .child(pages)
 }
 
 fn episode_thumbnail(s: &State, video: &scry_addons::Video, index: usize) -> El {
@@ -482,7 +469,7 @@ fn season_selector(s: &State) -> El {
         .iter()
         .position(|season| *season == current)
         .unwrap_or(0);
-    let mut bar = input_group().w_full();
+    let mut bar = row().w_full().center_y().gap(8.0);
     if position > 0 {
         let previous = seasons[position - 1];
         bar = bar.child(
@@ -493,17 +480,19 @@ fn season_selector(s: &State) -> El {
         );
     }
     bar = bar.child(
-        action("season-select", season_label(current), |s| {
-            s.source_menu_open = false;
-            s.source_sort_open = false;
-            s.season_menu_open = !s.season_menu_open;
-        })
-        .cursor(rune::Cursor::Pointer)
-        .w(0.0)
-        .grow(1.0)
-        .on_secondary_press(move |s: &mut State, point, _| s.open_season_menu(point, current))
-        .gap(6.0)
-        .child(icon(&icons::DOWN, 14.0).color(theme().text)),
+        Button::new("season-select", season_label(current))
+            .variant(Variant::Ghost)
+            .on_press(|s: &mut State| {
+                s.source_menu_open = false;
+                s.source_sort_open = false;
+                s.season_menu_open = !s.season_menu_open;
+            })
+            .px(0.0)
+            .hover(tokens::transparent())
+            .cursor(rune::Cursor::Pointer)
+            .on_secondary_press(move |s: &mut State, point, _| s.open_season_menu(point, current))
+            .gap(6.0)
+            .child(icon(&icons::DOWN, 14.0).color(theme().text_secondary)),
     );
     if let Some(next) = seasons.get(position + 1).copied() {
         bar = bar.child(

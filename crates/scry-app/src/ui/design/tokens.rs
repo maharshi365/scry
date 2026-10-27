@@ -131,12 +131,6 @@ pub(in crate::ui) fn play_fill() -> Color {
 pub(in crate::ui) fn empty_icon_fill() -> Color {
     accent().alpha(0.08)
 }
-pub(in crate::ui) fn badge_fill(color: Color) -> Color {
-    color.alpha(0.12)
-}
-pub(in crate::ui) fn badge_edge(color: Color) -> Color {
-    color.alpha(0.25)
-}
 
 pub(in crate::ui) mod focus {
     pub const WIDTH: f32 = 2.0;

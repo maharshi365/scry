@@ -189,6 +189,8 @@ impl State {
         self.selected_video_id = route.episode;
         self.pending_episode = route.pending_episode;
         self.episode_offset = route.episode_offset;
+        self.episode_state_offset = None;
+        self.episode_viewport = None;
         self.episode_search = TextEdit::new("");
         self.episode_season = route.episode_season;
         self.season_menu_open = false;

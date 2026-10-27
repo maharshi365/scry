@@ -271,6 +271,8 @@ impl State {
         self.detail_preview = false;
         self.selected_video_id = None;
         self.episode_offset = 0;
+        self.episode_state_offset = None;
+        self.episode_viewport = None;
         self.episode_search = TextEdit::new("");
         self.episode_season = None;
         self.season_menu_open = false;

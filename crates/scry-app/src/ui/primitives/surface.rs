@@ -1,9 +1,6 @@
-use super::super::design::{
-    icons,
-    tokens::{self, accent, edge, panel, success, theme, type_},
-};
+use super::super::design::tokens::{self, accent, edge, panel, theme, type_};
 use super::text::label;
-use rune::{Align, Color, El, Icon, ScrollSpec, Side, col, el, icon, row, text};
+use rune::{Align, El, Icon, ScrollSpec, Side, col, el, icon, text};
 
 pub(in crate::ui) fn card() -> El {
     surface(col())
@@ -11,23 +8,6 @@ pub(in crate::ui) fn card() -> El {
 
 pub(in crate::ui) fn surface(content: El) -> El {
     content.radius(12.0).fill(panel()).border(1.0, edge())
-}
-
-pub(in crate::ui) fn badge(key: impl Into<String>, value: impl Into<String>, color: Color) -> El {
-    row()
-        .key(key)
-        .h(22.0)
-        .px(8.0)
-        .gap(4.0)
-        .center()
-        .radius(11.0)
-        .fill(tokens::badge_fill(color))
-        .border(1.0, tokens::badge_edge(color))
-        .child(text(value).font(type_::BADGE).color(color))
-}
-
-pub(in crate::ui) fn watched_badge(key: impl Into<String>) -> El {
-    badge(key, "Watched", success()).child(icon(&icons::CHECK, 12.0).color(success()))
 }
 
 pub(in crate::ui) fn empty_state(

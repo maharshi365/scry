@@ -14,11 +14,8 @@ fn season_group_controls_have_equal_heights() {
         assert!((bounds[3] - select[3]).abs() < 0.5, "{key} height");
         assert!((bounds[1] - select[1]).abs() < 0.5, "{key} alignment");
     }
-    let input = rect(&rt, "episode-search-frame");
-    assert!(
-        (input[3] - select[3]).abs() < 0.5,
-        "Episode search matches the season group height"
-    );
+    assert!(select[2] < 160.0, "Season selector stays compact");
+    assert!(rt.find("episode-search-frame").is_none());
 }
 
 #[test]
@@ -132,11 +129,15 @@ fn episode_wheel_is_bounded_and_selection_panel_and_toolbar_stay_visible() {
     assert!(
         viewport[0] >= selection[0] && viewport[0] + viewport[2] <= selection[0] + selection[2]
     );
-    rt.wheel(viewport[0] + 20.0, viewport[1] + 20.0, -100_000.0);
-    for _ in 0..120 {
-        rt.frame(1.0 / 60.0);
+    assert!(rt.find("episodes-next").is_none());
+    assert!(rt.find("episodes-prev").is_none());
+    for _ in 0..3 {
+        rt.wheel(viewport[0] + 20.0, viewport[1] + 20.0, -100_000.0);
+        for _ in 0..120 {
+            rt.frame(1.0 / 60.0);
+        }
     }
-    let last = rect(&rt, "episode-99");
+    let last = rect(&rt, "episode-249");
     assert!(
         rect(&rt, "episode-0")[1] < first[1] - 100.0,
         "first {first:?}, after {:?}, viewport {viewport:?}, last {last:?}",

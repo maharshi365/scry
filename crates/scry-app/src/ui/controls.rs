@@ -49,14 +49,3 @@ pub(super) fn input(
 ) -> El {
     input::input(key, edit, placeholder, get, on_input_key, submit)
 }
-
-pub(super) fn input_with_change(
-    key: &'static str,
-    edit: &TextEdit,
-    placeholder: &'static str,
-    get: fn(&mut State) -> &mut TextEdit,
-    submit: impl Fn(&mut State) + 'static,
-    change: impl Fn(&mut State, &mut rune::Tx) + 'static,
-) -> El {
-    input::input_with_change(key, edit, placeholder, get, on_input_key, submit, change)
-}

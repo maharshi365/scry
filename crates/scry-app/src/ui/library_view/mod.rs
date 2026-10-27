@@ -10,10 +10,9 @@ use super::{
     State,
     controls::action,
     design::icons,
-    formatting::clock,
     primitives::{
         button::{Button, Variant, segment, segmented_group},
-        surface::{empty_state, watched_badge},
+        surface::empty_state,
         text::{heading, label},
     },
 };
@@ -501,24 +500,7 @@ pub(super) fn detail_actions(s: &State) -> El {
         .filter(|v| v.key == media.key);
     let in_watchlist = state.is_some_and(|v| v.watchlist);
     let watched = state.is_some_and(|v| v.watched.watched);
-    let mut status = row().h(22.0).gap(8.0).center_y();
-    if watched {
-        status = status.child(watched_badge("library-watched-status"));
-    }
-    if let Some(progress) = state.and_then(|v| v.progress) {
-        status = status.child(label(format!(
-            "Saved: {} / {}",
-            clock(Some(progress.position_seconds)),
-            clock(Some(progress.duration_seconds))
-        )));
-    }
-    if let Some(summary) = s
-        .parent_media()
-        .and_then(|media| s.series_progress_label(&media.key))
-    {
-        status = status.child(label(format!("TV show: {summary}")).key("series-progress-summary"));
-    }
-    let mut body = col().gap(8.0).child(status);
+    let mut body = col().gap(8.0);
     let a = media.clone();
     let b = media.clone();
     body = body.child(
@@ -563,13 +545,6 @@ pub(super) fn detail_actions(s: &State) -> El {
             )
             .child(super::detail::quick_actions(s, s.detail_preview)),
     );
-    if s.selected_video_id.is_some() && media.key.kind == MediaKind::Episode {
-        body = body.child(row().child(action(
-            "library-series",
-            "Series actions",
-            State::show_episodes,
-        )));
-    }
     body
 }
 

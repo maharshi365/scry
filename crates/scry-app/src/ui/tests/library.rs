@@ -33,6 +33,12 @@ fn movie_detail_overlay_handles_missing_duration_and_watched_state() {
             rt.frame(1.0 / 60.0);
         }
         assert_eq!(rt.find("detail-poster-watched").is_some(), watched);
+        assert!(rt.elements().iter().all(|element| {
+            element
+                .text
+                .as_deref()
+                .is_none_or(|text| !text.starts_with("Saved:"))
+        }));
         assert_eq!(
             rt.find("detail-poster-progress-track").is_some(),
             expected.is_some()

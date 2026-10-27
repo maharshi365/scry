@@ -132,6 +132,8 @@ impl State {
             app_fullscreen: false,
             selected_video_id: None,
             episode_offset: 0,
+            episode_viewport: None,
+            episode_state_offset: None,
             episode_search: TextEdit::new(""),
             episode_season: None,
             season_menu_open: false,

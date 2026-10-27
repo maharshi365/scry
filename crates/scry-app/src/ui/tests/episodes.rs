@@ -35,6 +35,7 @@ fn season_selector_filters_and_sorts_episodes_without_changing_protocol_identity
     assert!(rt.find("episode-4").is_none());
     tap(&mut rt, "episode-3");
     assert_eq!(rt.state.selected_video_id.as_deref(), Some("show:2:1"));
+    assert!(rt.find("library-series").is_none());
     assert_eq!(
         rt.state
             .visible_episode_keys()
@@ -44,6 +45,8 @@ fn season_selector_filters_and_sorts_episodes_without_changing_protocol_identity
         ["show:2:1", "show:2:2"]
     );
     tap(&mut rt, "detail-back");
+    assert!(rt.state.selected_video_id.is_none());
+    assert!(rt.find("episode-3").is_some());
     tap(&mut rt, "season-select");
     for _ in 0..30 {
         rt.frame(1.0 / 60.0);

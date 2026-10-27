@@ -59,7 +59,13 @@ impl State {
     }
 
     pub(super) fn visible_episode_indices(&self) -> Vec<usize> {
-        self.season_episode_indices()[self.episode_range()].to_vec()
+        let indices = self.season_episode_indices();
+        let range = self.episode_range();
+        let start = self
+            .episode_state_offset
+            .unwrap_or(range.start)
+            .min(indices.len());
+        indices[start..start.saturating_add(EPISODES_PER_PAGE).min(indices.len())].to_vec()
     }
 
     pub(super) fn select_season(&mut self, season: Option<u32>) {
@@ -69,6 +75,8 @@ impl State {
         }
         self.episode_season = Some(season);
         self.episode_offset = 0;
+        self.episode_state_offset = None;
+        self.episode_viewport = None;
         self.episode_search = rune::TextEdit::new("");
         self.selected_video_id = None;
         self.stream_id += 1;

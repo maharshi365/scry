@@ -66,7 +66,7 @@ fn changing_preview_title_rejects_the_previous_titles_late_metadata() {
 }
 
 #[test]
-fn searching_beyond_the_first_episode_page_loads_its_watched_marker() {
+fn paging_beyond_the_first_episode_page_loads_its_watched_marker() {
     use scry_library::{Library, Media, MediaKey, MediaKind};
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("library.sqlite3");
@@ -96,11 +96,13 @@ fn searching_beyond_the_first_episode_page_loads_its_watched_marker() {
     rt.poll = Some(poll);
     settle_library(&mut rt, |s| s.library.snapshot.is_some());
     assert!(rt.find("episode-200").is_none());
-    tap(&mut rt, "episode-search");
-    rt.key(rune::KeyEvent {
-        key: rune::Key::Text("Episode 201".into()),
-        mods: rune::Mods::default(),
-    });
+    let viewport = rect(&rt, "episodes-scroll-0-0-Some(1)");
+    for _ in 0..3 {
+        rt.wheel(viewport[0] + 20.0, viewport[1] + 20.0, -100_000.0);
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+    }
     settle_library(&mut rt, |s| s.episode_watched("tt123:1:201"));
     assert!(rt.find("episode-watched-200").is_some());
 }
@@ -206,7 +208,7 @@ fn catalog_preview_opens_the_picker_and_history_restores_the_preview() {
 }
 
 #[test]
-fn tv_picker_searches_episodes_and_returns_from_sources_without_changing_season() {
+fn tv_picker_returns_from_sources_without_changing_season() {
     let mut s = init();
     s.navigation.page = Page::Detail;
     s.detail = Some(multi_season_series());
@@ -214,13 +216,14 @@ fn tv_picker_searches_episodes_and_returns_from_sources_without_changing_season(
     rt.frame(0.0);
     assert!(rt.find("episodes").is_some());
     assert!(rt.find("source-picker").is_none());
-    tap(&mut rt, "episode-search");
-    rt.key(rune::KeyEvent {
-        key: rune::Key::Text("finale".into()),
-        mods: rune::Mods::default(),
-    });
-    rt.frame(0.0);
-    assert_eq!(rt.state.visible_episode_indices(), [2]);
+    assert!(rt.find("episode-search").is_none());
+    assert!(rt.find("series-progress-summary").is_none());
+    assert!(
+        rt.elements()
+            .iter()
+            .all(|element| element.text.as_deref() != Some("EPISODES"))
+    );
+    assert_eq!(rt.state.visible_episode_indices(), [4, 2]);
     tap(&mut rt, "episode-2");
     assert_eq!(rt.state.selected_video_id.as_deref(), Some("show:1:2"));
     assert!(rt.find("source-picker").is_some());

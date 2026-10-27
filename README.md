@@ -73,7 +73,6 @@ the trailer button is disabled when the provider supplies no trailer.
 - Progress saves every 12 seconds and on Stop/close. More than 70% of the duration accumulated as playback marks the item watched; seeking does not count.
 - Stopping beyond 90% removes a finished movie from Currently watching or advances to the next known released episode. An unknown/future release is not offered as the next episode.
 - **Mark unwatched** clears progress and watched time. Playback tracking resumes automatically; there is no Auto track button.
-- **Series actions** manages the whole show separately from individual episodes.
 - Right-click the season selector or a season in its list to mark all of that season's episodes watched or unwatched, including episodes beyond the visible page.
 - Season and source-provider dropdowns overlay the page without shifting content. Escape or an outside click closes them.
 - A show's watched badge means every episode in its known inventory is released and watched. Future and undated episodes count toward overall progress, so watching four of eight known episodes means 50%, not complete. **Mark show watched** marks only its released episodes; **Mark show unwatched** resets its stored episodes. New inventory can move a saved show back to **To watch**. Totals depend on the episodes supplied by the provider.

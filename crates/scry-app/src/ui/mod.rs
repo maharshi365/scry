@@ -91,6 +91,8 @@ pub struct State {
     // Stable protocol ID (including season/episode suffix) for library integration.
     selected_video_id: Option<String>,
     episode_offset: usize,
+    episode_viewport: Option<[f32; 4]>,
+    episode_state_offset: Option<usize>,
     episode_search: TextEdit,
     #[expect(
         clippy::option_option,
