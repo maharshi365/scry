@@ -139,7 +139,7 @@ impl State {
             season_menu_open: false,
             streams: Vec::new(),
             stream_provider: None,
-            stream_best_first: false,
+            stream_sort: super::source_picker::SourceSort::Provider,
             source_menu_open: false,
             source_sort_open: false,
             warnings: Vec::new(),

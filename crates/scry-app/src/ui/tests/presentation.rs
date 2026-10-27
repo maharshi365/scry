@@ -205,7 +205,10 @@ fn compact_source_header_keeps_controls_and_episode_on_two_rows() {
     );
     tap(&mut rt, "source-sort");
     tap(&mut rt, "source-original");
-    assert!(!rt.state.stream_best_first);
+    assert_eq!(
+        rt.state.stream_sort,
+        crate::ui::source_picker::SourceSort::Original
+    );
     tap(&mut rt, "season-select");
     tap(&mut rt, "season-option-1");
     assert_eq!(rt.state.active_season(), Some(2));

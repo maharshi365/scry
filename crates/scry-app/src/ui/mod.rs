@@ -102,7 +102,7 @@ pub struct State {
     season_menu_open: bool,
     streams: Vec<(String, Stream)>,
     stream_provider: Option<String>,
-    stream_best_first: bool,
+    stream_sort: source_picker::SourceSort,
     source_menu_open: bool,
     source_sort_open: bool,
     warnings: Vec<String>,

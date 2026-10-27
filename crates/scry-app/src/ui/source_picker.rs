@@ -15,6 +15,23 @@ use super::{
 use rune::{Cx, El, col, el, icon, row, text};
 use scry_addons::Stream;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SourceSort {
+    Original,
+    Best,
+    Provider,
+}
+
+impl SourceSort {
+    fn title(self) -> &'static str {
+        match self {
+            Self::Original => "Original order",
+            Self::Best => "Best available",
+            Self::Provider => "Provider",
+        }
+    }
+}
+
 // Add-on names often put the quality on a second line. Keep that information
 // together, without interpreting provider-specific text as verified metadata.
 fn source_name(stream: &Stream, addon: &str) -> String {
@@ -84,14 +101,18 @@ fn visible_sources(s: &State) -> Vec<(usize, &String, &Stream)> {
                 .is_none_or(|provider| provider == addon)
                 .then_some((index, addon, stream))
         });
-    if s.stream_best_first {
-        super::source_ranking::rank_sources(
+    match s.stream_sort {
+        SourceSort::Best => super::source_ranking::rank_sources(
             sources,
             |(_, addon, stream)| (addon.as_str(), *stream),
             "",
-        )
-    } else {
-        sources.collect()
+        ),
+        SourceSort::Original => sources.collect(),
+        SourceSort::Provider => {
+            let mut sources: Vec<_> = sources.collect();
+            sources.sort_by_cached_key(|(_, addon, _)| addon.to_lowercase());
+            sources
+        }
     }
 }
 
@@ -138,9 +159,9 @@ pub(super) fn provider_menu(s: &State, cx: &Cx<State>) -> Option<El> {
     )
 }
 
-fn sort_option(key: &str, title: &str, best: bool, selected: bool) -> El {
+fn sort_option(key: &str, title: &str, order: SourceSort, selected: bool) -> El {
     menu_choice(key, title, selected, move |s: &mut State| {
-        s.stream_best_first = best;
+        s.stream_sort = order;
         s.source_sort_open = false;
     })
 }
@@ -155,7 +176,7 @@ pub(super) fn sort_menu(s: &State, cx: &Cx<State>) -> Option<El> {
             "source-sort-menu",
             "source-sort",
             180.0,
-            2.0 * (super::design::tokens::control::HEIGHT + 6.0),
+            3.0 * (super::design::tokens::control::HEIGHT + 6.0),
             |s: &mut State| s.source_sort_open = false,
         )
         .child(
@@ -165,14 +186,20 @@ pub(super) fn sort_menu(s: &State, cx: &Cx<State>) -> Option<El> {
                 .child(sort_option(
                     "source-best",
                     "Best available",
-                    true,
-                    s.stream_best_first,
+                    SourceSort::Best,
+                    s.stream_sort == SourceSort::Best,
                 ))
                 .child(sort_option(
                     "source-original",
                     "Original order",
-                    false,
-                    !s.stream_best_first,
+                    SourceSort::Original,
+                    s.stream_sort == SourceSort::Original,
+                ))
+                .child(sort_option(
+                    "source-provider-sort",
+                    "Provider",
+                    SourceSort::Provider,
+                    s.stream_sort == SourceSort::Provider,
                 )),
         ),
     )
@@ -214,15 +241,7 @@ pub(super) fn view(s: &State) -> El {
     } else {
         controls = controls.child(text("Sources").font(type_::SECTION_TITLE).color(t.text));
     }
-    controls = controls.child(el().grow(1.0)).child(
-        Button::new(
-            "source-sort",
-            if s.stream_best_first {
-                "Best available"
-            } else {
-                "Original order"
-            },
-        )
+    let sort = Button::new("source-sort", s.stream_sort.title())
         .variant(Variant::Ghost)
         .on_press(|s: &mut State| {
             s.season_menu_open = false;
@@ -234,8 +253,8 @@ pub(super) fn view(s: &State) -> El {
         .cursor(rune::Cursor::Pointer)
         .gap(6.0)
         .label("Sort sources")
-        .child(icon(&icons::DOWN, 14.0).color(t.text_secondary)),
-    );
+        .child(icon(&icons::DOWN, 14.0).color(t.text_secondary));
+    controls = controls.child(el().grow(1.0)).child(sort);
     let mut header = col()
         .key("source-picker-header")
         .w_full()
