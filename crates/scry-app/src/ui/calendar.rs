@@ -344,12 +344,7 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
             let caption = if entries.is_empty() {
                 date.format("%a %d").to_string()
             } else {
-                format!(
-                    "{} · {}{}",
-                    date.format("%a %d"),
-                    entries.len(),
-                    if entries.len() > 1 { " ↕" } else { "" }
-                )
+                format!("{} · {}", date.format("%a %d"), entries.len())
             };
             let mut header = row().w_full().center_y().child(
                 label(caption)
