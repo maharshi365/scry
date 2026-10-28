@@ -14,7 +14,6 @@ pub(crate) enum PlayerAction {
     ShowSubtitles,
     SubtitleDelay(i32),
     SubtitleSize(i32),
-    CycleAudio,
     ToggleFullscreen,
 }
 
@@ -66,7 +65,6 @@ impl State {
             PlayerAction::ShowSubtitles => self.show_subtitles(),
             PlayerAction::SubtitleDelay(direction) => self.adjust_subtitle_delay(direction),
             PlayerAction::SubtitleSize(direction) => self.adjust_subtitle_size(direction),
-            PlayerAction::CycleAudio => self.command(&["cycle", "aid"]),
             PlayerAction::ToggleFullscreen => self.set_fullscreen(!self.player.fullscreen),
         }
     }

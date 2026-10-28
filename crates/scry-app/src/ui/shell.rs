@@ -126,12 +126,14 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
         root = root.child(super::calendar::day_dialog(s, cx));
     }
     root.children(super::player::subtitles::panel(s))
+        .children(super::player::audio::panel(s))
         .children(super::settings::language_menu(s))
 }
 
 fn on_window_focus(s: &mut State, focused: bool, tx: &mut rune::Tx) {
     if !focused {
         s.player.subtitles.overlay.dismiss();
+        s.player.audio.overlay.dismiss();
         s.player.stats_overlay.dismiss();
         tx.instant();
     }
@@ -149,7 +151,9 @@ fn fullscreen_player(s: &State, scale: f32) -> El {
     if let Some(panel) = super::player::stats::panel(s) {
         content = content.child(panel);
     }
-    content.children(super::player::subtitles::panel(s))
+    content
+        .children(super::player::subtitles::panel(s))
+        .children(super::player::audio::panel(s))
 }
 
 fn sidebar(s: &State) -> El {

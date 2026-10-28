@@ -12,6 +12,7 @@ use rune::{TextEdit, Tx};
 use scry_addons::{Meta, Stream};
 use std::sync::Arc;
 
+mod audio;
 mod calendar;
 mod catalog;
 mod context_menu;

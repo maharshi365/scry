@@ -43,6 +43,11 @@ const SHORTCUTS: &[Registration] = &[
 ];
 
 pub(super) fn on_key(s: &mut State, event: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
+    if event.key == rune::Key::Escape && s.player.audio.overlay.is_open() {
+        s.player.audio.overlay.dismiss();
+        tx.instant();
+        return true;
+    }
     if event.key == rune::Key::Escape && s.player.subtitles.overlay.is_open() {
         s.player.subtitles.overlay.dismiss();
         tx.instant();

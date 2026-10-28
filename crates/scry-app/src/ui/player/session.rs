@@ -18,6 +18,7 @@ impl State {
         self.player.interaction.reset();
         self.player.stats_overlay.dismiss();
         self.player.subtitles = super::subtitles::Subtitles::default();
+        self.player.audio = super::audio::Audio::default();
         if let Some(services) = &mut self.services {
             services.cancel_subtitles();
         }
@@ -108,6 +109,7 @@ impl State {
                 self.player.sample = Sample::default();
                 self.player.stats_overlay.dismiss();
                 self.player.subtitles = super::subtitles::Subtitles::default();
+                self.player.audio = super::audio::Audio::default();
                 self.player.subtitles.defaults = self.subtitle_preferences.clone();
                 self.player.torrent_stats = None;
                 self.player.torrent_source = matches!(&source, Source::Stream(stream) | Source::Channel(stream, _) if stream.url.is_none() && stream.info_hash.is_some());

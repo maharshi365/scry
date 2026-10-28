@@ -61,6 +61,7 @@ pub enum Event {
     SubtitlePreferences(Result<scry_playback::subtitles::Preferences, String>),
     SubtitlePreferencesSaved(Result<(), String>),
     Subtitles(u64, scry_playback::subtitles::Snapshot),
+    Audio(u64, scry_playback::audio::Snapshot),
     SubtitleSources(u64, Vec<ExternalSubtitle>, bool, bool),
     SubtitleFile(u64, u64, Result<Arc<SubtitleFile>, String>),
     GuideDetails(u64, Vec<(scry_library::Media, Meta)>),
@@ -1008,6 +1009,7 @@ async fn player_loop(
                     }
                     let sample = engine.sample(started.elapsed().as_secs_f64());
                     inbox.notify(Event::Subtitles(generation, scry_playback::subtitles::Snapshot::read(engine.as_ref())));
+                    inbox.notify(Event::Audio(generation, scry_playback::audio::Snapshot::read(engine.as_ref())));
                     if let Some(active) = &mut report
                         && active.sample(&sample).is_err() {
                         ended = Some(true);

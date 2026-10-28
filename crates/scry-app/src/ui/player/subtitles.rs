@@ -443,6 +443,7 @@ impl State {
     }
 
     pub(in crate::ui) fn show_subtitles(&mut self) {
+        self.player.audio.overlay.dismiss();
         self.player.stats_overlay.dismiss();
         self.player.subtitles.overlay.pin();
         self.player.interaction.reveal(std::time::Instant::now());

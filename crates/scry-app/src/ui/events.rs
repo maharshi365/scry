@@ -139,6 +139,7 @@ fn apply(s: &mut State, event: Event) {
             s.subtitle_settings.error = result.err();
         }
         Event::Subtitles(id, snapshot) => s.apply_subtitle_snapshot(id, snapshot),
+        Event::Audio(id, snapshot) => s.apply_audio_snapshot(id, snapshot),
         Event::SubtitleSources(id, sources, done, failed) => {
             s.apply_subtitle_sources(id, sources, done, failed);
         }
@@ -308,6 +309,7 @@ fn apply(s: &mut State, event: Event) {
             s.refresh_library();
             s.player.playing = false;
             s.player.subtitles = super::player::subtitles::Subtitles::default();
+            s.player.audio = super::player::audio::Audio::default();
             s.player.ready = false;
             s.player.seek_preview = None;
             s.player.sample.cache_s = None;

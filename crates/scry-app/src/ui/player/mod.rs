@@ -1,5 +1,6 @@
 //! Native video surface and playback controls.
 pub(crate) mod actions;
+pub(super) mod audio;
 mod interaction;
 mod session;
 pub(super) mod shortcuts;
@@ -10,7 +11,7 @@ use super::{
     Page, State,
     controls::action,
     design::{
-        icons::{AUDIO, BACK, EXIT_FULLSCREEN, FORWARD, FULLSCREEN, MUTED, PAUSE, PLAY, VOLUME},
+        icons::{BACK, EXIT_FULLSCREEN, FORWARD, FULLSCREEN, MUTED, PAUSE, PLAY, VOLUME},
         tokens::{panel, theme, type_, video},
     },
     formatting::clock,
@@ -335,9 +336,7 @@ fn controls(s: &State) -> El {
         )
         .child(el().grow(1.0))
         .child(subtitles::trigger(s))
-        .child(icon_button(s, "audio", "Cycle audio track", &AUDIO, |s| {
-            s.player_action(PlayerAction::CycleAudio);
-        }))
+        .child(audio::trigger(s))
         .child(stats::trigger(s))
         .child(fullscreen_button(s));
     control_panel(s, buttons)

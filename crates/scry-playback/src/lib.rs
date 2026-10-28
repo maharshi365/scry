@@ -1,4 +1,5 @@
 //! Small dynamic binding to libmpv's stable C client API. No mpv subprocess or webview.
+pub mod audio;
 mod cache_budget;
 mod process;
 pub mod subtitles;

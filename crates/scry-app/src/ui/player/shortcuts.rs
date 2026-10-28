@@ -44,6 +44,10 @@ pub(in crate::ui) fn handle(s: &mut State, event: &KeyEvent, focus: Focus) -> bo
         s.player.subtitles.overlay.dismiss();
         return true;
     }
+    if event.key == rune::Key::Escape && s.player.audio.overlay.is_open() {
+        s.player.audio.overlay.dismiss();
+        return true;
+    }
     if event.key == rune::Key::Escape && s.player.stats_overlay.is_open() {
         s.player.stats_overlay.dismiss();
         return true;

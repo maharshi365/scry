@@ -119,6 +119,8 @@ impl State {
         };
         let open = if self.player.subtitles.overlay.is_open() {
             &self.player.subtitles.overlay
+        } else if self.player.audio.overlay.is_open() {
+            &self.player.audio.overlay
         } else {
             &self.player.stats_overlay
         };
@@ -135,37 +137,46 @@ impl State {
         self.host.cover(bottom, overlay, interaction.scale);
     }
 
-    pub(in crate::ui) fn poll_player_interaction(&mut self, tx: &mut rune::Tx) -> bool {
+    fn poll_player_overlays(&mut self, active: bool, tx: &mut rune::Tx) -> bool {
         let subtitles_was = self.player.subtitles.overlay.is_open();
-        let clicks = self.host.video_clicks();
+        let audio_was = self.player.audio.overlay.is_open();
         let overlay_was = self.player.stats_overlay.is_open();
-        let active = self.player.playing
-            && (self.navigation.page == super::Page::Player
-                || self.navigation.page == super::Page::Guide && self.player.fullscreen);
         if active {
             let now = Instant::now();
             match self.host.pointer_position(self.player.interaction.scale) {
                 VideoPointer::Inside(point) => {
                     self.player.stats_overlay.pointer(Some(point), now, tx);
                     self.player.subtitles.overlay.pointer(Some(point), now, tx);
+                    self.player.audio.overlay.pointer(Some(point), now, tx);
                 }
                 VideoPointer::Outside => {
                     self.player.stats_overlay.pointer(None, now, tx);
                     self.player.subtitles.overlay.pointer(None, now, tx);
+                    self.player.audio.overlay.pointer(None, now, tx);
                 }
                 VideoPointer::Unavailable => {}
             }
         } else {
             self.player.stats_overlay.dismiss();
             self.player.subtitles.overlay.dismiss();
+            self.player.audio.overlay.dismiss();
         }
         let subtitles_changed = self.player.subtitles.overlay.poll(Instant::now());
+        let audio_changed = self.player.audio.overlay.poll(Instant::now());
+        if self.player.audio.overlay.is_open() && !audio_was {
+            self.player.subtitles.overlay.dismiss();
+        }
         if self.player.subtitles.overlay.is_open() {
+            self.player.stats_overlay.dismiss();
+            self.player.audio.overlay.dismiss();
+        } else if self.player.audio.overlay.is_open() {
             self.player.stats_overlay.dismiss();
         }
         let overlay_changed = self.player.stats_overlay.poll(Instant::now())
             || overlay_was != self.player.stats_overlay.is_open()
             || subtitles_changed
+            || audio_changed
+            || audio_was != self.player.audio.overlay.is_open()
             || subtitles_was != self.player.subtitles.overlay.is_open();
         if let Some(services) = &self.services {
             services.observe_stream_stats(
@@ -173,6 +184,15 @@ impl State {
                     .then_some(self.player.generation),
             );
         }
+        overlay_changed
+    }
+
+    pub(in crate::ui) fn poll_player_interaction(&mut self, tx: &mut rune::Tx) -> bool {
+        let clicks = self.host.video_clicks();
+        let active = self.player.playing
+            && (self.navigation.page == super::Page::Player
+                || self.navigation.page == super::Page::Guide && self.player.fullscreen);
+        let overlay_changed = self.poll_player_overlays(active, tx);
         if !self.player.playing
             || !matches!(
                 self.navigation.page,
@@ -186,6 +206,11 @@ impl State {
         let was = (self.player.interaction.visible, self.player.fullscreen);
         self.player.interaction.double_click = self.host.double_click_interval();
         for click in clicks {
+            if self.player.audio.overlay.is_open() {
+                self.player.audio.overlay.dismiss();
+                acted = true;
+                continue;
+            }
             if self.player.subtitles.overlay.is_open() {
                 self.player.subtitles.overlay.dismiss();
                 acted = true;
@@ -213,7 +238,10 @@ impl State {
                     now,
                 );
             }
-            if !self.player.stats_overlay.is_open() && !self.player.subtitles.overlay.is_open() {
+            if !self.player.stats_overlay.is_open()
+                && !self.player.subtitles.overlay.is_open()
+                && !self.player.audio.overlay.is_open()
+            {
                 interaction.idle(now);
             }
         }
