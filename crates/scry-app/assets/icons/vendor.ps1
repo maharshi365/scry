@@ -4,12 +4,12 @@ $commit = '0ea8780434e2b4527dc860b18ff94883d080b59c'
 $base = "https://raw.githubusercontent.com/lucide-icons/lucide/$commit"
 $names = @(
     'download', 'trash-2', 'play', 'pause', 'rewind', 'fast-forward',
-    'volume-2', 'volume-x', 'captions', 'audio-lines', 'square', 'maximize',
+    'volume-2', 'volume-x', 'captions', 'audio-lines', 'maximize',
     'minimize', 'arrow-left', 'arrow-right', 'chevron-down', 'refresh-cw',
     'x', 'check', 'plus', 'settings',
     'layers', 'flag', 'sun', 'shield', 'scan-eye', 'graduation-cap',
     'repeat-2', 'moon', 'briefcase-business', 'trophy', 'clock-3',
-    'chart-no-axes-combined', 'hourglass'
+    'chart-no-axes-combined'
 )
 $upstream = Join-Path $PSScriptRoot 'lucide'
 $bodies = Join-Path $PSScriptRoot 'rune'
