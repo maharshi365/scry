@@ -172,7 +172,7 @@ fn loading(s: &State) -> El {
                 .h_full()
                 .pixels_fit(&background, rune::SurfaceFit::Fill)
                 .opacity(super::design::tokens::opacity::PLAYER_BACKDROP)
-                .transition(rune::Transition::opacity()),
+                .transition(super::primitives::motion::fade()),
         );
     }
     let title = if let Some(logo) = image(&s.player.logo) {
@@ -181,7 +181,7 @@ fn loading(s: &State) -> El {
             .max_w(480.0)
             .h(120.0)
             .pixels_fit(&logo, rune::SurfaceFit::Fit)
-            .transition(rune::Transition::opacity())
+            .transition(super::primitives::motion::fade())
     } else {
         text(s.player.title.clone())
             .key("player-loading-title")
@@ -332,7 +332,8 @@ fn controls(s: &State) -> El {
                 clock(position),
                 clock(s.player.sample.duration_s)
             ))
-            .key("player-time"),
+            .key("player-time")
+            .font(type_::EMPHASIS),
         )
         .child(el().grow(1.0))
         .child(subtitles::trigger(s))
@@ -347,7 +348,7 @@ fn control_panel(s: &State, buttons: El) -> El {
         .apply(col())
         .key("player-controls")
         .w_full()
-        .padding(12.0)
+        .padding(super::design::tokens::layout::ACTION_GAP)
         .gap(6.0)
         .child(timeline(s))
         .child(buttons)
@@ -367,7 +368,7 @@ fn control_panel(s: &State, buttons: El) -> El {
     if s.player.fullscreen {
         controls
     } else {
-        controls.child(label("Space / K  play / pause     ← / →  seek 5s     J / L  seek 10s     ↑ / ↓  volume     M  mute"))
+        controls.child(label("Space / K  play / pause     ← / →  seek 5s     J / L  seek 10s     ↑ / ↓  volume     M  mute").font(type_::CAPTION))
     }
 }
 

@@ -23,6 +23,7 @@ pub(in crate::ui) enum Variant {
     Hero,
     Notification,
     Setup,
+    Chrome,
 }
 
 impl Variant {
@@ -71,6 +72,7 @@ impl Variant {
             Self::Hero => (tokens::radius::LG, tokens::stats_hero(), edge()),
             Self::Notification => (tokens::radius::LG, panel(), tokens::stats_gold()),
             Self::Setup => (tokens::radius::XL, theme().card, tokens::transparent_edge()),
+            Self::Chrome => (tokens::radius::NONE, tokens::topbar(), edge()),
         };
         content.radius(radius).fill(fill).border(
             if matches!(self, Self::Plain | Self::Poster | Self::Setup) {
@@ -103,18 +105,18 @@ pub(in crate::ui) fn empty_state(
 ) -> El {
     col().key(key).w_full().grow(1.0).min_h(0.0).center().child(
         card()
-            .w(440.0)
-            .padding(32.0)
-            .gap(18.0)
+            .w(400.0)
+            .padding(tokens::layout::PANEL_INSET)
+            .gap(tokens::layout::PAGE_GAP)
             .center()
             .radius(tokens::radius::XL)
             .child(
-                el().w(64.0)
-                    .h(64.0)
+                el().w(tokens::badge::MEDALLION_SIZE)
+                    .h(tokens::badge::MEDALLION_SIZE)
                     .radius(tokens::radius::CHIP)
                     .fill(tokens::empty_icon_fill())
                     .center()
-                    .child(icon(glyph, 26.0).color(accent())),
+                    .child(icon(glyph, tokens::badge::MEDALLION_ICON).color(accent())),
             )
             .child(text(title).font(type_::EMPTY_TITLE).color(theme().text))
             .child(label(description))

@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn quick_preview_is_wider_and_chips_share_rows_when_they_fit() {
+fn quick_preview_is_compact_and_chips_share_rows_when_they_fit() {
     let mut s = init();
     scene_discover(&mut s);
     s.open_result(0);
@@ -11,7 +11,10 @@ fn quick_preview_is_wider_and_chips_share_rows_when_they_fit() {
     meta.director = vec!["Director A".into(), "Director B".into()];
     let mut rt = rune::Runtime::new(s, view, (1280.0, 820.0), rune::Env::default());
     rt.frame(0.0);
-    assert_eq!(rect(&rt, "title-preview")[2], 400.0);
+    assert_eq!(
+        rect(&rt, "title-preview")[2],
+        super::super::design::tokens::detail::PREVIEW_WIDTH
+    );
     let elements = rt.elements();
     for pair in [
         ["Drama", "Horror"],
@@ -188,7 +191,7 @@ fn catalog_preview_opens_the_picker_and_history_restores_the_preview() {
                 bounds[0] >= panel[0] && bounds[0] + bounds[2] <= panel[0] + panel[2] + 1.0,
                 "{key} fits preview: {bounds:?} in {panel:?}"
             );
-            assert!((bounds[3] - 52.0).abs() < 0.5);
+            assert!((bounds[3] - super::super::design::tokens::control::PILL_HEIGHT).abs() < 0.5);
         }
         tap(&mut rt, "title-play");
         for _ in 0..30 {

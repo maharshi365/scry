@@ -262,7 +262,10 @@ fn startup_opens_watching_and_addon_install_uses_a_dialog() {
         rt.frame(1.0 / 60.0);
     }
     assert!(rt.find("manifest").is_some());
-    assert!(rect(&rt, "manifest-frame")[3] >= 44.0);
+    assert_eq!(
+        rect(&rt, "manifest-frame")[3],
+        super::super::design::tokens::control::DIALOG_HEIGHT
+    );
     assert!(rt.state.install.text.is_empty());
     tap(&mut rt, "addon-dialog-close");
 }

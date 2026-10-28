@@ -211,10 +211,7 @@ pub(super) fn toast(s: &State) -> Option<El> {
                             .on_press(State::dismiss_achievement_toast),
                     ),
             )
-            .transition(
-                rune::Transition::move_edge(rune::Edge::Top)
-                    .combined(rune::Transition::offset(0.0, -24.0)),
-            ),
+            .transition(super::primitives::motion::notification()),
     )
 }
 

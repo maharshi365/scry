@@ -1,11 +1,13 @@
 //! Built-in providers install directly; custom URLs use the installation dialog.
 use super::{
     State,
-    controls::input,
+    app::on_input_key,
     design::{icons, tokens},
     primitives::{
-        button::{Button, Variant},
+        button::{Button, Size, Variant},
         dialog,
+        input::dialog_input,
+        pattern::detail_header,
         status::spinner,
         surface::scroll,
         text::{heading, label},
@@ -160,7 +162,6 @@ pub(super) fn addons(s: &State) -> El {
             )
             .child(
                 Button::new(format!("supported-addon-{index}"), "Install")
-                    .variant(Variant::Primary)
                     .enabled(!s.config_busy)
                     .on_press(move |s: &mut State| s.install(url.to_owned())),
             ),
@@ -168,18 +169,17 @@ pub(super) fn addons(s: &State) -> El {
     }
     col()
         .key("addons-page")
-        .gap(20.0)
+        .gap(tokens::layout::PAGE_GAP)
         .grow(1.0)
         .min_h(0.0)
         .w_full()
         .child(
-            row().w_full().gap(16.0).center_y()
-                .child(col().grow(1.0).gap(6.0)
-                    .child(heading("Add-ons"))
-                    .child(label(format!("{} installed · {} enabled", s.addons.len(), s.addons.iter().filter(|a| !a.disabled).count()))))
-                .child(Button::new("add-addon", "Add by URL")
+            detail_header("addons-header", "Add-ons",
+                &format!("{} installed · {} enabled", s.addons.len(), s.addons.iter().filter(|a| !a.disabled).count()),
+                row().child(Button::new("add-addon", "Add by URL")
+                    .variant(Variant::Primary)
                     .enabled(!s.config_busy)
-                    .on_press(|s| open_install(s, ""))),
+                    .on_press(|s| open_install(s, "")))),
         )
         .child(label("Browse available providers and manage installed add-ons in one place. Disable an add-on to keep its configuration without using it."))
         .child(scroll("addons-scroll", list).on_layout(|s: &mut State, rect| {
@@ -216,8 +216,8 @@ fn provider_card(
     super::primitives::surface::Variant::Provider
         .apply(row())
         .w_full()
-        .padding(24.0)
-        .gap(18.0)
+        .padding(tokens::layout::PANEL_INSET)
+        .gap(tokens::layout::PAGE_GAP)
         .center_y()
         .on_layout(move |s: &mut State, rect| {
             s.addon_layout.rects.insert(index, rect);
@@ -242,10 +242,9 @@ pub(super) fn install_dialog(s: &State) -> El {
     }
     let mut submit = Button::new("install-addon", "Install")
         .variant(Variant::Primary)
+        .size(Size::Dialog)
         .busy(s.config_busy)
-        .frame()
-        .w(52.0)
-        .h(48.0);
+        .frame();
     if s.addon_install_complete {
         feedback = feedback.child(label("Add-on installed successfully."));
         submit = Button::new("addon-install-done", "Done")
@@ -270,8 +269,8 @@ pub(super) fn install_dialog(s: &State) -> El {
             s.addon_install_open = false;
         })
         .w(640.0)
-        .padding(28.0)
-        .gap(20.0)
+        .padding(tokens::layout::PANEL_INSET)
+        .gap(tokens::layout::PAGE_GAP)
         .child(dialog::header("Install add-on").child(dialog::close(
             "addon-dialog-close",
             "Close install dialog",
@@ -279,11 +278,12 @@ pub(super) fn install_dialog(s: &State) -> El {
         )))
         .child(label("Manifest URL"))
         .child(
-            input(
+            dialog_input(
                 "manifest",
                 &s.install,
                 "http://…/manifest.json or https://…/manifest.json",
                 |s| &mut s.install,
+                on_input_key,
                 |s| {
                     if !s.addon_install_complete {
                         s.install(s.install.text.clone());
@@ -291,9 +291,7 @@ pub(super) fn install_dialog(s: &State) -> El {
                 },
             )
             .grow(0.0)
-            .w_full()
-            .h(48.0)
-            .min_h(48.0),
+            .w_full(),
         )
         .child(feedback)
         .child(

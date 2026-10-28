@@ -383,6 +383,13 @@ fn rendered_detail_actions_persist_and_appear_in_the_library() {
         s.library.entries.as_ref().is_some_and(Vec::is_empty)
     });
     tap(&mut rt, "library-watched-tab");
+    assert!(
+        rt.elements()
+            .iter()
+            .any(|e| e.key.as_deref() == Some("library-watched-tab")
+                && e.label.as_deref() == Some("Watched, selected")),
+        "Watched filter must receive the click after returning from detail"
+    );
     settle_library(&mut rt, |s| {
         s.library
             .entries

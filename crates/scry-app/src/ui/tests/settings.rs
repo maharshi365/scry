@@ -161,7 +161,12 @@ fn settings_choices_use_the_right_half_of_wide_rows_and_fill_the_available_width
         first[2] >= 100.0,
         "Quality choices should use the wide control column"
     );
-    assert!((last[0] + last[2] - (panel[0] + panel[2] - 24.0)).abs() < 1.0);
+    assert!(
+        (last[0] + last[2]
+            - (panel[0] + panel[2] - super::super::design::tokens::layout::PANEL_INSET))
+            .abs()
+            < 1.0
+    );
     for key in [
         "guide-quality-720",
         "guide-quality-1080",
@@ -169,7 +174,10 @@ fn settings_choices_use_the_right_half_of_wide_rows_and_fill_the_available_width
     ] {
         let choice = rect(&rt, key);
         assert!((choice[2] - first[2]).abs() < 1.0);
-        assert!(choice[3] >= 44.0);
+        assert_eq!(
+            choice[3],
+            super::super::design::tokens::control::SETTING_HEIGHT
+        );
     }
 }
 

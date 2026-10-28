@@ -19,8 +19,8 @@ use super::{
 };
 use rune::{Cx, El, col, el, icon, row, text};
 
-const PREVIEW_WIDTH: f32 = 400.0;
-const PREVIEW_PADDING: f32 = 24.0;
+const PREVIEW_WIDTH: f32 = tokens::detail::PREVIEW_WIDTH;
+const PREVIEW_PADDING: f32 = tokens::detail::PREVIEW_INSET;
 
 pub(super) fn detail(s: &State) -> El {
     let mut page = backdrop(s)
@@ -30,9 +30,9 @@ pub(super) fn detail(s: &State) -> El {
         .min_w(0.0);
     let mut side = col()
         .key("detail-selection")
-        .w(360.0)
+        .w(tokens::detail::SOURCE_WIDTH)
         .min_h(0.0)
-        .padding(20.0)
+        .padding(tokens::layout::PAGE_GAP)
         .gap(12.0)
         .fill(tokens::preview_panel());
     if let Some(meta) = &s.detail {
@@ -115,7 +115,10 @@ fn hero(s: &State, compact: bool) -> El {
             State::toggle_app_fullscreen,
         ));
     }
-    let mut info = col().w_full().gap(24.0).child(navigation);
+    let mut info = col()
+        .w_full()
+        .gap(tokens::layout::SECTION_GAP)
+        .child(navigation);
     if let Some(meta) = &s.detail {
         let title = if let Some(image) = meta
             .logo
@@ -124,7 +127,7 @@ fn hero(s: &State, compact: bool) -> El {
         {
             el().key("detail-logo")
                 .w_full()
-                .h(if compact { 100.0 } else { 140.0 })
+                .h(if compact { 72.0 } else { 96.0 })
                 .pixels_fit(&image, rune::SurfaceFit::Fit)
         } else {
             text(meta.name.clone())
@@ -159,7 +162,7 @@ fn hero(s: &State, compact: bool) -> El {
             .filter(|value| !value.is_empty())
             .cloned()
             .collect::<Vec<_>>()
-            .join("     ·     ");
+            .join(" / ");
         info = info.child(text(facts).wrap().font(type_::SECTION).color(theme().text));
         for (title, values) in [
             ("GENRES", &meta.genres),
@@ -186,17 +189,21 @@ fn hero(s: &State, compact: bool) -> El {
     }
     col()
         .min_h(0.0)
-        .gap(20.0)
-        .padding(if compact { PREVIEW_PADDING } else { 32.0 })
+        .gap(tokens::layout::PAGE_GAP)
+        .padding(if compact {
+            PREVIEW_PADDING
+        } else {
+            tokens::layout::PANEL_INSET
+        })
         .child(scroll("detail-info-scroll", info))
         .child(library_view::detail_actions(s))
 }
 
 fn chips(title: &str, values: &[String]) -> El {
-    let mut section = col().w_full().gap(10.0);
+    let mut section = col().w_full().gap(tokens::layout::COPY_GAP);
     if !values.is_empty() {
         section = section.child(label(title).font(type_::CAPTION));
-        let mut line = row().w_full().gap(8.0).min_w(0.0).flex_wrap();
+        let mut line = row().w_full().gap(4.0).min_w(0.0).flex_wrap();
         for value in values.iter().take(6) {
             line = line.child(
                 super::primitives::status::chip(value)
@@ -214,13 +221,16 @@ pub(super) fn quick_actions(s: &State, compact: bool) -> El {
         .detail
         .as_ref()
         .and_then(|meta| meta.trailer_streams.first());
-    let mut actions = input_group().h(52.0).gap(10.0).child(
-        Button::new("title-trailer", "Watch trailer in browser")
-            .size(super::primitives::button::Size::Pill)
-            .enabled(trailer.is_some())
-            .icon(&icons::TRAILER)
-            .on_press(State::open_trailer),
-    );
+    let mut actions = input_group()
+        .h(tokens::control::PILL_HEIGHT)
+        .gap(tokens::layout::ACTION_GAP)
+        .child(
+            Button::new("title-trailer", "Watch trailer in browser")
+                .size(super::primitives::button::Size::Pill)
+                .enabled(trailer.is_some())
+                .icon(&icons::TRAILER)
+                .on_press(State::open_trailer),
+        );
     if compact {
         actions = actions.child(
             Button::new("title-play", "Show streams or episodes")
@@ -229,8 +239,12 @@ pub(super) fn quick_actions(s: &State, compact: bool) -> El {
                 .frame()
                 .gap(10.0)
                 .grow(1.0)
-                .child(icon(&icons::PLAY, 22.0).color(accent()))
-                .child(text("Show").font(type_::LABEL).color(theme().text))
+                .child(icon(&icons::PLAY, tokens::control::ICON_SIZE).color(tokens::primary_text()))
+                .child(
+                    text("Show")
+                        .font(type_::LABEL)
+                        .color(tokens::primary_text()),
+                )
                 .on_press(|s: &mut State| {
                     s.remember();
                     s.detail_preview = false;

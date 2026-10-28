@@ -9,22 +9,23 @@ use crate::ui::{
     },
     primitives::{
         button::tab as tab_button,
+        pattern::detail_header,
         surface::{card, scroll},
-        text::{heading, label},
+        text::label,
     },
 };
 
 pub(super) fn view(s: &State) -> El {
-    let mut content = col().key("nerd-stats-content").w_full().gap(12.0).child(
-        row().w_full().center_y().gap(12.0).child(
-            col()
-                .grow(1.0)
-                .min_w(0.0)
-                .gap(3.0)
-                .child(heading("Stats for Nerds"))
-                .child(small("Your life in pixels. The numbers have receipts.")),
-        ),
-    );
+    let mut content = col()
+        .key("nerd-stats-content")
+        .w_full()
+        .gap(12.0)
+        .child(detail_header(
+            "stats-header",
+            "Stats for Nerds",
+            "Playback totals, library health, and achievements",
+            row(),
+        ));
     content = content.child(
         row()
             .key("stats-tabs")
@@ -97,21 +98,26 @@ fn tab(key: &str, title: &str, selected: bool, target: StatsTab) -> El {
 }
 
 pub(super) fn panel(key: &str, title: &str, glyph: &'static rune::Icon) -> El {
-    card().key(key).min_w(0.0).padding(14.0).gap(8.0).child(
-        row()
-            .gap(8.0)
-            .center_y()
-            .child(icon(glyph, 16.0).color(tokens::accent()))
-            .child(
-                text(title)
-                    .font(type_::ITEM_TITLE)
-                    .color(tokens::theme().text)
-                    .truncate()
-                    .w(0.0)
-                    .min_w(0.0)
-                    .grow(1.0),
-            ),
-    )
+    card()
+        .key(key)
+        .min_w(0.0)
+        .padding(tokens::layout::PAGE_GAP)
+        .gap(8.0)
+        .child(
+            row()
+                .gap(8.0)
+                .center_y()
+                .child(icon(glyph, 16.0).color(tokens::accent()))
+                .child(
+                    text(title)
+                        .font(type_::ITEM_TITLE)
+                        .color(tokens::theme().text)
+                        .truncate()
+                        .w(0.0)
+                        .min_w(0.0)
+                        .grow(1.0),
+                ),
+        )
 }
 
 fn hero(s: &State, stats: &NerdStats) -> El {
@@ -122,7 +128,7 @@ fn hero(s: &State, stats: &NerdStats) -> El {
         .padding(16.0)
         .gap(6.0)
         .child(
-            text("YOUR WATCHING CAREER")
+            text("TOTAL WATCH TIME")
                 .font(type_::STATS_KICKER)
                 .color(tokens::accent()),
         )

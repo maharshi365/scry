@@ -106,7 +106,7 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
     {
         changed |= super::profiling::poll(s, tx);
     }
-    changed
+    changed | s.navigation.present(tx)
 }
 
 fn request_library_updates(s: &mut State, tx: &mut Tx) -> bool {

@@ -12,9 +12,10 @@ use super::{
     library_view,
     player::player,
     primitives::{
-        button::{Button, Variant},
+        button::{Button, Variant, navigation_item},
         input_group::input_group,
-        surface::scroll,
+        surface::{Variant as Surface, divider, scroll},
+        text::eyebrow,
     },
 };
 use rune::{Cx, El, col, el, row, text};
@@ -61,11 +62,11 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
         .grow(1.0)
         .min_h(0.0)
         .min_w(0.0)
-        .gap(10.0)
+        .gap(tokens::layout::PAGE_GAP)
         .padding(if s.navigation.page == Page::Detail {
             0.0
         } else {
-            20.0
+            tokens::layout::PANEL_INSET
         });
     content = content.child(match s.navigation.page {
         Page::Discover => discover(s, cx),
@@ -80,15 +81,22 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
             .grow(1.0)
             .min_h(0.0)
             .min_w(0.0)
-            .child(discover(s, cx).w(0.0).grow(1.0).padding(20.0))
+            .child(
+                discover(s, cx)
+                    .w(0.0)
+                    .grow(1.0)
+                    .padding(tokens::layout::PANEL_INSET),
+            )
             .child(super::detail::preview(s)),
         Page::Detail => detail(s),
         Page::Player => player(s, cx.env().scale),
     });
-    let mut body = row().grow(1.0).min_w(0.0).min_h(0.0).w_full();
-    if s.navigation.page != Page::Detail {
-        body = body.child(sidebar(s));
-    }
+    let body = row()
+        .grow(1.0)
+        .min_w(0.0)
+        .min_h(0.0)
+        .w_full()
+        .child(sidebar(s));
     let mut root = col()
         .key("scry")
         .w_full()
@@ -159,14 +167,17 @@ fn fullscreen_player(s: &State, scale: f32) -> El {
 fn sidebar(s: &State) -> El {
     let mut sidebar = col()
         .key("sidebar")
-        .w(240.0)
-        .min_w(240.0)
+        .w(tokens::shell::SIDEBAR_WIDTH)
+        .min_w(tokens::shell::SIDEBAR_WIDTH)
         .h_full()
         .min_h(0.0)
-        .padding(18.0)
-        .gap(12.0)
+        .padding(tokens::shell::SIDEBAR_INSET)
+        .gap(tokens::layout::PAGE_GAP)
         .fill(tokens::sidebar());
-    let mut links = col().w_full().gap(12.0);
+    let mut links = col()
+        .w_full()
+        .gap(tokens::shell::NAV_GAP)
+        .child(eyebrow("01 / COLLECTION").px(10.0).py(6.0));
     for (key, title, page, glyph) in [
         (
             "nav-watching",
@@ -205,7 +216,12 @@ fn sidebar(s: &State) -> El {
         }
     }
     sidebar = sidebar.child(scroll("sidebar-pages", links));
-    let mut utilities = col().key("sidebar-utilities").w_full().gap(12.0);
+    let mut utilities = col()
+        .key("sidebar-utilities")
+        .w_full()
+        .gap(tokens::shell::NAV_GAP)
+        .child(divider())
+        .child(eyebrow("02 / SYSTEM").px(10.0).py(6.0));
     for (key, title, page, glyph) in [
         ("nav-stats", "Stats for Nerds", Page::Stats, &icons::CHART),
         ("nav-addons", "Add-ons", Page::Addons, &icons::ADDONS),
@@ -230,7 +246,7 @@ fn sidebar(s: &State) -> El {
             .w_full(),
         );
     }
-    sidebar
+    sidebar.child(eyebrow(concat!("SCRY / ", env!("CARGO_PKG_VERSION"))).px(10.0))
 }
 
 fn nav_action(
@@ -240,19 +256,7 @@ fn nav_action(
     selected: bool,
     f: impl Fn(&mut State) + 'static,
 ) -> El {
-    Button::new(key, title)
-        .selected(selected)
-        .frame()
-        .h(52.0)
-        .px(14.0)
-        .gap(12.0)
-        .child(rune::icon(glyph, 22.0).color(tokens::accent()))
-        .child(
-            text(title.to_owned())
-                .font(type_::LABEL)
-                .color(tokens::theme().text),
-        )
-        .on_press(f)
+    navigation_item(key, title, glyph, selected, f)
 }
 
 fn topbar(s: &State) -> El {
@@ -269,11 +273,11 @@ fn topbar(s: &State) -> El {
                 control::COMPACT_ICON_SIZE,
             ));
     }
-    row()
+    Surface::Chrome
+        .apply(row())
         .key("topbar")
         .w_full()
-        .h(68.0)
-        .fill(tokens::topbar())
+        .h(tokens::shell::TOPBAR_HEIGHT)
         .px(14.0)
         .gap(8.0)
         .center_y()
@@ -284,7 +288,12 @@ fn topbar(s: &State) -> El {
                 .h(28.0)
                 .pixels(&s.logo),
         )
-        .child(el().w(8.0))
+        .child(
+            text("SCRY")
+                .key("brand-wordmark")
+                .font(type_::BRAND)
+                .color(tokens::theme().text),
+        )
         .child(history_button(
             "nav-back",
             !s.navigation.back.is_empty(),
@@ -307,16 +316,12 @@ fn topbar(s: &State) -> El {
                 ))
                 .child(search_status),
         )
-        .child(
-            icon_action(
-                "page-refresh",
-                "Refresh current page",
-                &icons::REFRESH,
-                State::refresh_page,
-            )
-            .w(control::INPUT_HEIGHT)
-            .h(control::INPUT_HEIGHT),
-        )
+        .child(icon_action(
+            "page-refresh",
+            "Refresh current page",
+            &icons::REFRESH,
+            State::refresh_page,
+        ))
         .child(icon_action(
             "app-fullscreen",
             "App fullscreen (F11)",
@@ -338,6 +343,4 @@ fn history_button(key: &str, enabled: bool, forward: bool) -> El {
     .enabled(enabled)
     .icon(if forward { &icons::RIGHT } else { &icons::LEFT })
     .on_press(move |s: &mut State| s.travel(forward))
-    .w(control::INPUT_HEIGHT)
-    .h(control::INPUT_HEIGHT)
 }

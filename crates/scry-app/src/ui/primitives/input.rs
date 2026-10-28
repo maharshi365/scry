@@ -1,6 +1,19 @@
 use super::super::design::tokens::{control, edge, panel, theme, type_};
 use rune::{El, KeyEvent, TextEdit, Tx, el, text_input};
 
+pub(in crate::ui) fn dialog_input<S: 'static>(
+    key: &'static str,
+    edit: &TextEdit,
+    placeholder: &'static str,
+    get: fn(&mut S) -> &mut TextEdit,
+    on_key: fn(&mut S, &KeyEvent, &mut Tx) -> bool,
+    submit: impl Fn(&mut S) + 'static,
+) -> El {
+    input(key, edit, placeholder, get, on_key, submit)
+        .h(control::DIALOG_HEIGHT)
+        .min_h(control::DIALOG_HEIGHT)
+}
+
 pub(in crate::ui) fn input<S: 'static>(
     key: &'static str,
     edit: &TextEdit,

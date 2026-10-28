@@ -33,7 +33,7 @@ fn library_empty_states_keep_filters_and_browse_the_selected_type() {
             (list_tab[1] - kind_tab[1]).abs() < 1.0,
             "Library filters share one toolbar"
         );
-        assert!(list_tab[3] >= 36.0);
+        assert_eq!(list_tab[3], super::super::design::tokens::control::HEIGHT);
         assert!(rt.find("library-empty").is_some());
         let empty = rect(&rt, "library-empty");
         let filters = rect(&rt, "library-series-filter");
@@ -101,7 +101,10 @@ fn month_columns_align_across_rows_at_small_window_sizes() {
                 first[2]
             );
             assert!(
-                r[0] + r[2] <= width - 19.0,
+                r[0] + r[2]
+                    <= rect(&rt, "content")[0] + rect(&rt, "content")[2]
+                        - super::super::design::tokens::layout::PANEL_INSET
+                        + 0.5,
                 "day overflows the content at {width}"
             );
         }

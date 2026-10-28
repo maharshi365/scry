@@ -18,5 +18,18 @@
   instead of another bordered panel.
 - Keep feature-specific layout and behavior in feature modules. Do not move
   business rules into visual primitives.
+- Use `primitives/pattern.rs` for shared pages, detail headers, sections, and
+  settings groups. Settings groups own separators and one outer surface.
+- Keep theme values and shared layout/motion parameters in `design/tokens.rs`.
+  Features choose semantic roles; primitives own their appearance. A theme edit
+  must not require edits to feature screens.
+- Reserve primary styling for at most one main action per screen or modal.
+  Repeated row actions are secondary. Status is not an action: use
+  `primitives/feedback.rs` for non-interactive status and recovery messages.
+- Use `primitives/motion.rs` for motion intent. Hover feedback is immediate
+  and belongs only to the active target; do not animate passive settings rows.
+- Keep playground examples isolated from real services and data. Add a named
+  fixture and interaction/layout coverage for new shared patterns; inspect
+  rendered scenes before accepting visual changes.
 - Extend UI behavior tests and the design-policy test when adding shared
   controls or visual rules. Follow the root `AGENTS.md` checks before handoff.

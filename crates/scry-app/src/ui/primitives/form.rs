@@ -1,5 +1,5 @@
 use super::{
-    super::design::tokens::{self, type_},
+    super::design::tokens::{self, layout, type_},
     text::label,
 };
 use rune::{El, col, row, text};
@@ -11,8 +11,8 @@ pub(in crate::ui) fn choices() -> El {
 pub(in crate::ui) fn option_row(key: &str, title: &str, description: &str, options: El) -> El {
     row()
         .key(format!("{key}-row"))
-        .gap(24.0)
-        .py(20.0)
+        .gap(layout::ROW_GAP)
+        .py(layout::ROW_INSET)
         .center_y()
         .flex_wrap()
         .w_full()
@@ -20,9 +20,9 @@ pub(in crate::ui) fn option_row(key: &str, title: &str, description: &str, optio
         .child(
             col()
                 .w(0.0)
-                .min_w(200.0)
+                .min_w(layout::COPY_MIN_WIDTH)
                 .grow(1.0)
-                .gap(6.0)
+                .gap(layout::COPY_GAP)
                 .child(
                     text(title)
                         .key(format!("{key}-label"))
@@ -36,7 +36,7 @@ pub(in crate::ui) fn option_row(key: &str, title: &str, description: &str, optio
             options
                 .key(format!("{key}-choices"))
                 .w(0.0)
-                .min_w(280.0)
+                .min_w(layout::CONTROL_MIN_WIDTH)
                 .grow(1.0),
         )
 }
@@ -44,8 +44,8 @@ pub(in crate::ui) fn option_row(key: &str, title: &str, description: &str, optio
 pub(in crate::ui) fn section_header(title: &str, description: &str) -> El {
     col()
         .w_full()
-        .gap(6.0)
-        .pb(20.0)
+        .gap(layout::COPY_GAP)
+        .pb(layout::ROW_INSET)
         .child(
             text(title)
                 .font(type_::SECTION_TITLE)

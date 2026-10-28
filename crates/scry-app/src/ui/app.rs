@@ -216,6 +216,19 @@ fn setup(s: &mut State, wake: rune::Waker) {
 }
 
 pub(super) fn run() -> anyhow::Result<()> {
+    if std::env::args().any(|arg| arg == "--playground") {
+        super::playground::run(
+            std::env::args()
+                .skip(1)
+                .filter(|arg| arg != "--playground")
+                .collect(),
+        );
+        return Ok(());
+    }
+    run_app()
+}
+
+fn run_app() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
     let mut rune_args = Vec::new();
     let mut startup_play = None;
@@ -237,10 +250,14 @@ pub(super) fn run() -> anyhow::Result<()> {
     let native_navigation = scry_app::platform::NavigationInput::default();
     let window_navigation = native_navigation.clone();
     let app = App::new(AppSpec {
+        fonts: super::design::tokens::fonts::FILES,
+        families: super::design::tokens::fonts::FAMILIES,
         setup: Some(setup),
         poll: Some(poll),
         on_key: Some(on_key),
         scenes: &[
+            ("settings", super::scenes::scene_settings),
+            ("addons", super::scenes::scene_addons),
             ("subtitles", super::player::subtitles::scene),
             ("stats", super::stats::scene),
             ("discover", scene_discover),

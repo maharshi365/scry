@@ -16,6 +16,7 @@ mod guide;
 mod library_view;
 mod navigation;
 mod player;
+mod playground;
 mod poster_grid;
 mod primitives;
 #[cfg(feature = "profiling")]

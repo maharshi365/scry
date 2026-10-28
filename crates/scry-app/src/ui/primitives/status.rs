@@ -2,7 +2,8 @@ use super::super::design::{icons, tokens};
 use rune::{El, Icon, el, icon, text};
 
 pub(in crate::ui) fn chip(value: impl Into<String>) -> El {
-    el().padding(8.0)
+    el().px(6.0)
+        .py(3.0)
         .radius(tokens::radius::CHIP)
         .fill(tokens::chip_fill())
         .child(

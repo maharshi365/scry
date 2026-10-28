@@ -1,7 +1,7 @@
 use super::episodes::season_label;
 use super::{
     State,
-    design::tokens::{theme, type_, warning},
+    design::tokens::{self, theme, type_, warning},
     primitives::{
         button::{DropdownVariant, dropdown_trigger, menu_choice},
         surface::{Variant as SurfaceVariant, dropdown, scroll},
@@ -342,7 +342,7 @@ pub(super) fn view(s: &State) -> El {
                 .apply(col())
                 .key("source-empty")
                 .w_full()
-                .padding(24.0)
+                .padding(tokens::layout::PANEL_INSET)
                 .gap(8.0)
                 .child(text(title).font(type_::TITLE).color(t.text))
                 .child(label(message)),
@@ -380,8 +380,8 @@ pub(super) fn view(s: &State) -> El {
             .key(format!("stream-{index}"))
             .w_full()
             .min_w(0.0)
-            .padding(12.0)
-            .gap(10.0)
+            .padding(10.0)
+            .gap(tokens::layout::ACTION_GAP)
             .child(
                 row()
                     .w_full()

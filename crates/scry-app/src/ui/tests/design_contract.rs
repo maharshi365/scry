@@ -9,6 +9,12 @@ fn raw_visual_value(text: &str) -> bool {
     })
 }
 
+fn local_motion(text: &str) -> bool {
+    ["Transition::", "Spring::", "Anim::", ".hover_motion("]
+        .iter()
+        .any(|pattern| text.contains(pattern))
+}
+
 fn check_source(path: &Path, violations: &mut Vec<String>) {
     for entry in std::fs::read_dir(path).unwrap() {
         let path = entry.unwrap().path();
@@ -42,6 +48,9 @@ fn check_source(path: &Path, violations: &mut Vec<String>) {
                     "tok::theme(",
                     "TextStyle::new(",
                     ".alpha(",
+                    "Color::",
+                    "rune::rgb(",
+                    "rune::rgba(",
                 ]
                 .iter()
                 .any(|pattern| text.contains(pattern))
@@ -68,7 +77,14 @@ fn check_source(path: &Path, violations: &mut Vec<String>) {
                 ]
                 .iter()
                 .any(|pattern| text.contains(pattern));
-            if forbidden || inline_svg || inline_focus || inline_control || feature_dependency {
+            let local_motion = !is_tokens && parent != "primitives" && local_motion(text);
+            if forbidden
+                || inline_svg
+                || inline_focus
+                || inline_control
+                || feature_dependency
+                || local_motion
+            {
                 violations.push(format!("{}:{}: {}", path.display(), line + 1, text.trim()));
             }
         }
@@ -90,6 +106,24 @@ fn visual_policy_detects_literals_but_allows_shared_tokens() {
         ".border(tokens::border::WIDTH, edge())",
     ] {
         assert!(!raw_visual_value(source), "{source}");
+    }
+}
+
+#[test]
+fn motion_policy_rejects_local_tuning_but_allows_shared_intent() {
+    for source in [
+        "rune::Transition::opacity()",
+        "use rune::Transition; Transition::scale(0.96)",
+        ".hover_motion(Anim::INSTANT, Anim::INSTANT)",
+        "Spring::new(0.3, 0.0)",
+    ] {
+        assert!(local_motion(source), "{source}");
+    }
+    for source in [
+        ".transition(primitives::motion::fade())",
+        "motion::surface(panel)",
+    ] {
+        assert!(!local_motion(source), "{source}");
     }
 }
 

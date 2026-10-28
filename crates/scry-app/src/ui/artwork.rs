@@ -193,7 +193,7 @@ pub(super) fn poster_status_overlay(
     };
     surface.child(
         row()
-            .absolute(0.0, height * 7.0 / 8.0 - tokens::progress::RADIUS)
+            .absolute(0.0, height * 7.0 / 8.0 - tokens::progress::HEIGHT / 2.0)
             .w_full()
             .h(tokens::progress::HEIGHT)
             .px(8.0)

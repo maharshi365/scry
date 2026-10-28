@@ -60,11 +60,13 @@ function Publish-Scry([string]$Executable, [string]$Directory, [switch]$Force) {
     $null = New-Item -ItemType Directory -Path $staging
     try {
         Copy-Item -LiteralPath $Executable -Destination (Join-Path $staging 'scry.exe')
+        Copy-Item -LiteralPath (Join-Path $ScryRepository 'crates/scry-app/assets/fonts/OFL.txt') -Destination (Join-Path $staging 'FONT-LICENSE.txt')
         Copy-ScryRuntime $staging
         Stop-ScryExecutable (Join-Path $Directory 'scry.exe') -Force:$Force
         # Keep staging inside the destination so preparation never touches live files.
         Copy-Item -LiteralPath (Join-Path $staging 'libmpv-2.dll') -Destination $Directory -Force
         Copy-Item -LiteralPath (Join-Path $staging 'scry.exe') -Destination $Directory -Force
+        Copy-Item -LiteralPath (Join-Path $staging 'FONT-LICENSE.txt') -Destination $Directory -Force
     } finally {
         Remove-Item -LiteralPath $staging -Recurse -Force
     }

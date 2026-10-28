@@ -90,7 +90,7 @@ fn watched_episode_badges_do_not_move_episode_cards_or_titles() {
 }
 
 #[test]
-fn sidebar_keeps_only_a_compact_logo_at_minimum_window_size() {
+fn topbar_keeps_a_compact_brand_at_minimum_window_size() {
     let mut rt = rune::Runtime::new(init(), view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);
     let header = rect(&rt, "topbar");
@@ -99,7 +99,9 @@ fn sidebar_keeps_only_a_compact_logo_at_minimum_window_size() {
     assert!(logo[0] >= header[0] && logo[1] >= header[1]);
     assert!(logo[1] + logo[3] <= header[1] + header[3]);
     let back = rect(&rt, "nav-back");
-    assert!(back[0] - (logo[0] + logo[2]) <= 24.0);
+    let wordmark = rect(&rt, "brand-wordmark");
+    assert!(wordmark[0] >= logo[0] + logo[2]);
+    assert!(back[0] - (wordmark[0] + wordmark[2]) <= 24.0);
     assert!((logo[1] + logo[3] / 2.0 - (back[1] + back[3] / 2.0)).abs() < 1.0);
     assert!(rect(&rt, "nav-watching")[1] >= header[1] + header[3] + 14.0);
     assert_eq!(rect(&rt, "sidebar")[1], header[1] + header[3]);

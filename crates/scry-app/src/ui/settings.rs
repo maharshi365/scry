@@ -5,9 +5,9 @@ use super::{
     design::tokens,
     primitives::{
         button::{Button, DropdownVariant, Size, dropdown_trigger, menu_choice},
-        form::{choices, option_row, section_header},
-        surface::{card, divider, scroll},
-        text::{heading, label},
+        feedback::{self, Tone},
+        form::{choices, option_row},
+        pattern::{page, section, settings_group},
     },
 };
 use rune::{El, col};
@@ -17,27 +17,38 @@ use scry_playback::subtitles::{LANGUAGES, Preferences, SIZES, language_label};
 pub(super) fn view(s: &State) -> El {
     let mut content = col()
         .w_full()
-        .gap(24.0)
-        .child(heading("Player"))
+        .gap(tokens::layout::SECTION_GAP)
         .child(subtitle_settings(s))
-        .child(heading("Guide"))
-        .child(label("Applies to every Guide channel, not regular playback. Published programs stay in place when settings change."))
-        .child(source_settings(s))
-        .child(programming_settings(s));
+        .child(section(
+            "guide-preferences",
+            "Guide",
+            "Applies to Guide channels. Published programs stay in place when settings change.",
+            col()
+                .gap(tokens::layout::SECTION_GAP)
+                .child(source_settings(s))
+                .child(programming_settings(s)),
+        ));
     if let Some(error) = &s.guide.error {
-        content = content.child(label(error.clone()));
+        content = content.child(feedback::message(
+            "guide-settings-error",
+            "Cannot update Guide settings",
+            error,
+            Tone::Danger,
+            rune::row(),
+        ));
     }
-    col()
-        .key("settings-page")
-        .w_full()
-        .grow(1.0)
-        .min_h(0.0)
-        .gap(16.0)
-        .child(heading("Settings"))
-        .child(scroll("settings-scroll", content))
+    page("settings-page", "Settings", "", rune::row(), content)
 }
 
-fn subtitle_settings(s: &State) -> El {
+struct SubtitleControls {
+    sizes: El,
+    styles: El,
+    fonts: El,
+    weight: El,
+    position: El,
+}
+
+fn subtitle_controls(s: &State) -> SubtitleControls {
     let preferences = &s.subtitle_preferences;
     let mut sizes = choices();
     for &size in SIZES {
@@ -99,41 +110,112 @@ fn subtitle_settings(s: &State) -> El {
             next,
         ));
     }
-    let mut panel = card().key("subtitle-settings").padding(24.0).gap(0.0)
-        .child(section_header("Subtitles", "Defaults for new playback, including Guide. Player adjustments do not change these settings."))
-        .child(divider())
-        .child(option_row("subtitle-primary", "Primary language", "Select automatically when available. English is the default.", choices().child(language_trigger(s, Slot::Primary))))
-        .child(divider())
-        .child(option_row("subtitle-secondary", "Secondary language", "Show a second language at the top of the video. Off by default.", choices().child(language_trigger(s, Slot::Secondary))))
-        .child(divider())
-        .child(option_row("subtitle-default-size", "Text size", "Applies to both text subtitle tracks.", sizes))
-        .child(divider())
-        .child(option_row("subtitle-default-position", "Primary position", "Secondary subtitles start at the top.", position))
-        .child(divider())
-        .child(option_row("subtitle-font", "Font", "For plain text or when original styles are disabled.", fonts))
-        .child(divider())
-        .child(option_row("subtitle-weight", "Text weight", "Make plain-text subtitles easier to read.", weight))
-        .child(divider())
-        .child(option_row("subtitle-text-color", "Text color", "Choose a high-contrast text color.", color_choices(s, "text")))
-        .child(divider())
-        .child(option_row("subtitle-background-color", "Background", "A transparent or shaded box behind the text.", color_choices(s, "background")))
-        .child(divider())
-        .child(option_row("subtitle-outline-color", "Outline", "Separate the text from light or dark scenes.", color_choices(s, "outline")))
-        .child(divider())
-        .child(option_row("subtitle-ass-styles", "ASS / SSA styles", "Original styles preserve the track’s fonts, colors, and positions. Bitmap subtitles have a fixed appearance.", styles))
-        .child(divider())
-        .child(Button::new("subtitle-default-reset", "Restore subtitle defaults").enabled(!s.subtitle_settings.busy)
-            .on_press(|s: &mut State| s.save_subtitle_preferences(Preferences::default())));
-    if let Some(error) = &s.subtitle_settings.error {
-        panel = panel.child(label(error.clone())).child(
-            Button::new("subtitle-settings-retry", "Retry saving")
-                .enabled(!s.subtitle_settings.busy)
-                .on_press(|s: &mut State| {
-                    s.save_subtitle_preferences(s.subtitle_preferences.clone());
-                }),
-        );
+    SubtitleControls {
+        sizes,
+        styles,
+        fonts,
+        weight,
+        position,
     }
-    panel
+}
+
+fn subtitle_settings(s: &State) -> El {
+    let SubtitleControls {
+        sizes,
+        styles,
+        fonts,
+        weight,
+        position,
+    } = subtitle_controls(s);
+    let mut panel = settings_group(
+        "subtitle-settings",
+        vec![
+            option_row(
+                "subtitle-primary",
+                "Primary language",
+                "Select automatically when available. English is the default.",
+                choices().child(language_trigger(s, Slot::Primary)),
+            ),
+            option_row(
+                "subtitle-secondary",
+                "Secondary language",
+                "Show a second language at the top of the video. Off by default.",
+                choices().child(language_trigger(s, Slot::Secondary)),
+            ),
+            option_row(
+                "subtitle-default-size",
+                "Text size",
+                "Applies to both text subtitle tracks.",
+                sizes,
+            ),
+            option_row(
+                "subtitle-default-position",
+                "Primary position",
+                "Secondary subtitles start at the top.",
+                position,
+            ),
+            option_row(
+                "subtitle-font",
+                "Font",
+                "For plain text or when original styles are disabled.",
+                fonts,
+            ),
+            option_row(
+                "subtitle-weight",
+                "Text weight",
+                "Make plain-text subtitles easier to read.",
+                weight,
+            ),
+            option_row(
+                "subtitle-text-color",
+                "Text color",
+                "Choose a high-contrast text color.",
+                color_choices(s, "text"),
+            ),
+            option_row(
+                "subtitle-background-color",
+                "Background",
+                "A transparent or shaded box behind the text.",
+                color_choices(s, "background"),
+            ),
+            option_row(
+                "subtitle-outline-color",
+                "Outline",
+                "Separate the text from light or dark scenes.",
+                color_choices(s, "outline"),
+            ),
+            option_row(
+                "subtitle-ass-styles",
+                "ASS / SSA styles",
+                "Original styles preserve the track’s fonts, colors, and positions. Bitmap subtitles have a fixed appearance.",
+                styles,
+            ),
+            Button::new("subtitle-default-reset", "Restore subtitle defaults")
+                .enabled(!s.subtitle_settings.busy)
+                .on_press(|s: &mut State| s.save_subtitle_preferences(Preferences::default())),
+        ],
+    );
+    if let Some(error) = &s.subtitle_settings.error {
+        panel = panel.child(feedback::message(
+            "subtitle-settings-error",
+            "Cannot save subtitle defaults",
+            error,
+            Tone::Danger,
+            rune::row().child(
+                Button::new("subtitle-settings-retry", "Retry saving")
+                    .enabled(!s.subtitle_settings.busy)
+                    .on_press(|s: &mut State| {
+                        s.save_subtitle_preferences(s.subtitle_preferences.clone());
+                    }),
+            ),
+        ));
+    }
+    section(
+        "subtitle-section",
+        "Subtitles",
+        "Defaults for new playback, including Guide. Player adjustments do not change these settings.",
+        panel,
+    )
 }
 
 fn subtitle_choice(
@@ -290,35 +372,34 @@ fn source_settings(s: &State) -> El {
             next,
         ));
     }
-    card()
-        .key("guide-source-settings")
-        .padding(24.0)
-        .gap(0.0)
-        .child(section_header(
-            "Sources",
-            "Choose how Guide finds streams for your channels.",
-        ))
-        .child(divider())
-        .child(option_row(
-            "guide-provider",
-            "Preferred provider",
-            "Auto uses any enabled stream provider. Manage providers on the Add-ons page.",
-            provider_choices(s),
-        ))
-        .child(divider())
-        .child(option_row(
-            "guide-quality",
-            "Preferred quality",
-            "Prefer this resolution when available. Quality is not guaranteed.",
-            qualities,
-        ))
-        .child(divider())
-        .child(option_row(
-            "guide-sources",
-            "Stream types",
-            "Torrents can upload data and expose your IP. Direct only keeps torrents off.",
-            sources,
-        ))
+    section(
+        "guide-source-section",
+        "Sources",
+        "Choose how Guide finds streams for your channels.",
+        settings_group(
+            "guide-source-settings",
+            [
+                option_row(
+                    "guide-provider",
+                    "Preferred provider",
+                    "Auto uses any enabled stream provider. Manage providers on the Add-ons page.",
+                    provider_choices(s),
+                ),
+                option_row(
+                    "guide-quality",
+                    "Preferred quality",
+                    "Prefer this resolution when available. Quality is not guaranteed.",
+                    qualities,
+                ),
+                option_row(
+                    "guide-sources",
+                    "Stream types",
+                    "Torrents can upload data and expose your IP. Direct only keeps torrents off.",
+                    sources,
+                ),
+            ],
+        ),
+    )
 }
 
 fn programming_settings(s: &State) -> El {
@@ -353,28 +434,28 @@ fn programming_settings(s: &State) -> El {
             next,
         ));
     }
-    card()
-        .key("guide-programming-settings")
-        .padding(24.0)
-        .gap(0.0)
-        .child(section_header(
-            "Programming",
-            "Set the rules for future channel schedules.",
-        ))
-        .child(divider())
-        .child(option_row(
-            "guide-order",
-            "Episode order",
-            "Shuffle mixes episodes. In order follows the episode sequence.",
-            order,
-        ))
-        .child(divider())
-        .child(option_row(
-            "guide-episodes",
-            "Episode eligibility",
-            "Include all released episodes, or only episodes you have already watched.",
-            episodes,
-        ))
+    section(
+        "guide-programming-section",
+        "Programming",
+        "Set the rules for future channel schedules.",
+        settings_group(
+            "guide-programming-settings",
+            [
+                option_row(
+                    "guide-order",
+                    "Episode order",
+                    "Shuffle mixes episodes. In order follows the episode sequence.",
+                    order,
+                ),
+                option_row(
+                    "guide-episodes",
+                    "Episode eligibility",
+                    "Include all released episodes, or only episodes you have already watched.",
+                    episodes,
+                ),
+            ],
+        ),
+    )
 }
 
 fn provider_choices(s: &State) -> El {

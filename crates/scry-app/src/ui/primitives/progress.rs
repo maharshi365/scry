@@ -47,7 +47,7 @@ pub(in crate::ui) fn indicator(key: &str, value: f64, variant: Variant, color: C
         .w_full()
         .grow(1.0)
         .h(height)
-        .radius(height / 2.0)
+        .radius(progress::RADIUS)
         .fill(fill)
         .child(
             el().key(fill_key)
@@ -55,7 +55,7 @@ pub(in crate::ui) fn indicator(key: &str, value: f64, variant: Variant, color: C
                 .min_w(0.0)
                 .grow(fraction)
                 .h_full()
-                .radius(height / 2.0)
+                .radius(progress::RADIUS)
                 .fill(color),
         )
         .child(el().w(0.0).min_w(0.0).grow(1.0 - fraction).h_full())
@@ -125,7 +125,7 @@ pub(in crate::ui) fn buffered_slider(
         .child(
             el().w(progress::THUMB_SIZE)
                 .h(progress::THUMB_SIZE)
-                .radius(progress::THUMB_SIZE / 2.0)
+                .radius(tokens::radius::XS)
                 .fill(tokens::theme().text),
         )
         .child(

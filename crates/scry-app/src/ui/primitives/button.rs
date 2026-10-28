@@ -1,6 +1,48 @@
 use super::super::design::tokens::{self, control, type_};
 use rune::{El, Icon, Tx, col, el, icon, row, text};
 
+pub(in crate::ui) fn navigation_item<S: 'static>(
+    key: &str,
+    title: &str,
+    glyph: &'static Icon,
+    selected: bool,
+    select: impl Fn(&mut S) + 'static,
+) -> El {
+    Button::new(key, title)
+        .variant(Variant::Ghost)
+        .selected(selected)
+        .frame()
+        .h(tokens::shell::NAV_HEIGHT)
+        .px(10.0)
+        .gap(10.0)
+        .justify_start()
+        .radius(tokens::radius::NONE)
+        .border(tokens::border::NONE, tokens::transparent_edge())
+        .child(
+            el().key(format!("{key}-marker"))
+                .absolute(0.0, 0.0)
+                .w(tokens::shell::NAV_MARKER)
+                .h_full()
+                .fill(if selected {
+                    tokens::accent()
+                } else {
+                    tokens::transparent()
+                }),
+        )
+        .child(icon(glyph, tokens::shell::NAV_ICON).color(if selected {
+            tokens::accent()
+        } else {
+            tokens::theme().text_secondary
+        }))
+        .child(
+            text(title)
+                .truncate()
+                .font(type_::BODY)
+                .color(tokens::theme().text),
+        )
+        .on_press(select)
+}
+
 pub(in crate::ui) fn tab<S: 'static>(
     key: &str,
     title: &str,
@@ -41,8 +83,8 @@ pub(in crate::ui) fn menu_item<S: 'static>(
 
 pub(in crate::ui) fn segmented_group() -> El {
     row()
-        .gap(4.0)
-        .padding(4.0)
+        .gap(2.0)
+        .padding(2.0)
         .radius(tokens::radius::SEGMENTED)
         .fill(tokens::panel())
         .border(tokens::border::WIDTH, tokens::edge())
@@ -83,9 +125,9 @@ pub(in crate::ui) fn segment<S: 'static>(
         .variant(Variant::Ghost)
         .selected(selected)
         .on_press(f)
-        .min_w(96.0)
+        .min_w(80.0)
         .h(control::HEIGHT)
-        .px(16.0)
+        .px(12.0)
         .radius(tokens::radius::SM)
         .border(tokens::border::NONE, tokens::edge())
 }
@@ -106,6 +148,7 @@ pub(in crate::ui) enum Size {
     Compact,
     Pill,
     Setting,
+    Dialog,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -235,6 +278,9 @@ impl Button {
                 .h(control::SETTING_HEIGHT)
                 .min_w(control::SETTING_MIN_WIDTH)
                 .radius(tokens::radius::MD),
+            Size::Dialog => frame
+                .h(control::DIALOG_HEIGHT)
+                .w(control::DIALOG_SUBMIT_WIDTH),
         };
         frame = match self.layout {
             Layout::Standard => frame,
@@ -265,6 +311,8 @@ impl Button {
             tokens::disabled()
         } else if matches!(self.variant, Variant::Danger) {
             tokens::danger()
+        } else if matches!(self.variant, Variant::Primary) && !self.selected {
+            tokens::primary_text()
         } else {
             tokens::theme().text
         };
@@ -273,6 +321,7 @@ impl Button {
                 .w(match self.size {
                     Size::Compact => control::COMPACT_HEIGHT,
                     Size::Pill => control::PILL_HEIGHT,
+                    Size::Dialog => control::DIALOG_SUBMIT_WIDTH,
                     _ => control::ICON_TARGET,
                 })
                 .px(0.0)

@@ -12,6 +12,7 @@ use super::{
     design::icons,
     primitives::{
         button::{Button, Variant, segment, segmented_group},
+        pattern::detail_header,
         surface::empty_state,
         text::{heading, label},
     },
@@ -545,63 +546,64 @@ pub(super) fn detail_actions(s: &State) -> El {
 }
 
 pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
-    let mut body = col().w_full().gap(12.0).child(heading("Library")).child(
-        row()
+    let filters = row()
+        .center_y()
+        .gap(12.0)
+        .child(
+            segmented_group()
+                .child(segment(
+                    "library-watchlist-tab",
+                    "To watch",
+                    s.library.list == 0,
+                    |s: &mut State| {
+                        s.library.list = 0;
+                        s.library.offset = 0;
+                        s.library.entries = None;
+                        s.refresh_library();
+                    },
+                ))
+                .child(segment(
+                    "library-watched-tab",
+                    "Watched",
+                    s.library.list == 1,
+                    |s: &mut State| {
+                        s.library.list = 1;
+                        s.library.offset = 0;
+                        s.library.entries = None;
+                        s.refresh_library();
+                    },
+                )),
+        )
+        .child(
+            segmented_group()
+                .child(segment(
+                    "library-movies",
+                    "Movies",
+                    s.library.kind == MediaKind::Movie,
+                    |s: &mut State| {
+                        s.library.kind = MediaKind::Movie;
+                        s.library.offset = 0;
+                        s.library.entries = None;
+                        s.refresh_library();
+                    },
+                ))
+                .child(segment(
+                    "library-series-filter",
+                    "TV series",
+                    s.library.kind == MediaKind::Series,
+                    |s: &mut State| {
+                        s.library.kind = MediaKind::Series;
+                        s.library.offset = 0;
+                        s.library.entries = None;
+                        s.refresh_library();
+                    },
+                )),
+        );
+    let mut body =
+        col()
             .w_full()
-            .center_y()
-            .gap(16.0)
-            .child(
-                segmented_group()
-                    .child(segment(
-                        "library-watchlist-tab",
-                        "To watch",
-                        s.library.list == 0,
-                        |s: &mut State| {
-                            s.library.list = 0;
-                            s.library.offset = 0;
-                            s.library.entries = None;
-                            s.refresh_library();
-                        },
-                    ))
-                    .child(segment(
-                        "library-watched-tab",
-                        "Watched",
-                        s.library.list == 1,
-                        |s: &mut State| {
-                            s.library.list = 1;
-                            s.library.offset = 0;
-                            s.library.entries = None;
-                            s.refresh_library();
-                        },
-                    )),
-            )
-            .child(rune::el().grow(1.0))
-            .child(
-                segmented_group()
-                    .child(segment(
-                        "library-movies",
-                        "Movies",
-                        s.library.kind == MediaKind::Movie,
-                        |s: &mut State| {
-                            s.library.kind = MediaKind::Movie;
-                            s.library.offset = 0;
-                            s.library.entries = None;
-                            s.refresh_library();
-                        },
-                    ))
-                    .child(segment(
-                        "library-series-filter",
-                        "TV series",
-                        s.library.kind == MediaKind::Series,
-                        |s: &mut State| {
-                            s.library.kind = MediaKind::Series;
-                            s.library.offset = 0;
-                            s.library.entries = None;
-                            s.refresh_library();
-                        },
-                    )),
-            ),
-    );
+            .gap(12.0)
+            .child(detail_header("library-header", "Library", "", filters));
     if let Some(items) = &s.library.entries {
         if items.is_empty() {
             if s.library.offset == 0 {
@@ -677,9 +679,9 @@ fn library_empty(s: &State) -> El {
         ),
     )
     .grow(0.0)
-    .h(306.0)
-    .min_h(306.0)
-    .py(24.0)
+    .h(240.0)
+    .min_h(240.0)
+    .py(16.0)
 }
 
 pub(super) fn watching(s: &State, cx: &rune::Cx<State>) -> El {
@@ -724,9 +726,9 @@ pub(super) fn watching_empty() -> El {
             })),
     )
     .grow(0.0)
-    .h(306.0)
-    .min_h(306.0)
-    .py(24.0)
+    .h(240.0)
+    .min_h(240.0)
+    .py(16.0)
 }
 
 pub(super) fn up_next_pages(s: &State) -> El {

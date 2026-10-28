@@ -47,11 +47,11 @@ pub(in crate::ui) fn view(s: &State, cx: &Cx<State>) -> El {
     let now = chrono::Utc::now().timestamp();
     let mut content = col().grow(1.0).min_h(0.0).gap(12.0).child(header(s)).child(
         row()
-            .h(236.0)
-            .min_h(236.0)
-            .gap(16.0)
+            .h(tokens::guide::PREVIEW_HEIGHT)
+            .min_h(tokens::guide::PREVIEW_HEIGHT)
+            .gap(tokens::layout::PAGE_GAP)
             .child(details(s, now))
-            .child(super::super::player::player(s, cx.env().scale).w(340.0)),
+            .child(super::super::player::player(s, cx.env().scale).w(tokens::guide::PLAYER_WIDTH)),
     );
     if let Some(error) = &s.guide.error {
         content = content.child(label(error.clone()).color(tokens::danger()));
@@ -150,9 +150,9 @@ fn header(s: &State) -> El {
 }
 
 fn grid(s: &State, cx: &Cx<State>, now: i64) -> El {
-    let width = cx
-        .layout("guide-grid")
-        .map_or(660.0, |rect| (rect[2] - 160.0).max(200.0));
+    let width = cx.layout("guide-grid").map_or(660.0, |rect| {
+        (rect[2] - tokens::guide::CHANNEL_WIDTH).max(200.0)
+    });
     let start = now - now.rem_euclid(1800);
     let mut rows = col().w_full().gap(4.0).child(time_header(start, width));
     let mut count = 0;
@@ -166,7 +166,11 @@ fn grid(s: &State, cx: &Cx<State>, now: i64) -> El {
         count += 1;
         let id = channel.id.clone();
         let channel_name = channel.name.clone();
-        let mut programs = row().w(width).min_w(0.0).h(64.0).gap(0.0);
+        let mut programs = row()
+            .w(width)
+            .min_w(0.0)
+            .h(tokens::guide::ROW_HEIGHT)
+            .gap(0.0);
         let mut cursor = start;
         for slot in channel
             .slots
@@ -187,7 +191,7 @@ fn grid(s: &State, cx: &Cx<State>, now: i64) -> El {
         }
         rows = rows.child(
             row()
-                .h(64.0)
+                .h(tokens::guide::ROW_HEIGHT)
                 .child(
                     Button::new(
                         format!("guide-channel-{}", channel.id),
@@ -195,8 +199,8 @@ fn grid(s: &State, cx: &Cx<State>, now: i64) -> El {
                     )
                     .selected(Some(&channel.id) == s.guide.selected.as_ref())
                     .frame()
-                    .w(160.0)
-                    .h(64.0)
+                    .w(tokens::guide::CHANNEL_WIDTH)
+                    .h(tokens::guide::ROW_HEIGHT)
                     .child(
                         text(channel_name)
                             .truncate()
@@ -213,7 +217,7 @@ fn grid(s: &State, cx: &Cx<State>, now: i64) -> El {
             "No channels yet. Open Channels & collections to create your lineup.",
         ));
     }
-    let marker = 160.0 + cell_width(now - start, width);
+    let marker = tokens::guide::CHANNEL_WIDTH + cell_width(now - start, width);
     scroll(
         "guide-grid",
         rows.child(
@@ -246,7 +250,7 @@ fn program_cell(s: &State, channel: &Channel, slot: &Slot, now: i64, width: f32)
     )
     .frame()
     .w(width)
-    .h(64.0)
+    .h(tokens::guide::ROW_HEIGHT)
     .min_w(0.0)
     .padding(8.0)
     .child(
@@ -277,9 +281,17 @@ fn program_cell(s: &State, channel: &Channel, slot: &Slot, now: i64, width: f32)
 }
 
 fn time_header(start: i64, width: f32) -> El {
-    let mut times = row().h(30.0).child(label("CHANNEL").w(160.0));
+    let mut times = row().h(24.0).child(
+        label("CHANNEL")
+            .font(type_::CAPTION)
+            .w(tokens::guide::CHANNEL_WIDTH),
+    );
     for offset in [0, 1800, 3600, 5400] {
-        times = times.child(label(time(start + offset)).w(width / 4.0));
+        times = times.child(
+            label(time(start + offset))
+                .font(type_::CAPTION)
+                .w(width / 4.0),
+        );
     }
     times
 }

@@ -395,7 +395,7 @@ fn card(s: &State, entry: &Entry, index: usize, prefix: &str) -> El {
     )
     .w_full()
     .min_w(0.0)
-    .gap(8.0)
+    .gap(6.0)
     .padding(4.0)
     .on_press(move |s: &mut State| {
         s.navigation.anchor = Some(key.clone());
@@ -426,7 +426,7 @@ fn card(s: &State, entry: &Entry, index: usize, prefix: &str) -> El {
     })
     .child(
         col()
-            .gap(5.0)
+            .gap(3.0)
             .child(
                 text(entry.title.clone())
                     .w_full()
@@ -436,6 +436,7 @@ fn card(s: &State, entry: &Entry, index: usize, prefix: &str) -> El {
             )
             .child(
                 label(entry.subtitle.clone())
+                    .font(type_::CAPTION)
                     .key(format!("{prefix}-info-{index}"))
                     .w_full()
                     .truncate(),

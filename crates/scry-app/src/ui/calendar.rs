@@ -8,8 +8,9 @@ use super::{
     },
     primitives::{
         button::{Button, Size, Variant},
+        pattern::detail_header,
         surface::scroll,
-        text::{heading, label},
+        text::label,
     },
 };
 use chrono::{Datelike, Duration, Local, NaiveDate};
@@ -210,17 +211,11 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
         .grow(1.0)
         .min_h(0.0)
         .gap(12.0)
-        .child(
-            row()
-                .w_full()
-                .min_w(0.0)
-                .gap(8.0)
-                .center_y()
-                .child(heading("Calendar").grow(1.0)),
-        )
-        .child(
+        .child(detail_header(
+            "calendar-header",
+            "Calendar",
+            &c.anchor.format("%B %Y").to_string(),
             super::primitives::input_group::input_group()
-                .w_full()
                 .gap(8.0)
                 .child(icon_action(
                     "calendar-prev",
@@ -236,15 +231,8 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
                     "Next calendar period",
                     &icons::RIGHT,
                     |s| s.move_calendar(1),
-                ))
-                .child(
-                    label(c.anchor.format("%B %Y").to_string())
-                        .w(0.0)
-                        .grow(1.0)
-                        .min_w(0.0)
-                        .truncate(),
-                ),
-        );
+                )),
+        ));
     if c.failed > 0 {
         body = body.child(label(format!(
             "{} titles could not load. Refresh to retry.",

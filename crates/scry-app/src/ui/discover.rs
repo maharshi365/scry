@@ -2,29 +2,42 @@
 use super::{
     State,
     controls::action,
+    design::tokens,
     poster_grid,
-    primitives::text::{heading, label},
+    primitives::{
+        pattern::detail_header,
+        text::{heading, label},
+    },
 };
-use rune::{Cx, El, col};
+use rune::{Cx, El, col, row};
 
 pub(super) fn discover(s: &State, cx: &Cx<State>) -> El {
     let mut body = col()
         .key("discover")
-        .gap(18.0)
+        .gap(tokens::layout::PAGE_GAP)
         .grow(1.0)
         .min_h(0.0)
         .min_w(0.0)
-        .child(heading(if s.displayed_query.is_empty() {
-            super::catalog::category_label(&s.kind)
-        } else {
-            format!("Results for “{}”", s.displayed_query)
-        }));
+        .child(detail_header(
+            "discover-header",
+            &if s.displayed_query.is_empty() {
+                super::catalog::category_label(&s.kind)
+            } else {
+                format!("Results for “{}”", s.displayed_query)
+            },
+            &format!(
+                "{:03} titles loaded{}",
+                s.metas.len(),
+                if s.loading { " / loading" } else { "" }
+            ),
+            row(),
+        ));
     if s.addons.is_empty() {
         body = body.child(
             super::primitives::surface::Variant::Setup
                 .apply(col())
-                .padding(28.0)
-                .gap(16.0)
+                .padding(tokens::layout::PANEL_INSET)
+                .gap(tokens::layout::PAGE_GAP)
                 .child(heading("No catalogs installed"))
                 .child(label("Add a catalog provider to browse titles."))
                 .child(action("setup-cinemeta", "Open add-ons", |s| {

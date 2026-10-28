@@ -23,6 +23,7 @@ pub(super) struct NavigationState {
     pub back: Vec<Route>,
     pub forward: Vec<Route>,
     pub route_key: u64,
+    presented_route: Option<(Page, u64)>,
     next_route_key: u64,
     pub anchor: Option<String>,
     pub reveal: Option<String>,
@@ -35,10 +36,23 @@ impl Default for NavigationState {
             back: Vec::new(),
             forward: Vec::new(),
             route_key: 0,
+            presented_route: None,
             next_route_key: 0,
             anchor: None,
             reveal: None,
         }
+    }
+}
+
+impl NavigationState {
+    pub(super) fn present(&mut self, tx: &mut rune::Tx) -> bool {
+        let route = (self.page, self.route_key);
+        if self.presented_route == Some(route) {
+            return false;
+        }
+        self.presented_route = Some(route);
+        super::primitives::motion::route(tx);
+        true
     }
 }
 

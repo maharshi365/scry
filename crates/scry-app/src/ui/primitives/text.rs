@@ -9,6 +9,13 @@ pub(in crate::ui) fn heading(value: impl Into<String>) -> El {
     Variant::Heading.render(value)
 }
 
+pub(in crate::ui) fn eyebrow(value: impl Into<String>) -> El {
+    text(value)
+        .font(type_::SECTION)
+        .color(theme().text_secondary)
+        .wrap()
+}
+
 #[derive(Clone, Copy)]
 pub(in crate::ui) enum Variant {
     Body,

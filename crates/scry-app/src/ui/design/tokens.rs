@@ -1,12 +1,24 @@
-//! Semantic colors and named text roles for the dark native interface.
+//! Mechanical precision in Scry's original blue/teal palette.
 #![expect(
     clippy::disallowed_methods,
     reason = "This module owns raw visual values"
 )]
 use rune::{
-    Color,
+    Color, oklch, oklcha,
     tok::{self, TextStyle},
 };
+
+pub(in crate::ui) mod fonts {
+    // Unmodified IBM Plex fonts from google/fonts at
+    // 9862abc066c9b83bf84c3e8ed1fc2d8d48f9bbf0, ofl/ibmplex{sans,mono}.
+    // The accompanying OFL is included in each deployed copy.
+    pub const FAMILIES: (&str, &str) = ("IBM Plex Sans", "IBM Plex Mono");
+    pub const FILES: &[&[u8]] = &[
+        include_bytes!("../../../assets/fonts/IBMPlexSans.ttf"),
+        include_bytes!("../../../assets/fonts/IBMPlexMono-Regular.ttf"),
+        include_bytes!("../../../assets/fonts/IBMPlexMono-Medium.ttf"),
+    ];
+}
 
 pub(in crate::ui) mod subtitle {
     // libmpv colors use AARRGGBB, not CSS RRGGBBAA.
@@ -28,7 +40,24 @@ pub(in crate::ui) mod subtitle {
 }
 
 pub(in crate::ui) fn theme() -> tok::Theme {
-    tok::theme(true)
+    tok::Theme {
+        bg: oklch(0.185, 0.004, 265.0),
+        card: oklch(0.232, 0.005, 265.0),
+        card_border: oklcha(1.0, 0.0, 0.0, 0.05),
+        text: oklch(0.955, 0.003, 265.0),
+        text_secondary: oklch(0.72, 0.008, 265.0),
+        separator: oklcha(1.0, 0.0, 0.0, 0.055),
+        control_track: oklcha(1.0, 0.0, 0.0, 0.05),
+        control_off: oklcha(1.0, 0.0, 0.0, 0.085),
+        indicator: oklch(0.43, 0.006, 265.0),
+        knob: oklch(0.985, 0.0, 0.0),
+        hover: oklcha(1.0, 0.0, 0.0, 0.016),
+        press: oklcha(1.0, 0.0, 0.0, 0.03),
+        shadow: oklcha(0.0, 0.0, 0.0, 0.42),
+        shadow_soft: oklcha(0.0, 0.0, 0.0, 0.28),
+        edge: oklcha(0.0, 0.0, 0.0, 0.3),
+        knob_shadow: oklcha(0.0, 0.0, 0.0, 0.3),
+    }
 }
 pub(in crate::ui) fn accent() -> Color {
     rune::oklch(0.79, 0.12, 195.0)
@@ -95,6 +124,9 @@ pub(in crate::ui) fn poster(index: usize) -> Color {
 pub(in crate::ui) fn primary_fill() -> Color {
     accent().alpha(0.18)
 }
+pub(in crate::ui) fn primary_text() -> Color {
+    theme().text
+}
 pub(in crate::ui) fn primary_edge() -> Color {
     accent().alpha(0.5)
 }
@@ -133,7 +165,7 @@ pub(in crate::ui) fn empty_icon_fill() -> Color {
 }
 
 pub(in crate::ui) mod focus {
-    pub const WIDTH: f32 = 2.0;
+    pub const WIDTH: f32 = 1.0;
     pub const OFFSET: f32 = 2.0;
 }
 
@@ -148,16 +180,16 @@ pub(in crate::ui) mod border {
 
 pub(in crate::ui) mod radius {
     pub const NONE: f32 = 0.0;
-    pub const XS: f32 = 4.0;
-    pub const SM: f32 = 6.0;
-    pub const MD: f32 = 8.0;
-    pub const LG: f32 = 12.0;
-    pub const XL: f32 = 16.0;
-    pub const CHIP: f32 = 18.0;
-    pub const SEGMENTED: f32 = 10.0;
-    pub const PROVIDER: f32 = 14.0;
-    pub const CALENDAR: f32 = 7.0;
-    pub const EPISODE: f32 = 9.0;
+    pub const XS: f32 = 2.0;
+    pub const SM: f32 = 2.0;
+    pub const MD: f32 = 2.0;
+    pub const LG: f32 = 3.0;
+    pub const XL: f32 = 3.0;
+    pub const CHIP: f32 = 2.0;
+    pub const SEGMENTED: f32 = 2.0;
+    pub const PROVIDER: f32 = 3.0;
+    pub const CALENDAR: f32 = 2.0;
+    pub const EPISODE: f32 = 2.0;
 }
 
 pub(in crate::ui) mod opacity {
@@ -169,13 +201,52 @@ pub(in crate::ui) mod opacity {
 
 pub(in crate::ui) mod motion {
     pub const SPINNER_PERIOD: f64 = 0.8;
+    pub const SURFACE_SCALE: f32 = 0.99;
+    pub const NOTIFICATION_OFFSET: f32 = -24.0;
+    pub const HOVER: rune::Anim = rune::Anim::INSTANT;
+}
+
+/// Shared composition measurements; feature-specific geometry stays in features.
+pub(in crate::ui) mod layout {
+    pub const PAGE_GAP: f32 = 12.0;
+    pub const SECTION_GAP: f32 = 16.0;
+    pub const COPY_GAP: f32 = 4.0;
+    pub const ACTION_GAP: f32 = 8.0;
+    pub const PANEL_INSET: f32 = 16.0;
+    pub const ROW_GAP: f32 = 16.0;
+    pub const ROW_INSET: f32 = 10.0;
+    pub const COPY_MIN_WIDTH: f32 = 200.0;
+    pub const CONTROL_MIN_WIDTH: f32 = 240.0;
+}
+
+pub(in crate::ui) mod shell {
+    pub const SIDEBAR_WIDTH: f32 = 188.0;
+    pub const TOPBAR_HEIGHT: f32 = 48.0;
+    pub const SIDEBAR_INSET: f32 = 10.0;
+    pub const NAV_HEIGHT: f32 = 34.0;
+    pub const NAV_GAP: f32 = 4.0;
+    pub const NAV_MARKER: f32 = 2.0;
+    pub const NAV_ICON: f32 = 16.0;
+}
+
+pub(in crate::ui) mod detail {
+    pub const SOURCE_WIDTH: f32 = 340.0;
+    pub const PREVIEW_WIDTH: f32 = 380.0;
+    pub const PREVIEW_INSET: f32 = 16.0;
+}
+
+pub(in crate::ui) mod guide {
+    pub const CHANNEL_WIDTH: f32 = 132.0;
+    pub const ROW_HEIGHT: f32 = 52.0;
+    pub const PREVIEW_HEIGHT: f32 = 196.0;
+    pub const PLAYER_WIDTH: f32 = 300.0;
 }
 
 pub(in crate::ui) mod poster {
-    pub const HEIGHT: f32 = 246.0;
-    pub const CARD_HEIGHT: f32 = 302.0;
-    pub const GAP: f32 = 18.0;
-    pub const MIN_WIDTH: f32 = 156.0;
+    pub const HEIGHT: f32 = 190.0;
+    pub const CARD_HEIGHT: f32 = 242.0;
+    pub const GAP: f32 = 12.0;
+    pub const MIN_WIDTH: f32 = 124.0;
     pub const RADIUS: f32 = super::radius::XS;
     pub const THUMBNAIL_WIDTH: f32 = 32.0;
     pub const THUMBNAIL_HEIGHT: f32 = 48.0;
@@ -186,62 +257,89 @@ pub(in crate::ui) mod poster {
 pub(in crate::ui) mod badge {
     pub const PLAY_SIZE: f32 = 28.0;
     pub const PLAY_ICON: f32 = 14.0;
-    pub const MEDALLION_SIZE: f32 = 56.0;
-    pub const MEDALLION_ICON: f32 = 28.0;
+    pub const MEDALLION_SIZE: f32 = 40.0;
+    pub const MEDALLION_ICON: f32 = 22.0;
 }
 
 pub(in crate::ui) mod progress {
-    pub const HEIGHT: f32 = 6.0;
-    pub const RADIUS: f32 = HEIGHT / 2.0;
+    pub const HEIGHT: f32 = 3.0;
+    pub const RADIUS: f32 = 0.0;
     pub const SLIDER_HEIGHT: f32 = 24.0;
     pub const RAIL_HEIGHT: f32 = 4.0;
-    pub const THUMB_SIZE: f32 = 10.0;
-    pub const COMPACT_HEIGHT: f32 = 5.0;
-    pub const SPLIT_HEIGHT: f32 = 10.0;
-    pub const SPLIT_RADIUS: f32 = 3.0;
+    pub const THUMB_SIZE: f32 = 8.0;
+    pub const COMPACT_HEIGHT: f32 = 3.0;
+    pub const SPLIT_HEIGHT: f32 = 6.0;
+    pub const SPLIT_RADIUS: f32 = 0.0;
 }
 
 pub(in crate::ui) mod calendar {
-    pub const GAP: f32 = 8.0;
-    pub const MIN_DAY_HEIGHT: f32 = 82.0;
+    pub const GAP: f32 = 4.0;
+    pub const MIN_DAY_HEIGHT: f32 = 72.0;
 }
 
 pub(in crate::ui) mod control {
-    pub const HEIGHT: f32 = 38.0;
-    pub const ICON_SIZE: f32 = 22.0;
+    pub const HEIGHT: f32 = 32.0;
+    pub const ICON_SIZE: f32 = 16.0;
     pub const ICON_TARGET: f32 = HEIGHT;
     pub const COMPACT_HEIGHT: f32 = 24.0;
     pub const COMPACT_ICON_SIZE: f32 = super::type_::SMALL.size * 1.2;
     pub const RADIUS: f32 = super::radius::XS;
     pub const INPUT_HEIGHT: f32 = HEIGHT;
-    pub const SETTING_HEIGHT: f32 = 46.0;
+    pub const DIALOG_HEIGHT: f32 = 36.0;
+    pub const DIALOG_SUBMIT_WIDTH: f32 = 40.0;
+    pub const SETTING_HEIGHT: f32 = 34.0;
     pub const SETTING_MIN_WIDTH: f32 = 64.0;
-    pub const PILL_HEIGHT: f32 = 52.0;
-    pub const PILL_RADIUS: f32 = PILL_HEIGHT / 2.0;
+    pub const PILL_HEIGHT: f32 = 36.0;
+    pub const PILL_RADIUS: f32 = super::radius::SM;
     pub const CHEVRON_SIZE: f32 = 14.0;
     pub const STEPPER_WIDTH: f32 = 152.0;
 }
 
 pub(in crate::ui) mod type_ {
     use super::TextStyle;
-    pub use rune::tok::type_::{BODY, LABEL, SECTION, TITLE};
-    pub const HEADING: TextStyle = TextStyle::new(25.0, 650.0);
-    pub const EMPTY_TITLE: TextStyle = TextStyle::new(22.0, 600.0);
-    pub const BADGE: TextStyle = TextStyle::new(10.0, 600.0);
-    pub const ITEM: TextStyle = TextStyle::new(14.0, 500.0);
-    pub const ITEM_TITLE: TextStyle = TextStyle::new(14.0, 600.0);
-    pub const POSTER_TITLE: TextStyle = TextStyle::new(14.0, 550.0);
-    pub const SECTION_TITLE: TextStyle = TextStyle::new(18.0, 600.0);
-    pub const EMPHASIS: TextStyle = TextStyle::new(13.0, 500.0);
-    pub const CAPTION: TextStyle = TextStyle::new(11.0, 400.0);
+    pub const BODY: TextStyle = TextStyle::new(12.0, 400.0);
+    pub const LABEL: TextStyle = TextStyle::new(11.0, 500.0).mono();
+    pub const SECTION: TextStyle = TextStyle::new(10.0, 500.0).mono();
+    pub const TITLE: TextStyle = TextStyle::new(12.0, 600.0);
+    pub const HEADING: TextStyle = TextStyle::new(20.0, 600.0);
+    pub const BRAND: TextStyle = TextStyle::new(14.0, 600.0).mono();
+    pub const EMPTY_TITLE: TextStyle = TextStyle::new(17.0, 600.0);
+    pub const BADGE: TextStyle = TextStyle::new(10.0, 500.0).mono();
+    pub const ITEM: TextStyle = TextStyle::new(12.0, 500.0);
+    pub const ITEM_TITLE: TextStyle = TextStyle::new(12.0, 600.0);
+    pub const POSTER_TITLE: TextStyle = TextStyle::new(12.0, 550.0);
+    pub const SECTION_TITLE: TextStyle = TextStyle::new(12.0, 600.0).mono();
+    pub const EMPHASIS: TextStyle = TextStyle::new(11.0, 500.0).mono();
+    pub const CAPTION: TextStyle = TextStyle::new(10.0, 400.0).mono();
     pub const SMALL: TextStyle = TextStyle::new(10.0, 400.0);
-    pub const SMALL_EMPHASIS: TextStyle = TextStyle::new(10.0, 500.0);
-    pub const CALENDAR_TITLE: TextStyle = TextStyle::new(12.0, 550.0);
-    pub const PLAYER_TITLE: TextStyle = TextStyle::new(20.0, 550.0);
-    pub const LOADING_TITLE: TextStyle = TextStyle::new(30.0, 550.0);
-    pub const POSTER_FALLBACK: TextStyle = TextStyle::new(52.0, 300.0);
+    pub const SMALL_EMPHASIS: TextStyle = TextStyle::new(10.0, 500.0).mono();
+    pub const CALENDAR_TITLE: TextStyle = TextStyle::new(11.0, 550.0);
+    pub const PLAYER_TITLE: TextStyle = TextStyle::new(16.0, 550.0);
+    pub const LOADING_TITLE: TextStyle = TextStyle::new(24.0, 550.0);
+    pub const POSTER_FALLBACK: TextStyle = TextStyle::new(40.0, 400.0).mono();
     pub const THUMBNAIL_FALLBACK: TextStyle = TextStyle::new(16.0, 500.0);
-    pub const STATS_HERO: TextStyle = TextStyle::new(48.0, 650.0);
-    pub const STATS_NUMBER: TextStyle = TextStyle::new(26.0, 600.0);
-    pub const STATS_KICKER: TextStyle = TextStyle::new(10.0, 650.0);
+    pub const STATS_HERO: TextStyle = TextStyle::new(36.0, 500.0).mono();
+    pub const STATS_NUMBER: TextStyle = TextStyle::new(22.0, 500.0).mono();
+    pub const STATS_KICKER: TextStyle = TextStyle::new(10.0, 500.0).mono();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compact_theme_preserves_scrys_original_palette() {
+        for (actual, original) in [
+            (accent(), oklch(0.79, 0.12, 195.0)),
+            (canvas(), oklch(0.17, 0.018, 240.0)),
+            (panel(), oklch(0.205, 0.018, 240.0)),
+            (sidebar(), oklch(0.145, 0.018, 240.0)),
+            (topbar(), oklch(0.15, 0.018, 240.0)),
+            (selected(), oklch(0.29, 0.05, 220.0)),
+        ] {
+            assert_eq!(actual, original);
+        }
+        assert_eq!(primary_fill(), accent().alpha(0.18));
+        assert_eq!(primary_text(), theme().text);
+    }
 }

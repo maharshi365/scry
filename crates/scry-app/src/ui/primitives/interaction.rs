@@ -13,5 +13,5 @@ pub(in crate::ui) fn action(content: El, selected: bool) -> El {
 }
 
 pub(in crate::ui) fn focus_ring(content: El) -> El {
-    content.focus_ring(focus::WIDTH, focus::OFFSET, accent())
+    super::motion::hover(content).focus_ring(focus::WIDTH, focus::OFFSET, accent())
 }

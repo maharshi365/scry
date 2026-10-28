@@ -5,6 +5,17 @@ use scry_addons::Stream;
 use scry_library::{Media, MediaKey, MediaKind};
 use std::sync::Arc;
 
+pub(super) fn scene_settings(s: &mut State) {
+    s.navigation.page = Page::Settings;
+    s.config_busy = false;
+    s.subtitle_settings.busy = false;
+}
+
+pub(super) fn scene_addons(s: &mut State) {
+    s.navigation.page = Page::Addons;
+    s.config_busy = false;
+}
+
 pub(super) fn scene_discover(s: &mut State) {
     if let Err(error) = discover(s) {
         s.error = Some(error.to_string());
