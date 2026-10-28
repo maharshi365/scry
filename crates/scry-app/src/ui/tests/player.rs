@@ -115,6 +115,43 @@ fn timeline_supports_click_and_drag_and_controls_fit_minimum_window() {
 }
 
 #[test]
+fn stream_stats_use_a_short_horizontal_panel_for_both_source_types() {
+    let mut rt = player_runtime();
+    tap(&mut rt, "player-stats");
+    let direct = rect(&rt, "player-stats-overlay");
+    assert!((direct[2] - 360.0).abs() < 0.5);
+    assert!(direct[3] <= 110.0, "Direct stats are too tall: {direct:?}");
+    assert!(rt.find("player-torrent-stats").is_none());
+
+    rt.update(|s, tx| {
+        s.player.torrent_source = true;
+        s.player.torrent_stats = Some(scry_torrents::Stats {
+            downloaded_bytes: Some(2_700_000_000),
+            total_bytes: 7_500_000_000,
+            download_bytes_per_second: Some(8_400_000.0),
+            upload_bytes_per_second: Some(600_000.0),
+            peers: Some(42),
+        });
+        tx.instant();
+    });
+    rt.frame(0.0);
+    let torrent = rect(&rt, "player-stats-overlay");
+    assert!((torrent[2] - direct[2]).abs() < 0.5);
+    assert!(
+        torrent[3] <= 180.0,
+        "Torrent stats are too tall: {torrent:?}"
+    );
+    assert!(torrent[3] > direct[3]);
+    let progress = rect(&rt, "player-torrent-progress-track");
+    assert!(
+        (progress[3] - 3.0).abs() < 0.5,
+        "Progress bounds: {progress:?}"
+    );
+    assert!(progress[0] >= torrent[0]);
+    assert!(progress[0] + progress[2] <= torrent[0] + torrent[2]);
+}
+
+#[test]
 fn stats_hover_floats_over_video_and_stays_open_across_the_gap() {
     let mut rt = player_runtime();
     let video = rect(&rt, "video");

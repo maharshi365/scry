@@ -8,7 +8,6 @@ use super::super::{
         button::{Button, Variant},
         hover_overlay::{self, HoverOverlay},
         progress::bar,
-        text::label,
     },
 };
 use rune::{El, col, el, row, text};
@@ -41,31 +40,35 @@ pub(in crate::ui) fn panel(s: &State) -> Option<El> {
     let sample = &s.player.sample;
     let mut content = col()
         .w_full()
-        .gap(8.0)
+        .gap(7.0)
         .child(
-            text("STREAM STATS")
-                .font(type_::LABEL)
+            text("Stream stats")
+                .font(type_::CALENDAR_TITLE)
                 .color(tokens::theme().text),
         )
-        .child(metric(
-            "Bitrate",
-            number(sample.video_bitrate.map(|v| v / 1_000_000.0), "Mb/s"),
+        .child(pair(
+            metric(
+                "Video bitrate",
+                number(sample.video_bitrate.map(|v| v / 1_000_000.0), "Mb/s"),
+            ),
+            metric("Buffered", number(sample.cache_s, "s")),
         ))
-        .child(metric("Buffered", number(sample.cache_s, "s")))
-        .child(metric(
-            "Dropped frames",
-            sample
-                .dropped_frames
-                .map_or_else(missing, |v| v.to_string()),
-        ))
-        .child(metric(
-            "Decoder",
-            sample
-                .hw_decoder
-                .as_deref()
-                .filter(|v| !v.is_empty())
-                .unwrap_or("—")
-                .to_owned(),
+        .child(pair(
+            metric(
+                "Dropped frames",
+                sample
+                    .dropped_frames
+                    .map_or_else(missing, |v| v.to_string()),
+            ),
+            metric(
+                "Decoder",
+                sample
+                    .hw_decoder
+                    .as_deref()
+                    .filter(|v| !v.is_empty())
+                    .unwrap_or("—")
+                    .to_owned(),
+            ),
         ));
     if s.player.torrent_source {
         content = content.child(torrent(s.player.torrent_stats.as_ref()));
@@ -74,10 +77,11 @@ pub(in crate::ui) fn panel(s: &State) -> Option<El> {
         hover_overlay::panel(
             "player-stats-overlay",
             "player-stats",
-            288.0,
+            360.0,
             content,
             overlay,
         )
+        .padding(14.0)
         .label("Stream stats")
         .on_layout(|s: &mut State, rect| {
             s.player.stats_overlay.rect = Some(rect);
@@ -86,15 +90,28 @@ pub(in crate::ui) fn panel(s: &State) -> Option<El> {
     )
 }
 
+fn pair(left: El, right: El) -> El {
+    row()
+        .w_full()
+        .gap(20.0)
+        .child(left.w(0.0).min_w(0.0).grow(1.0))
+        .child(right.w(0.0).min_w(0.0).grow(1.0))
+}
+
 fn metric(title: &str, value: String) -> El {
     row()
         .w_full()
-        .gap(12.0)
+        .gap(6.0)
         .center_y()
-        .child(label(title).grow(1.0))
+        .child(
+            text(title)
+                .font(type_::CAPTION)
+                .color(tokens::theme().text_secondary)
+                .grow(1.0),
+        )
         .child(
             text(value)
-                .font(type_::LABEL)
+                .font(type_::CAPTION)
                 .color(tokens::theme().text)
                 .truncate(),
         )
@@ -118,33 +135,49 @@ fn torrent(stats: Option<&scry_torrents::Stats>) -> El {
     let mut section = col()
         .key("player-torrent-stats")
         .w_full()
-        .gap(8.0)
+        .gap(9.0)
         .child(el().w_full().h(1.0).fill(tokens::edge()))
-        .child(label("TORRENT · SELECTED VIDEO"))
-        .child(metric(
-            "Download",
-            number(
-                stats
-                    .and_then(|v| v.download_bytes_per_second)
-                    .map(|v| v / 1_000_000.0),
-                "MB/s",
-            ),
-        ))
-        .child(metric(
-            "Upload",
-            number(
-                stats
-                    .and_then(|v| v.upload_bytes_per_second)
-                    .map(|v| v / 1_000_000.0),
-                "MB/s",
-            ),
-        ))
-        .child(metric(
-            "Peers",
-            stats
-                .and_then(|v| v.peers)
-                .map_or_else(missing, |v| v.to_string()),
-        ));
+        .child(
+            row()
+                .w_full()
+                .gap(16.0)
+                .child(
+                    metric(
+                        "↓ Download",
+                        number(
+                            stats
+                                .and_then(|v| v.download_bytes_per_second)
+                                .map(|v| v / 1_000_000.0),
+                            "MB/s",
+                        ),
+                    )
+                    .w(0.0)
+                    .grow(1.0),
+                )
+                .child(
+                    metric(
+                        "↑ Upload",
+                        number(
+                            stats
+                                .and_then(|v| v.upload_bytes_per_second)
+                                .map(|v| v / 1_000_000.0),
+                            "MB/s",
+                        ),
+                    )
+                    .w(0.0)
+                    .grow(1.0),
+                )
+                .child(
+                    metric(
+                        "Peers",
+                        stats
+                            .and_then(|v| v.peers)
+                            .map_or_else(missing, |v| v.to_string()),
+                    )
+                    .w(0.0)
+                    .grow(0.6),
+                ),
+        );
     let progress = stats
         .and_then(|v| Some((v.downloaded_bytes?.min(v.total_bytes), v.total_bytes)))
         .filter(|(_, total)| *total > 0);
@@ -155,7 +188,13 @@ fn torrent(stats: Option<&scry_torrents::Stats>) -> El {
                 &format!("{} / {}", bytes(downloaded), bytes(total)),
                 format!("{:.0}%", fraction * 100.0),
             ))
-            .child(bar("player-torrent-progress", fraction).grow(0.0).w_full());
+            .child(
+                bar("player-torrent-progress", fraction)
+                    .grow(0.0)
+                    .w_full()
+                    .h(3.0)
+                    .min_h(3.0),
+            );
     } else {
         section = section.child(metric("Downloaded", missing()));
     }
