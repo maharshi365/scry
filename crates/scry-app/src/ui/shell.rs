@@ -258,21 +258,17 @@ fn nav_action(
 fn topbar(s: &State) -> El {
     let searching =
         s.navigation.page == Page::Discover && s.loading && !s.displayed_query.is_empty();
-    let mut search = Button::new("search-go", "Search")
-        .busy(searching)
-        .frame()
-        .h(control::INPUT_HEIGHT)
-        .w(112.0)
-        .gap(8.0);
+    let mut search_status = el()
+        .w(control::COMPACT_ICON_SIZE)
+        .h(control::COMPACT_ICON_SIZE);
     if searching {
-        search = search.child(super::primitives::status::spinner("search-spinner", 16.0));
+        search_status = search_status
+            .label("Searching")
+            .child(super::primitives::status::spinner(
+                "search-spinner",
+                control::COMPACT_ICON_SIZE,
+            ));
     }
-    let search = search.child(text("Search").font(type_::BODY).color(tokens::theme().text));
-    let search = if searching {
-        search
-    } else {
-        search.on_press(State::submit_search)
-    };
     row()
         .key("topbar")
         .w_full()
@@ -309,7 +305,7 @@ fn topbar(s: &State) -> El {
                     |s| &mut s.search,
                     State::submit_search,
                 ))
-                .child(search),
+                .child(search_status),
         )
         .child(
             icon_action(

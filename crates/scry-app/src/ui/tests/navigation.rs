@@ -8,6 +8,10 @@ fn enter_in_search_submits_from_other_pages_and_keeps_browse_history() {
     state.search = TextEdit::new("Arrival");
     let mut rt = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);
+    assert!(
+        rt.find("search-go").is_none(),
+        "Search submits with Enter, not a separate button"
+    );
     tap(&mut rt, "search");
     rt.key(rune::KeyEvent {
         key: rune::Key::Enter,

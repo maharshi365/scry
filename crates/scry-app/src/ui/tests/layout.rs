@@ -23,8 +23,7 @@ fn topbar_controls_share_height_and_alignment_while_searching() {
         let mut rt = rune::Runtime::new(init(), view, (width, 600.0), rune::Env::default());
         rt.frame(0.0);
         let search = rect(&rt, "search-frame");
-        let button = rect(&rt, "search-go");
-        for key in ["nav-back", "nav-forward", "search-go", "page-refresh"] {
+        for key in ["nav-back", "nav-forward", "page-refresh"] {
             let bounds = rect(&rt, key);
             assert!((bounds[3] - search[3]).abs() < 0.5, "{key} height");
             assert!((bounds[1] - search[1]).abs() < 0.5, "{key} alignment");
@@ -35,7 +34,6 @@ fn topbar_controls_share_height_and_alignment_while_searching() {
             s.displayed_query = "movie".into();
         });
         rt.frame(0.0);
-        assert_eq!(rect(&rt, "search-go"), button);
         assert_eq!(rect(&rt, "search-frame"), search);
     }
 }

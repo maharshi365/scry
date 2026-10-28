@@ -459,25 +459,15 @@ fn poster_grid_scrolls_to_last_title_and_back_reveals_the_opened_card() {
     );
 }
 #[test]
-fn search_button_shows_pending_requests_until_the_last_provider_finishes() {
+fn search_input_shows_pending_requests_until_the_last_provider_finishes() {
     let (mut s, tx) = state_with_events();
     s.search = TextEdit::new("Avatar");
     s.submit_search();
     let mut rt = rune::Runtime::new(s, view, (1280.0, 820.0), rune::Env::default());
     rt.frame(0.0);
     assert!(rt.find("search-spinner").is_some());
-    assert!(
-        rt.elements()
-            .iter()
-            .any(|e| e.text.as_deref() == Some("Search"))
-    );
-    assert!(
-        !rt.elements()
-            .iter()
-            .find(|e| e.key.as_deref() == Some("search-go"))
-            .unwrap()
-            .focusable
-    );
+    assert!(rt.find("search-go").is_none());
+    assert!(rt.find("search").is_some());
     rt.poll = Some(poll);
     tx.try_send(Event::Search(rt.state.catalog_id, vec![], vec![], false))
         .unwrap();
@@ -488,10 +478,7 @@ fn search_button_shows_pending_requests_until_the_last_provider_finishes() {
         .unwrap();
     rt.frame(1.0 / 60.0);
     assert!(rt.state.status.is_empty());
-    assert!(
-        rt.elements()
-            .iter()
-            .any(|e| e.key.as_deref() == Some("search-go") && e.label.as_deref() == Some("Search"))
-    );
+    assert!(rt.find("search-spinner").is_none());
+    assert!(rt.find("search").is_some());
     drop(tx);
 }
