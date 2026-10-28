@@ -112,15 +112,14 @@ pub(in crate::ui) fn trigger<S: 'static>(
             }
         })
         .on_physical_input(move |s: &mut S, event, tx| {
-            let dismiss = matches!(event, rune::PhysicalInput::FocusLost)
-                || matches!(
-                    event,
-                    rune::PhysicalInput::Key {
-                        key: rune::PhysicalKeyCode::Escape | rune::PhysicalKeyCode::Tab,
-                        pressed: true,
-                        ..
-                    }
-                );
+            let dismiss = matches!(
+                event,
+                rune::PhysicalInput::Key {
+                    key: rune::PhysicalKeyCode::Escape | rune::PhysicalKeyCode::Tab,
+                    pressed: true,
+                    ..
+                }
+            );
             let tab = matches!(
                 event,
                 rune::PhysicalInput::Key {

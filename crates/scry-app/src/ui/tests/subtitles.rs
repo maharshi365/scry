@@ -116,6 +116,91 @@ fn subtitle_hover_panel_selects_two_tracks_without_pausing_or_resizing_video() {
 }
 
 #[test]
+fn subtitle_language_click_survives_focus_moving_from_the_trigger() {
+    let mut state = init();
+    state.navigation.page = Page::Player;
+    state.player.playing = true;
+    state.player.ready = true;
+    state.apply_subtitle_snapshot(
+        0,
+        Snapshot {
+            tracks: tracks(),
+            ..Snapshot::default()
+        },
+    );
+    let mut rt = rune::Runtime::new(state, view, (1280.0, 820.0), rune::Env::default());
+    rt.frame(0.0);
+    tap(&mut rt, "subtitles");
+    let (x, y) = rt.find("subtitle-track-2").unwrap();
+    rt.pointer_move(x, y);
+    rt.pointer_down(x, y);
+    rt.frame(1.0 / 60.0);
+    assert!(rt.state.player.subtitles.overlay.is_open());
+    assert_eq!(rt.state.player.subtitles.selected[0], Some(1));
+    rt.pointer_up(x, y);
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state.player.subtitles.selected[0], Some(2));
+    assert!(rt.state.player.subtitles.overlay.is_open());
+    assert!(!rt.state.player.sample.paused);
+}
+
+#[test]
+fn subtitle_tabs_switch_on_release_without_dismissing_the_panel() {
+    use crate::ui::player::subtitles::Slot;
+
+    for fullscreen in [false, true] {
+        for pinned in [false, true] {
+            let mut state = init();
+            state.navigation.page = Page::Player;
+            state.player.playing = true;
+            state.player.fullscreen = fullscreen;
+            let mut rt = rune::Runtime::new(state, view, (1280.0, 820.0), rune::Env::default());
+            rt.frame(0.0);
+            if pinned {
+                tap(&mut rt, "subtitles");
+            } else {
+                let (x, y) = rt.find("subtitles").unwrap();
+                rt.pointer_move(x, y);
+                rt.frame(0.0);
+            }
+            for (key, before, after) in [
+                ("subtitle-slot-secondary", Slot::Primary, Slot::Secondary),
+                ("subtitle-slot-primary", Slot::Secondary, Slot::Primary),
+            ] {
+                let (x, y) = rt.find(key).unwrap();
+                rt.pointer_move(x, y);
+                rt.pointer_down(x, y);
+                rt.frame(1.0 / 60.0);
+                assert!(rt.state.player.subtitles.slot == before);
+                assert!(rt.state.player.subtitles.overlay.is_open());
+                rt.pointer_up(x, y);
+                rt.frame(1.0 / 60.0);
+                assert!(rt.state.player.subtitles.slot == after);
+                assert!(rt.state.player.subtitles.overlay.is_open());
+            }
+        }
+    }
+}
+
+#[test]
+fn subtitle_panel_closes_on_window_deactivation_after_a_language_row_takes_focus() {
+    for fullscreen in [false, true] {
+        let mut state = init();
+        state.navigation.page = Page::Player;
+        state.player.playing = true;
+        state.player.fullscreen = fullscreen;
+        let mut rt = rune::Runtime::new(state, view, (1280.0, 820.0), rune::Env::default());
+        rt.frame(0.0);
+        tap(&mut rt, "subtitles");
+        tap(&mut rt, "subtitle-track-off");
+        assert!(rt.state.player.subtitles.overlay.is_open());
+        rt.window_focus(false);
+        rt.frame(1.0 / 60.0);
+        assert!(!rt.state.player.subtitles.overlay.is_open());
+    }
+}
+
+#[test]
 fn off_is_not_overridden_by_late_tracks_and_stale_snapshots_are_ignored() {
     let mut state = init();
     state.player.playing = true;

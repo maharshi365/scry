@@ -94,6 +94,7 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
         .w_full()
         .h_full()
         .fill(tokens::canvas())
+        .on_window_focus(on_window_focus)
         .on_secondary_press(|s: &mut State, p, _| {
             s.context_menu = Some((p, None));
         });
@@ -128,12 +129,21 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
         .children(super::settings::language_menu(s))
 }
 
+fn on_window_focus(s: &mut State, focused: bool, tx: &mut rune::Tx) {
+    if !focused {
+        s.player.subtitles.overlay.dismiss();
+        s.player.stats_overlay.dismiss();
+        tx.instant();
+    }
+}
+
 fn fullscreen_player(s: &State, scale: f32) -> El {
     let mut content = col()
         .key("fullscreen-player")
         .w_full()
         .h_full()
         .fill(tokens::video())
+        .on_window_focus(on_window_focus)
         .child(player(s, scale));
     content = content.children(super::stats::toast(s));
     if let Some(panel) = super::player::stats::panel(s) {
