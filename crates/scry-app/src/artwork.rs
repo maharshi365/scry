@@ -1,7 +1,7 @@
 //! Bounded artwork cache. Call `set_visible` with viewport URLs, not
 //! the whole catalogue; `get` never starts work. Nothing is fetched at startup.
 //!
-//! We retain at most 32 thumbnails (160 × 240; about 4.7 MiB), plus two
+//! We retain all visible thumbnails (160 × 240), with a 32-image cache floor, plus two
 //! in-flight jobs. Source buffers are capped at 2 MiB and
 //! decoded pixel buffers at 32 MiB per job. Decoder scratch space is additional.
 //! Keep returned image handles only in the current view, not another cache.
@@ -86,7 +86,12 @@ impl<T> Cache<T> {
 
     fn insert(&mut self, url: String, value: T, capacity: usize, visible: &[String]) {
         self.0.retain(|(key, _)| key != &url);
-        if self.0.len() == capacity {
+        self.0.push_back((url, value));
+        self.trim(capacity, visible);
+    }
+
+    fn trim(&mut self, capacity: usize, visible: &[String]) {
+        while self.0.len() > capacity {
             let victim = self
                 .0
                 .iter()
@@ -94,7 +99,6 @@ impl<T> Cache<T> {
                 .unwrap_or(0);
             self.0.remove(victim);
         }
-        self.0.push_back((url, value));
     }
 }
 
@@ -141,7 +145,9 @@ impl State {
     fn set_visible(&mut self, urls: &[String]) {
         self.visible.clear();
         for url in urls {
-            if self.visible.len() == self.profile.capacity() {
+            if matches!(self.profile, Profile::Player)
+                && self.visible.len() == self.profile.capacity()
+            {
                 break;
             }
             if valid_url(url) && !self.visible.contains(url) {
@@ -162,6 +168,12 @@ impl State {
             self.ready.touch(url);
             self.failed.touch(url);
         }
+        self.ready.trim(
+            self.profile.capacity().max(self.visible.len()),
+            &self.visible,
+        );
+        self.failed
+            .trim(FAILURE_CAPACITY.max(self.visible.len()), &self.visible);
     }
 }
 
@@ -262,7 +274,7 @@ impl Artwork {
         Ok(artwork)
     }
 
-    /// Replace pending work with at most 32 distinct visible URLs. Offscreen
+    /// Replace pending work with distinct visible URLs. Offscreen
     /// downloads are cancelled; an already running decode finishes but its
     /// result is discarded. Queue replacement does not wait for a worker.
     pub fn set_visible(&mut self, urls: &[String]) {
@@ -415,12 +427,17 @@ fn worker(
             } = &mut *state;
             if let Ok(image) = result {
                 failed.0.retain(|(key, _)| key != &url);
-                ready.insert(url, image, profile.capacity(), visible);
+                ready.insert(url, image, profile.capacity().max(visible.len()), visible);
             } else {
                 let attempts = failed
                     .get(&url)
                     .map_or(0, |retry| retry.attempts.saturating_add(1));
-                failed.insert(url, Retry::new(attempts), FAILURE_CAPACITY, visible);
+                failed.insert(
+                    url,
+                    Retry::new(attempts),
+                    FAILURE_CAPACITY.max(visible.len()),
+                    visible,
+                );
             }
         }
         drop(state);
@@ -535,17 +552,40 @@ mod tests {
     }
 
     #[test]
-    fn visible_queue_is_bounded_deduplicated_and_replaced() {
+    fn visible_queue_includes_large_viewports_and_is_deduplicated_and_replaced() {
         let mut state = State::default();
         let mut urls = vec![url(0), url(0), "http://example.com/no.jpg".into()];
         urls.extend((1..100).map(url));
         state.set_visible(&urls);
-        assert_eq!(state.visible, (0..CAPACITY).map(url).collect::<Vec<_>>());
+        assert_eq!(state.visible, (0..100).map(url).collect::<Vec<_>>());
         let (sender, receiver) = watch::channel(false);
         state.active.insert(url(0), sender);
         state.set_visible(&[url(99)]);
         assert!(*receiver.borrow(), "offscreen work must be cancelled");
         assert_eq!(state.next(), Some(url(99)));
+    }
+
+    #[test]
+    fn visible_pixels_survive_large_viewports_and_shrink_after_resize() {
+        let mut state = State::default();
+        let urls = (0..80).map(url).collect::<Vec<_>>();
+        state.set_visible(&urls);
+        for url in &urls {
+            state.ready.insert(
+                url.clone(),
+                rune::Pixels::new(),
+                CAPACITY.max(state.visible.len()),
+                &state.visible,
+            );
+        }
+        assert!(urls.iter().all(|url| state.ready.get(url).is_some()));
+        assert!(
+            state.next().is_none(),
+            "Loaded visible images must not cycle through decoding"
+        );
+        state.set_visible(&urls[70..]);
+        assert_eq!(state.ready.0.len(), CAPACITY);
+        assert!(urls[70..].iter().all(|url| state.ready.get(url).is_some()));
     }
 
     #[test]

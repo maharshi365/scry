@@ -294,6 +294,85 @@ fn large_catalog_only_lays_out_nearby_cards() {
 }
 
 #[test]
+fn poster_fetching_tracks_real_layout_across_large_screen_resizes() {
+    let mut s = init();
+    scene_discover(&mut s);
+    s.metas = Arc::new(
+        (0..200)
+            .map(|index| {
+                let mut meta = s.metas[0].clone();
+                meta.poster = Some(format!("https://example.com/{index}.jpg"));
+                meta
+            })
+            .collect(),
+    );
+    let mut rt = rune::Runtime::new(s, view, (3840.0, 2160.0), rune::Env::default());
+    for (width, height) in [(3840.0, 2160.0), (880.0, 600.0), (3840.0, 2160.0)] {
+        rt.set_viewport((width, height), 1.0);
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        let viewport = rect(&rt, "titles-scroll-0");
+        let urls = visible_artwork(&rt.state);
+        if width > 3000.0 {
+            assert!(urls.len() > 32);
+        } else {
+            assert!(urls.len() < 12);
+        }
+        for element in rt.elements().into_iter().filter(|element| !element.exiting) {
+            let Some(index) = element
+                .key
+                .as_deref()
+                .and_then(|key| key.strip_prefix("title-"))
+                .and_then(|index| index.parse::<usize>().ok())
+            else {
+                continue;
+            };
+            if element.rect[1] < viewport[1] + viewport[3]
+                && element.rect[1] + element.rect[3] > viewport[1]
+            {
+                assert!(
+                    urls.contains(&format!("https://example.com/{index}.jpg")),
+                    "Visible card {index} must load at {width} x {height}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn large_viewport_includes_partial_rows_without_fetching_offscreen_posters() {
+    let mut s = init();
+    scene_discover(&mut s);
+    s.metas = Arc::new(
+        (0..80)
+            .map(|index| {
+                let mut meta = s.metas[0].clone();
+                meta.poster = Some(format!("https://example.com/{index}.jpg"));
+                meta
+            })
+            .collect(),
+    );
+    s.poster_route = s.navigation.route_key;
+    s.poster_columns = 10;
+    s.poster_viewport = Some([0.0, 0.0, 2000.0, 1201.0]);
+    for row in 0_u16..8 {
+        s.poster_rects.insert(
+            usize::from(row),
+            [0.0, f32::from(row) * 300.0, 2000.0, 300.0],
+        );
+    }
+    assert_eq!(
+        visible_artwork(&s),
+        (0..50)
+            .map(|index| format!("https://example.com/{index}.jpg"))
+            .collect::<Vec<_>>()
+    );
+    s.poster_viewport = Some([0.0, 0.0, 2000.0, 600.0]);
+    assert_eq!(visible_artwork(&s).len(), 20);
+}
+
+#[test]
 fn idle_scroll_queues_newly_visible_posters_without_an_extra_wake() {
     let mut state = init();
     scene_discover(&mut state);

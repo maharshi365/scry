@@ -35,9 +35,18 @@ pub(super) async fn fetch_from<T>(
     let mut pending = std::collections::BTreeSet::new();
     let mut usable = BTreeMap::new();
     let deadline = tokio::time::Instant::now() + DEADLINE;
+    let hedge = tokio::time::Instant::now() + OWNER_GRACE;
+    let mut expanded = false;
     let mut grace = deadline;
     loop {
-        while tasks.len() < PROVIDERS {
+        if let Some((&first, _)) = usable.first_key_value()
+            && pending.first().is_none_or(|index| *index > first)
+        {
+            break;
+        }
+        // Give the preferred provider a head start. Fast, usable responses need
+        // no fallback traffic; stalled providers still allow bounded parallel work.
+        while tasks.len() < if expanded { PROVIDERS } else { 1 } {
             let Some((index, addon)) = remaining.next() else {
                 break;
             };
@@ -53,14 +62,13 @@ pub(super) async fn fetch_from<T>(
                 (index, addon, result)
             });
         }
-        if let Some((&first, _)) = usable.first_key_value()
-            && pending.first().is_none_or(|index| *index > first)
-        {
-            break;
-        }
         let result = tokio::select! {
             result = tasks.join_next() => result,
             () = tokio::time::sleep_until(deadline.min(grace)) => break,
+            () = tokio::time::sleep_until(hedge), if !expanded => {
+                expanded = true;
+                continue;
+            },
         };
         let Some(result) = result else {
             break;
@@ -88,6 +96,39 @@ pub(super) async fn fetch_from<T>(
 mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn usable_owner_does_not_request_fallback_providers() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let requests = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = requests.clone();
+        let server = tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let mut request = [0; 4096];
+                let received = socket.read(&mut request).await.unwrap();
+                assert!(String::from_utf8_lossy(&request[..received]).contains("/owner/"));
+                let body = r#"{"meta":{"id":"film","type":"movie","name":"Owner"}}"#;
+                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+            }
+        });
+        let addons = ["owner", "fallback"].map(|id| serde_json::from_value(serde_json::json!({
+            "manifest_url":format!("http://{address}/{id}/manifest.json"),"manifest":{"id":id,"name":id,"resources":["meta"]}
+        })).unwrap());
+        let client = Client::new().unwrap();
+        assert_eq!(
+            fetch(&client, &addons, "owner", "movie", "film", |meta| Some(
+                meta.name.clone()
+            ))
+            .await
+            .as_deref(),
+            Some("Owner")
+        );
+        assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 1);
+        server.abort();
+    }
 
     #[tokio::test]
     async fn stalled_owner_does_not_block_a_usable_fallback() {

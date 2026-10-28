@@ -444,6 +444,11 @@ fn series_metadata_supplies_saved_poster_artwork_without_another_lookup() {
     let show = MediaKey::new("test", MediaKind::Series, "show");
     let episode = media(MediaKind::Episode, "episode", Some(show.clone()));
     s.apply_up_next_entries(vec![(episode.clone(), None)]);
+    let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
+    for _ in 0..5 {
+        rt.frame(1.0 / 60.0);
+    }
+    let s = &mut rt.state;
     let meta = serde_json::from_value(serde_json::json!({
         "id":"show", "type":"series", "name":"Show", "year":"2026",
         "poster":"https://example.invalid/show.jpg", "videos":[

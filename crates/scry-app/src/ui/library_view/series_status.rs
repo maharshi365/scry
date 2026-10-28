@@ -46,7 +46,7 @@ impl State {
                     Duration::from_secs(30)
                 }
         });
-        while self.library.series.details.len() > 32 {
+        while self.library.series.details.len() > 32.max(keys.len()) {
             let oldest = self
                 .library
                 .series

@@ -260,6 +260,9 @@ fn watching_requests_parent_series_artwork_and_keeps_it_after_library_refreshes(
             duration_seconds: 120.0,
         },
     )];
+    s.poster_route = s.navigation.route_key;
+    s.poster_viewport = Some([0.0, 0.0, 880.0, 600.0]);
+    s.poster_rects.insert(0, [0.0, 0.0, 880.0, 302.0]);
     let missing = s.missing_library_posters();
     assert_eq!(missing.len(), 1);
     assert_eq!(missing[0].key, parent);
@@ -551,7 +554,10 @@ fn library_posters_are_bounded_visible_and_ignore_stale_or_unrelated_results() {
             })
             .collect(),
     );
-    assert_eq!(s.missing_library_posters().len(), 12);
+    assert!(
+        s.missing_library_posters().is_empty(),
+        "Wait for measured geometry before fetching"
+    );
     s.poster_route = s.navigation.route_key;
     s.poster_columns = 3;
     s.poster_viewport = Some([0.0, 0.0, 700.0, 300.0]);

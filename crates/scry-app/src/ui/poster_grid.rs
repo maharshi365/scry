@@ -173,9 +173,6 @@ fn visible_urls<'a>(s: &State, posters: impl Iterator<Item = Option<&'a String>>
         {
             urls.push(url.clone());
         }
-        if urls.len() == 32 {
-            break;
-        }
     }
     urls
 }
@@ -188,7 +185,7 @@ pub(super) fn visible(s: &State, index: usize) -> bool {
                 rect[1] < viewport[1] + viewport[3] && rect[1] + rect[3] > viewport[1]
             })
     } else {
-        index < 12
+        false
     }
 }
 

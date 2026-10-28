@@ -12,6 +12,49 @@ fn wait_for_watched_series(rt: &mut rune::Runtime<State>, key: &MediaKey) {
 }
 
 #[test]
+fn large_visible_series_set_is_not_evicted_until_it_leaves_the_viewport() {
+    let mut s = init();
+    s.navigation.page = Page::Library;
+    let media = (0..50)
+        .map(|index| Media {
+            key: MediaKey::new("imdb", MediaKind::Series, format!("tt{index}")),
+            title: format!("Show {index}"),
+            parent: None,
+        })
+        .collect::<Vec<_>>();
+    for item in &media {
+        let meta = serde_json::from_value(
+            serde_json::json!({"id":item.key.id,"type":"series","name":item.title}),
+        )
+        .unwrap();
+        s.library
+            .series
+            .details
+            .insert(item.key.clone(), (Some(meta), std::time::Instant::now()));
+    }
+    s.apply_library_entries(media);
+    s.poster_route = s.navigation.route_key;
+    s.poster_columns = 10;
+    s.poster_viewport = Some([0.0, 0.0, 2000.0, 1500.0]);
+    for row in 0_u16..5 {
+        s.poster_rects.insert(
+            usize::from(row),
+            [0.0, f32::from(row) * 300.0, 2000.0, 300.0],
+        );
+    }
+    s.request_series_states();
+    assert_eq!(s.library.series.details.len(), 50);
+    s.poster_viewport = Some([0.0, 0.0, 2000.0, 300.0]);
+    s.request_series_states();
+    assert_eq!(s.library.series.details.len(), 32);
+    assert!(
+        super::super::poster_grid::series_keys(&s)
+            .iter()
+            .all(|key| s.library.series.details.contains_key(key))
+    );
+}
+
+#[test]
 fn undated_watched_specials_share_the_counter_and_poster_completion() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("library.sqlite3");
