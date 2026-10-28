@@ -60,13 +60,12 @@ fn library_empty_states_keep_filters_and_browse_the_selected_type() {
 
 #[test]
 fn month_columns_align_across_rows_at_small_window_sizes() {
-    use crate::ui::calendar::{Mode, Release, dates};
+    use crate::ui::calendar::{Release, dates};
     for width in [880.0, 1000.0, 1280.0] {
         let mut s = init();
         s.navigation.page = Page::Calendar;
-        s.calendar.mode = Mode::Month;
         let date = s.calendar.anchor;
-        let days = dates(date, Mode::Month);
+        let days = dates(date);
         s.calendar.releases.push(Release {
             date,
             media: scry_library::Media {
@@ -113,7 +112,6 @@ fn month_columns_align_across_rows_at_small_window_sizes() {
 fn calendar_has_date_navigation_for_large_libraries() {
     let mut s = init();
     s.navigation.page = Page::Calendar;
-    s.calendar.mode = crate::ui::calendar::Mode::Month;
     s.calendar.series = (0..20)
         .map(|i| scry_library::Media {
             key: scry_library::MediaKey::new(
@@ -200,7 +198,6 @@ fn compact_source_header_keeps_controls_and_episode_on_two_rows() {
 fn calendar_retains_provider_poster_and_renders_cached_image_in_month_view() {
     let mut s = init();
     s.navigation.page = Page::Calendar;
-    s.calendar.mode = crate::ui::calendar::Mode::Month;
     let date = s.calendar.anchor;
     let media = scry_library::Media {
         key: scry_library::MediaKey::new("test", scry_library::MediaKind::Series, "show"),

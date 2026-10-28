@@ -100,7 +100,7 @@ pub(super) fn visible_artwork(s: &State) -> Vec<String> {
             }
             return urls;
         }
-        let days = super::calendar::dates(c.anchor, c.mode);
+        let days = super::calendar::dates(c.anchor);
         let mut indices = std::collections::BTreeMap::new();
         for release in &c.releases {
             if release.date < days[0] || release.date > days[days.len() - 1] {

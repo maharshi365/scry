@@ -169,7 +169,6 @@ pub(in crate::ui) mod opacity {
 
 pub(in crate::ui) mod motion {
     pub const SPINNER_PERIOD: f64 = 0.8;
-    pub const REFRESH_PERIOD: f64 = 0.9;
 }
 
 pub(in crate::ui) mod poster {
@@ -202,10 +201,17 @@ pub(in crate::ui) mod progress {
     pub const SPLIT_RADIUS: f32 = 3.0;
 }
 
+pub(in crate::ui) mod calendar {
+    pub const GAP: f32 = 8.0;
+    pub const MIN_DAY_HEIGHT: f32 = 82.0;
+}
+
 pub(in crate::ui) mod control {
     pub const HEIGHT: f32 = 38.0;
     pub const ICON_SIZE: f32 = 22.0;
     pub const ICON_TARGET: f32 = HEIGHT;
+    pub const COMPACT_HEIGHT: f32 = 24.0;
+    pub const COMPACT_ICON_SIZE: f32 = super::type_::SMALL.size * 1.2;
     pub const RADIUS: f32 = super::radius::XS;
     pub const INPUT_HEIGHT: f32 = HEIGHT;
     pub const SETTING_HEIGHT: f32 = 46.0;

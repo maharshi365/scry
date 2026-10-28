@@ -219,7 +219,6 @@ pub(super) fn scene_calendar(s: &mut State) {
 
 pub(super) fn scene_calendar_month(s: &mut State) {
     scene_calendar(s);
-    s.calendar.mode = super::calendar::Mode::Month;
 }
 
 pub(super) fn scene_calendar_day(s: &mut State) {

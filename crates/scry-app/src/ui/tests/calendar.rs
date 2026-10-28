@@ -1,6 +1,101 @@
 use super::*;
-use crate::ui::calendar::{Mode, Release};
+use crate::ui::calendar::Release;
 use scry_library::{Media, MediaKey, MediaKind};
+
+#[test]
+fn month_grid_fits_its_viewport_without_unnecessary_page_scrolling() {
+    for (width, height) in [(1280.0, 820.0), (1920.0, 1080.0), (3840.0, 2160.0)] {
+        let mut s = init();
+        s.navigation.page = Page::Calendar;
+        s.calendar.anchor = chrono::NaiveDate::from_ymd_opt(2026, 10, 19).unwrap();
+        let mut rt = rune::Runtime::new(s, view, (width, height), rune::Env::default());
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        let viewport = rt.state.calendar.viewport.unwrap();
+        let last = rect(&rt, "calendar-slot-41");
+        assert!(
+            last[1] + last[3] <= viewport[1] + viewport[3] + 1.0,
+            "Month grid exceeds the viewport at {width} x {height}: {last:?}, {viewport:?}"
+        );
+        let first = rect(&rt, "calendar-slot-0");
+        rt.wheel(viewport[0] + 1.0, viewport[1] + 1.0, -500.0);
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        assert_eq!(rect(&rt, "calendar-slot-0"), first);
+    }
+}
+
+#[test]
+fn calendar_headers_only_offer_counts_and_compact_expand_actions_for_releases() {
+    let mut s = init();
+    s.navigation.page = Page::Calendar;
+    let empty_date = chrono::NaiveDate::from_ymd_opt(2026, 10, 19).unwrap();
+    let date = empty_date.succ_opt().unwrap();
+    s.calendar.anchor = empty_date;
+    s.calendar.releases.push(Release {
+        date,
+        media: Media {
+            key: MediaKey::new("test", MediaKind::Movie, "movie"),
+            title: "Movie".into(),
+            parent: None,
+        },
+        episode_id: "movie".into(),
+        title: String::new(),
+        season: None,
+        episode: None,
+        poster: None,
+    });
+    let mut rt = rune::Runtime::new(s, view, (1280.0, 820.0), rune::Env::default());
+    for _ in 0..30 {
+        rt.frame(1.0 / 60.0);
+    }
+    let elements = rt.elements();
+    assert!(rt.find(&format!("calendar-expand-{empty_date}")).is_none());
+    assert!(
+        elements
+            .iter()
+            .any(|e| e.text.as_deref() == Some(&empty_date.format("%a %d").to_string()))
+    );
+    assert!(
+        elements
+            .iter()
+            .any(|e| e.text.as_deref() == Some(&format!("{} · 1", date.format("%a %d"))))
+    );
+    let expand_key = format!("calendar-expand-{date}");
+    let expand = elements
+        .iter()
+        .find(|e| e.key.as_deref() == Some(&expand_key))
+        .unwrap();
+    assert_eq!(expand.fill, super::super::design::tokens::transparent());
+    let index = elements
+        .iter()
+        .position(|e| e.key.as_deref() == Some(&expand_key))
+        .unwrap();
+    let glyph = elements.iter().find(|e| e.parent == Some(index)).unwrap();
+    assert!(glyph.rect[3] <= super::super::design::tokens::type_::SMALL.size * 1.2);
+    assert!(elements.iter().all(|e| e.text.as_deref() != Some("—")));
+    assert!(
+        elements
+            .iter()
+            .all(|e| !matches!(e.key.as_deref(), Some("calendar-week" | "calendar-month")))
+    );
+    tap(&mut rt, &expand_key);
+    assert_eq!(rt.state.calendar.expanded_day, Some(date));
+    let elements = rt.elements();
+    assert!(elements.iter().all(|e| !matches!(
+        e.key.as_deref(),
+        Some("calendar-dialog-prev" | "calendar-dialog-next")
+    )));
+    assert!(
+        elements
+            .iter()
+            .all(|e| e.text.as_deref() != Some("No releases on this day."))
+    );
+    tap(&mut rt, "calendar-dialog-close");
+    assert_eq!(rt.state.calendar.expanded_day, None);
+}
 
 #[test]
 fn dialog_posters_follow_the_dialog_scroll_viewport() {
@@ -34,27 +129,29 @@ fn dialog_posters_follow_the_dialog_scroll_viewport() {
 }
 
 #[test]
-fn refreshing_keeps_calendar_and_button_geometry_stable() {
+fn context_refresh_reloads_calendar_without_changing_day_geometry() {
     let mut s = init();
     s.navigation.page = Page::Calendar;
     let date = s.calendar.anchor;
     let mut rt = rune::Runtime::new(s, view, (1280.0, 820.0), rune::Env::default());
-    rt.frame(0.0);
+    for _ in 0..30 {
+        rt.frame(1.0 / 60.0);
+    }
     let day = rect(&rt, &format!("calendar-day-{date}"));
-    let refresh = rect(&rt, "calendar-refresh");
-    tap(&mut rt, "calendar-refresh");
+    assert!(rt.find("calendar-refresh").is_none());
+    rt.secondary_down(1250.0, 790.0);
+    rt.secondary_up(1250.0, 790.0);
+    rt.frame(1.0 / 60.0);
+    tap(&mut rt, "context-refresh");
     assert!(rt.state.calendar.loading);
     for _ in 0..30 {
         rt.frame(1.0 / 60.0);
     }
     assert_eq!(rect(&rt, &format!("calendar-day-{date}")), day);
-    assert_eq!(rect(&rt, "calendar-refresh"), refresh);
-    assert!(rt.find("calendar-refresh-spinner").is_some());
     rt.update(|s, _| s.apply_calendar(s.calendar.generation, vec![], 0));
     for _ in 0..30 {
         rt.frame(1.0 / 60.0);
     }
-    assert_eq!(rect(&rt, "calendar-refresh"), refresh);
     assert_eq!(rect(&rt, &format!("calendar-day-{date}")), day);
 }
 
@@ -92,7 +189,7 @@ fn expanded_day_loads_posters_outside_the_grid_and_renders_them() {
 }
 
 #[test]
-fn calendar_switches_modes_and_scrolls_a_busy_day_without_moving_its_neighbour() {
+fn month_calendar_scrolls_a_busy_day_without_moving_its_neighbour() {
     let mut s = init();
     s.navigation.page = Page::Calendar;
     s.config_busy = false;
@@ -114,21 +211,9 @@ fn calendar_switches_modes_and_scrolls_a_busy_day_without_moving_its_neighbour()
         });
     }
     let mut rt = rune::Runtime::new(s, view, (1280.0, 820.0), rune::Env::default());
-    rt.frame(0.0);
-    let day = rect(&rt, "calendar-day-scroll-2026-10-19");
-    let neighbour = rect(&rt, "calendar-day-2026-10-20");
-    let before = rect(&rt, "calendar-episode-2026-10-19-3");
-    rt.wheel(day[0] + day[2] / 2.0, day[1] + 40.0, -150.0);
     for _ in 0..30 {
         rt.frame(1.0 / 60.0);
     }
-    assert!(rect(&rt, "calendar-episode-2026-10-19-3")[1] < before[1] - 80.0);
-    assert_eq!(rect(&rt, "calendar-day-2026-10-20"), neighbour);
-    tap(&mut rt, "calendar-month");
-    for _ in 0..30 {
-        rt.frame(1.0 / 60.0);
-    }
-    assert_eq!(rt.state.calendar.mode, Mode::Month);
     assert_eq!(
         rt.elements()
             .iter()
@@ -149,8 +234,6 @@ fn calendar_switches_modes_and_scrolls_a_busy_day_without_moving_its_neighbour()
     }
     assert!(rect(&rt, "calendar-episode-2026-10-19-3")[1] < before[1] - 80.0);
     assert_eq!(rect(&rt, "calendar-day-2026-10-20"), neighbour);
-    tap(&mut rt, "calendar-week");
-    assert_eq!(rt.state.calendar.mode, Mode::Week);
 }
 
 #[test]

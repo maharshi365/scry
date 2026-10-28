@@ -1,13 +1,13 @@
 //! Release calendar. Each date owns a separate scroll viewport.
 use super::{
     State,
-    controls::{action, button, icon_action, select_action},
+    controls::{action, button, icon_action},
     design::{
         icons,
-        tokens::{accent, theme, type_},
+        tokens::{accent, calendar, theme, type_},
     },
     primitives::{
-        button::Button,
+        button::{Button, Size, Variant},
         surface::scroll,
         text::{heading, label},
     },
@@ -15,12 +15,6 @@ use super::{
 use chrono::{Datelike, Duration, Local, NaiveDate};
 use rune::{El, col, el, row, text};
 use scry_library::{Media, MediaKind};
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub(super) enum Mode {
-    Week,
-    Month,
-}
 
 #[derive(Clone)]
 pub(super) struct Release {
@@ -34,7 +28,6 @@ pub(super) struct Release {
 }
 
 pub(super) struct CalendarUi {
-    pub mode: Mode,
     pub anchor: NaiveDate,
     pub series: Vec<Media>,
     pub releases: Vec<Release>,
@@ -53,7 +46,6 @@ pub(super) struct CalendarUi {
 impl Default for CalendarUi {
     fn default() -> Self {
         Self {
-            mode: Mode::Week,
             anchor: Local::now().date_naive(),
             series: Vec::new(),
             releases: Vec::new(),
@@ -71,15 +63,10 @@ impl Default for CalendarUi {
     }
 }
 
-pub(super) fn dates(anchor: NaiveDate, mode: Mode) -> Vec<NaiveDate> {
-    let first = if mode == Mode::Month {
-        anchor.with_day(1).unwrap_or(anchor)
-    } else {
-        anchor
-    };
+pub(super) fn dates(anchor: NaiveDate) -> Vec<NaiveDate> {
+    let first = anchor.with_day(1).unwrap_or(anchor);
     let start = first - Duration::days(i64::from(first.weekday().num_days_from_monday()));
-    let count = if mode == Mode::Week { 7 } else { 42 };
-    (0..count).map(|i| start + Duration::days(i)).collect()
+    (0..42).map(|i| start + Duration::days(i)).collect()
 }
 
 pub(super) fn release_date(value: &str) -> Option<NaiveDate> {
@@ -199,9 +186,7 @@ impl State {
         let c = &mut self.calendar;
         c.artwork_rects.clear();
         c.day_viewports.clear();
-        if c.mode == Mode::Week {
-            c.anchor += Duration::days(i64::from(direction) * 7);
-        } else if let Some(date) = if direction < 0 {
+        if let Some(date) = if direction < 0 {
             c.anchor.checked_sub_months(chrono::Months::new(1))
         } else {
             c.anchor.checked_add_months(chrono::Months::new(1))
@@ -217,12 +202,9 @@ impl State {
 )]
 pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
     let c = &s.calendar;
-    let month = c.mode == Mode::Month;
-    let day_height = if month {
-        ((cx.layout("content").map_or(752.0, |r| r[3]) - 175.0) / 6.0).max(82.0)
-    } else {
-        430.0
-    };
+    let day_height = ((cx.layout("calendar-grid").map_or(0.0, |r| r[3]) - calendar::GAP * 5.0)
+        / 6.0)
+        .max(calendar::MIN_DAY_HEIGHT);
     let mut body = col()
         .w_full()
         .grow(1.0)
@@ -234,20 +216,7 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
                 .min_w(0.0)
                 .gap(8.0)
                 .center_y()
-                .child(heading("Calendar").grow(1.0))
-                .child(select_action(
-                    "calendar-week",
-                    "Week",
-                    c.mode == Mode::Week,
-                    |s| s.calendar.mode = Mode::Week,
-                ))
-                .child(select_action(
-                    "calendar-month",
-                    "Month",
-                    c.mode == Mode::Month,
-                    |s| s.calendar.mode = Mode::Month,
-                ))
-                .child(refresh_button(s)),
+                .child(heading("Calendar").grow(1.0)),
         )
         .child(
             super::primitives::input_group::input_group()
@@ -282,26 +251,22 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
             c.failed
         )));
     }
-    if c.series.is_empty() {
-        body = body.child(label(
-            "Add movies or series to To watch to see their releases.",
-        ));
-    }
-    let dates = dates(c.anchor, c.mode);
-    let mut weeks = col().w_full().min_w(0.0).gap(8.0);
+    let dates = dates(c.anchor);
+    let mut weeks = col().w_full().min_w(0.0).gap(calendar::GAP);
     for (week_index, week) in dates.chunks(7).enumerate() {
-        let mut cells = col().w_full().min_w(0.0).equal_columns(7).gap(8.0);
+        let mut cells = col()
+            .w_full()
+            .min_w(0.0)
+            .equal_columns(7)
+            .gap(calendar::GAP);
         for (column, date) in week.iter().enumerate() {
             let slot = format!("calendar-slot-{}", week_index * 7 + column);
-            if month && date.month() != c.anchor.month() {
+            if date.month() != c.anchor.month() {
                 cells = cells.child(el().key(slot).w_full().h(day_height));
                 continue;
             }
             let entries: Vec<_> = c.releases.iter().filter(|r| r.date == *date).collect();
             let mut list = col().w_full().gap(5.0);
-            if entries.is_empty() {
-                list = list.child(label("—"));
-            }
             for (i, release) in entries.iter().enumerate() {
                 let item = (**release).clone();
                 let menu = release_media(release);
@@ -341,8 +306,8 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
                     release.poster.as_deref(),
                     &release.media.title,
                 )
-                .w(if month { 28.0 } else { 40.0 })
-                .h(if month { 42.0 } else { 60.0 });
+                .w(28.0)
+                .h(42.0);
                 list = list.child(
                     button(
                         entry_key,
@@ -357,7 +322,7 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
                             s.open_library_media(&media);
                         },
                     )
-                    .h(if month { 54.0 } else { 88.0 })
+                    .h(54.0)
                     .w_full()
                     .min_w(0.0)
                     .px(6.0)
@@ -376,6 +341,35 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
             }
             let today = *date == Local::now().date_naive();
             let day = *date;
+            let caption = if entries.is_empty() {
+                date.format("%a %d").to_string()
+            } else {
+                format!(
+                    "{} · {}{}",
+                    date.format("%a %d"),
+                    entries.len(),
+                    if entries.len() > 1 { " ↕" } else { "" }
+                )
+            };
+            let mut header = row().w_full().center_y().child(
+                label(caption)
+                    .font(type_::SMALL)
+                    .w(0.0)
+                    .grow(1.0)
+                    .min_w(0.0)
+                    .truncate(),
+            );
+            if !entries.is_empty() {
+                header = header.child(
+                    Button::new(format!("calendar-expand-{date}"), "Expand day")
+                        .variant(Variant::Ghost)
+                        .size(Size::Compact)
+                        .icon(&icons::EXPAND)
+                        .on_press(move |s: &mut State| {
+                            s.calendar.expanded_day = Some(day);
+                        }),
+                );
+            }
             cells = cells.child(
                 el().key(slot).w_full().min_w(0.0).child(
                     super::primitives::surface::Variant::Calendar
@@ -384,36 +378,9 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
                         .w_full()
                         .min_w(0.0)
                         .h(day_height)
-                        .padding(if month { 4.0 } else { 6.0 })
-                        .gap(if month { 4.0 } else { 5.0 })
-                        .child(
-                            row()
-                                .w_full()
-                                .center_y()
-                                .child(
-                                    label(format!(
-                                        "{} · {}{}",
-                                        date.format("%a %d"),
-                                        entries.len(),
-                                        if entries.len() > 1 { " ↕" } else { "" }
-                                    ))
-                                    .font(if month { type_::SMALL } else { type_::CAPTION })
-                                    .w(0.0)
-                                    .grow(1.0)
-                                    .min_w(0.0)
-                                    .truncate(),
-                                )
-                                .child(
-                                    icon_action(
-                                        format!("calendar-expand-{date}"),
-                                        "Expand day",
-                                        &icons::FULLSCREEN,
-                                        move |s| s.calendar.expanded_day = Some(day),
-                                    )
-                                    .w(24.0)
-                                    .h(24.0),
-                                ),
-                        )
+                        .padding(4.0)
+                        .gap(4.0)
+                        .child(header)
                         .child(
                             scroll(format!("calendar-day-scroll-{date}"), list).on_layout(
                                 move |s: &mut State, rect| {
@@ -428,7 +395,7 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
         weeks = weeks.child(cells);
     }
     body.child(
-        scroll(format!("calendar-grid-{:?}", c.mode), weeks).on_layout(|s: &mut State, rect| {
+        scroll("calendar-grid", weeks).on_layout(|s: &mut State, rect| {
             s.calendar.viewport = Some(rect);
             s.refresh_artwork();
         }),
@@ -475,9 +442,6 @@ pub(super) fn day_dialog(s: &State, cx: &rune::Cx<State>) -> El {
         .iter()
         .filter(|r| r.date == date)
         .collect();
-    if entries.is_empty() {
-        list = list.child(label("No releases on this day."));
-    }
     for (index, release) in entries.into_iter().enumerate() {
         let media = release_media(release);
         list = list.child(
@@ -557,57 +521,12 @@ pub(super) fn day_dialog(s: &State, cx: &rune::Cx<State>) -> El {
     )
 }
 
-fn refresh_button(s: &State) -> El {
-    let busy = s.calendar.loading;
-    let mut glyph = rune::icon(&icons::REFRESH, 16.0)
-        .key("calendar-refresh-icon")
-        .color(accent());
-    if busy {
-        glyph = super::primitives::status::spinning_icon(
-            "calendar-refresh-spinner",
-            &icons::REFRESH,
-            16.0,
-            super::design::tokens::motion::REFRESH_PERIOD,
-        );
-    }
-    let frame = Button::new("calendar-refresh", "Refresh")
-        .busy(busy)
-        .frame()
-        .w(104.0)
-        .min_w(104.0)
-        .gap(8.0)
-        .child(glyph)
-        .child(text("Refresh").font(type_::LABEL).color(theme().text));
-    if busy {
-        frame
-    } else {
-        frame.on_press(State::refresh_calendar)
-    }
-}
-
 fn day_dialog_header(date: NaiveDate) -> El {
-    super::primitives::dialog::header(date.format("%A, %B %-d").to_string())
-        .child(icon_action(
-            "calendar-dialog-prev",
-            "Previous day",
-            &icons::LEFT,
-            |s| {
-                s.calendar.expanded_day = s.calendar.expanded_day.and_then(|d| d.pred_opt());
-            },
-        ))
-        .child(icon_action(
-            "calendar-dialog-next",
-            "Next day",
-            &icons::RIGHT,
-            |s| {
-                s.calendar.expanded_day = s.calendar.expanded_day.and_then(|d| d.succ_opt());
-            },
-        ))
-        .child(super::primitives::dialog::close(
-            "calendar-dialog-close",
-            "Close day",
-            |s: &mut State| s.calendar.expanded_day = None,
-        ))
+    super::primitives::dialog::header(date.format("%A, %B %-d").to_string()).child(
+        super::primitives::dialog::close("calendar-dialog-close", "Close day", |s: &mut State| {
+            s.calendar.expanded_day = None;
+        }),
+    )
 }
 
 #[cfg(test)]
@@ -650,19 +569,19 @@ mod tests {
     #[test]
     fn month_grid_covers_leap_day_and_has_monday_columns() {
         let anchor = NaiveDate::from_ymd_opt(2024, 2, 15).unwrap();
-        let days = dates(anchor, Mode::Month);
+        let days = dates(anchor);
         assert_eq!(days.len(), 42);
         assert_eq!(days[0].weekday(), chrono::Weekday::Mon);
         assert!(days.iter().any(|d| d.month() == 2 && d.day() == 29));
         assert!(days.iter().any(|d| d.month() == 3));
     }
     #[test]
-    fn week_wraps_year_and_invalid_release_dates_are_omitted() {
+    fn month_wraps_year_and_invalid_release_dates_are_omitted() {
         let anchor = NaiveDate::from_ymd_opt(2027, 1, 1).unwrap();
-        let days = dates(anchor, Mode::Week);
-        assert_eq!(days.len(), 7);
+        let days = dates(anchor);
+        assert_eq!(days.len(), 42);
         assert_eq!(days[0].year(), 2026);
-        assert_eq!(days[6].year(), 2027);
+        assert_eq!(days[41].year(), 2027);
         assert!(release_date("not a date").is_none());
         assert!(release_date("2026-02-30").is_none());
     }

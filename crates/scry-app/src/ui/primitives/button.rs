@@ -103,6 +103,7 @@ pub(in crate::ui) enum Variant {
 pub(in crate::ui) enum Size {
     #[default]
     Default,
+    Compact,
     Pill,
     Setting,
 }
@@ -228,6 +229,7 @@ impl Button {
             .focus_selected(self.selected);
         frame = match self.size {
             Size::Default => frame,
+            Size::Compact => frame.h(control::COMPACT_HEIGHT).px(6.0),
             Size::Pill => frame.h(control::PILL_HEIGHT).radius(control::PILL_RADIUS),
             Size::Setting => frame
                 .h(control::SETTING_HEIGHT)
@@ -268,18 +270,32 @@ impl Button {
         };
         if let Some(glyph) = self.glyph {
             self.frame()
-                .w(if matches!(self.size, Size::Pill) {
-                    control::PILL_HEIGHT
-                } else {
-                    control::ICON_TARGET
+                .w(match self.size {
+                    Size::Compact => control::COMPACT_HEIGHT,
+                    Size::Pill => control::PILL_HEIGHT,
+                    _ => control::ICON_TARGET,
                 })
                 .px(0.0)
-                .child(icon(glyph, control::ICON_SIZE).color(color))
+                .child(
+                    icon(
+                        glyph,
+                        if matches!(self.size, Size::Compact) {
+                            control::COMPACT_ICON_SIZE
+                        } else {
+                            control::ICON_SIZE
+                        },
+                    )
+                    .color(color),
+                )
         } else {
             let content = self.frame().child(
                 text(self.title.clone())
                     .truncate()
-                    .font(type_::LABEL)
+                    .font(if matches!(self.size, Size::Compact) {
+                        type_::SMALL
+                    } else {
+                        type_::LABEL
+                    })
                     .color(color),
             );
             if matches!(self.layout, Layout::Dropdown) {

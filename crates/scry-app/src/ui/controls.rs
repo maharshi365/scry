@@ -22,15 +22,6 @@ pub(super) fn button(
     Button::new(key, title).frame().on_press(f)
 }
 
-pub(super) fn select_action(
-    key: impl Into<String>,
-    title: impl Into<String>,
-    selected: bool,
-    f: impl Fn(&mut State) + 'static,
-) -> El {
-    Button::new(key, title).selected(selected).on_press(f)
-}
-
 pub(super) fn icon_action(
     key: impl Into<String>,
     title: impl Into<String>,

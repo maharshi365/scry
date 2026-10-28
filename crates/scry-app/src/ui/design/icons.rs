@@ -109,6 +109,11 @@ pub(in crate::ui) static EXIT_FULLSCREEN: Icon = Icon {
     view: 24.0,
     body: include_str!("../../../assets/icons/rune/minimize.svg"),
 };
+pub(in crate::ui) static EXPAND: Icon = Icon {
+    name: "expand",
+    view: 24.0,
+    body: include_str!("../../../assets/icons/rune/maximize-2.svg"),
+};
 pub(in crate::ui) static LEFT: Icon = Icon {
     name: "arrow-left",
     view: 24.0,
@@ -194,6 +199,7 @@ mod tests {
             source!(CAPTIONS, "captions"),
             source!(AUDIO, "audio-lines"),
             source!(FULLSCREEN, "maximize"),
+            source!(EXPAND, "maximize-2"),
             source!(EXIT_FULLSCREEN, "minimize"),
             source!(LEFT, "arrow-left"),
             source!(RIGHT, "arrow-right"),

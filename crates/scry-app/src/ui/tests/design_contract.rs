@@ -94,6 +94,48 @@ fn visual_policy_detects_literals_but_allows_shared_tokens() {
 }
 
 #[test]
+fn compact_icons_follow_small_text_without_shrinking_the_click_target() {
+    use super::super::{
+        design::{icons, tokens::type_},
+        primitives::button::{Button, Size},
+    };
+    struct Policy {
+        presses: usize,
+    }
+    fn view(_: &Policy, _: &mut rune::Cx<Policy>) -> rune::El {
+        rune::col().child(
+            Button::new("compact", "Expand")
+                .size(Size::Compact)
+                .icon(&icons::EXPAND)
+                .on_press(|s: &mut Policy| s.presses += 1),
+        )
+    }
+    let mut rt = rune::Runtime::new(
+        Policy { presses: 0 },
+        view,
+        (200.0, 100.0),
+        rune::Env::default(),
+    );
+    rt.frame(0.0);
+    let elements = rt.elements();
+    let index = elements
+        .iter()
+        .position(|e| e.key.as_deref() == Some("compact"))
+        .unwrap();
+    let glyph = elements.iter().find(|e| e.parent == Some(index)).unwrap();
+    assert_eq!(glyph.rect[3], type_::SMALL.size * 1.2);
+    assert!(elements[index].rect[3] >= glyph.rect[3] * 2.0);
+    let target = elements[index].rect;
+    rt.pointer_down(target[0] + 2.0, target[1] + 2.0);
+    rt.pointer_up(target[0] + 2.0, target[1] + 2.0);
+    rt.frame(0.0);
+    assert_eq!(
+        rt.state.presses, 1,
+        "The area outside the small glyph must remain clickable"
+    );
+}
+
+#[test]
 fn ui_uses_shared_visual_values_and_feature_free_primitives() {
     let mut violations = Vec::new();
     check_source(
