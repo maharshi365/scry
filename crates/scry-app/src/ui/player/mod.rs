@@ -12,7 +12,7 @@ use super::{
     controls::action,
     design::{
         icons::{BACK, EXIT_FULLSCREEN, FORWARD, FULLSCREEN, MUTED, PAUSE, PLAY, VOLUME},
-        tokens::{panel, theme, type_, video},
+        tokens::{theme, type_, video},
     },
     formatting::clock,
     primitives::{
@@ -343,13 +343,12 @@ fn controls(s: &State) -> El {
 }
 
 fn control_panel(s: &State, buttons: El) -> El {
-    let mut controls = col()
+    let mut controls = super::primitives::surface::Variant::Plain
+        .apply(col())
         .key("player-controls")
         .w_full()
         .padding(12.0)
         .gap(6.0)
-        .radius(8.0)
-        .fill(panel())
         .child(timeline(s))
         .child(buttons)
         .on_layout(|s: &mut State, rect| {

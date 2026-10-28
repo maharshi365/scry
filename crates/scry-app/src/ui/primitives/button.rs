@@ -15,8 +15,8 @@ pub(in crate::ui) fn tab<S: 'static>(
                 .on_press(select)
                 .role("tab")
                 .fill(tokens::transparent())
-                .border(0.0, tokens::transparent_edge())
-                .radius(0.0)
+                .border(tokens::border::NONE, tokens::transparent_edge())
+                .radius(tokens::radius::NONE)
                 .px(16.0),
         )
         .child(el().w_full().h(2.0).fill(if selected {
@@ -32,11 +32,10 @@ pub(in crate::ui) fn menu_item<S: 'static>(
     f: impl Fn(&mut S) + 'static,
 ) -> El {
     Button::new(key, title)
-        .variant(Variant::Ghost)
+        .list_item()
         .on_press(f)
         .w_full()
         .justify_start()
-        .border(0.0, tokens::edge())
         .focus_follows()
 }
 
@@ -44,9 +43,9 @@ pub(in crate::ui) fn segmented_group() -> El {
     row()
         .gap(4.0)
         .padding(4.0)
-        .radius(10.0)
+        .radius(tokens::radius::SEGMENTED)
         .fill(tokens::panel())
-        .border(1.0, tokens::edge())
+        .border(tokens::border::WIDTH, tokens::edge())
 }
 
 pub(in crate::ui) fn menu_choice<S: 'static>(
@@ -87,8 +86,8 @@ pub(in crate::ui) fn segment<S: 'static>(
         .min_w(96.0)
         .h(control::HEIGHT)
         .px(16.0)
-        .radius(6.0)
-        .border(0.0, tokens::edge())
+        .radius(tokens::radius::SM)
+        .border(tokens::border::NONE, tokens::edge())
 }
 
 #[derive(Clone, Copy, Default)]
@@ -100,6 +99,41 @@ pub(in crate::ui) enum Variant {
     Danger,
 }
 
+#[derive(Clone, Copy, Default)]
+pub(in crate::ui) enum Size {
+    #[default]
+    Default,
+    Pill,
+    Setting,
+}
+
+#[derive(Clone, Copy, Default)]
+enum Layout {
+    #[default]
+    Standard,
+    ListItem,
+    Dropdown,
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::ui) enum DropdownVariant {
+    Transparent,
+    Framed,
+}
+
+pub(in crate::ui) fn dropdown_trigger(
+    key: impl Into<String>,
+    title: impl Into<String>,
+    variant: DropdownVariant,
+) -> Button {
+    let mut button = Button::new(key, title).variant(match variant {
+        DropdownVariant::Transparent => Variant::Ghost,
+        DropdownVariant::Framed => Variant::Secondary,
+    });
+    button.layout = Layout::Dropdown;
+    button
+}
+
 pub(in crate::ui) struct Button {
     key: String,
     title: String,
@@ -108,6 +142,8 @@ pub(in crate::ui) struct Button {
     enabled: bool,
     busy: bool,
     glyph: Option<&'static Icon>,
+    size: Size,
+    layout: Layout,
 }
 
 impl Button {
@@ -120,6 +156,8 @@ impl Button {
             enabled: true,
             busy: false,
             glyph: None,
+            size: Size::Default,
+            layout: Layout::Standard,
         }
     }
     pub fn variant(mut self, variant: Variant) -> Self {
@@ -140,6 +178,17 @@ impl Button {
     }
     pub fn icon(mut self, glyph: &'static Icon) -> Self {
         self.glyph = Some(glyph);
+        self
+    }
+
+    pub fn size(mut self, size: Size) -> Self {
+        self.size = size;
+        self
+    }
+
+    pub fn list_item(mut self) -> Self {
+        self.layout = Layout::ListItem;
+        self.variant = Variant::Ghost;
         self
     }
 
@@ -165,7 +214,7 @@ impl Button {
                 Variant::Danger => (tokens::danger_fill(), tokens::danger_edge()),
             }
         };
-        let frame = row()
+        let mut frame = row()
             .key(self.key.clone())
             .role("button")
             .label(label)
@@ -174,11 +223,36 @@ impl Button {
             .center()
             .radius(control::RADIUS)
             .fill(fill)
-            .border(1.0, border)
+            .border(tokens::border::WIDTH, border)
             .focusable(active)
             .focus_selected(self.selected);
+        frame = match self.size {
+            Size::Default => frame,
+            Size::Pill => frame.h(control::PILL_HEIGHT).radius(control::PILL_RADIUS),
+            Size::Setting => frame
+                .h(control::SETTING_HEIGHT)
+                .min_w(control::SETTING_MIN_WIDTH)
+                .radius(tokens::radius::MD),
+        };
+        frame = match self.layout {
+            Layout::Standard => frame,
+            Layout::ListItem => frame
+                .w_full()
+                .justify_start()
+                .border(tokens::border::NONE, tokens::transparent_edge()),
+            Layout::Dropdown => frame.gap(6.0),
+        };
+        let transparent_dropdown =
+            matches!(self.layout, Layout::Dropdown) && matches!(self.variant, Variant::Ghost);
+        if transparent_dropdown {
+            frame = frame.px(0.0).cursor(rune::Cursor::Pointer);
+        }
         if active {
-            super::interaction::focus_ring(frame.hover(tokens::theme().hover))
+            super::interaction::focus_ring(frame.hover(if transparent_dropdown {
+                tokens::transparent()
+            } else {
+                tokens::theme().hover
+            }))
         } else {
             frame.opacity(tokens::opacity::DISABLED)
         }
@@ -194,17 +268,29 @@ impl Button {
         };
         if let Some(glyph) = self.glyph {
             self.frame()
-                .w(control::ICON_TARGET)
-                .h(control::ICON_TARGET)
+                .w(if matches!(self.size, Size::Pill) {
+                    control::PILL_HEIGHT
+                } else {
+                    control::ICON_TARGET
+                })
                 .px(0.0)
                 .child(icon(glyph, control::ICON_SIZE).color(color))
         } else {
-            self.frame().child(
+            let content = self.frame().child(
                 text(self.title.clone())
                     .truncate()
                     .font(type_::LABEL)
                     .color(color),
-            )
+            );
+            if matches!(self.layout, Layout::Dropdown) {
+                content.child(
+                    icon(&super::super::design::icons::DOWN, control::CHEVRON_SIZE)
+                        .key(format!("{}-chevron", self.key))
+                        .color(tokens::theme().text_secondary),
+                )
+            } else {
+                content
+            }
         }
     }
 

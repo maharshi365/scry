@@ -56,6 +56,7 @@ fn audio_hover_lists_tracks_and_selection_follows_engine_confirmation() {
     assert!(rt.find("player-audio-overlay").is_some());
     assert!(rt.find("audio-track-3").is_some());
     assert!(rt.find("audio-track-9").is_some());
+    super::dropdowns::assert_flat_panel(&rt, "player-audio-overlay");
     assert!(
         rt.elements()
             .iter()

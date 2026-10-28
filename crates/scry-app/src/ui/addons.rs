@@ -7,7 +7,7 @@ use super::{
         button::{Button, Variant},
         dialog,
         status::spinner,
-        surface::{scroll, surface},
+        surface::scroll,
         text::{heading, label},
     },
 };
@@ -196,12 +196,7 @@ fn provider_card(
     status: &str,
     logo: Option<&str>,
 ) -> El {
-    let tile = el()
-        .w(56.0)
-        .h(56.0)
-        .radius(14.0)
-        .fill(tokens::selected())
-        .center();
+    let tile = super::primitives::status::provider_tile();
     let tile = if let Some(image) = logo.and_then(|url| s.artwork.as_ref()?.get(url)) {
         tile.child(
             el().key(format!("addon-logo-{index}"))
@@ -218,10 +213,10 @@ fn provider_card(
                 .color(tokens::accent()),
         )
     };
-    surface(row())
+    super::primitives::surface::Variant::Provider
+        .apply(row())
         .w_full()
         .padding(24.0)
-        .radius(14.0)
         .gap(18.0)
         .center_y()
         .on_layout(move |s: &mut State, rect| {

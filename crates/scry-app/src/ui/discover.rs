@@ -2,7 +2,6 @@
 use super::{
     State,
     controls::action,
-    design::tokens::theme,
     poster_grid,
     primitives::text::{heading, label},
 };
@@ -22,11 +21,10 @@ pub(super) fn discover(s: &State, cx: &Cx<State>) -> El {
         }));
     if s.addons.is_empty() {
         body = body.child(
-            col()
+            super::primitives::surface::Variant::Setup
+                .apply(col())
                 .padding(28.0)
                 .gap(16.0)
-                .radius(16.0)
-                .fill(theme().card)
                 .child(heading("No catalogs installed"))
                 .child(label("Add a catalog provider to browse titles."))
                 .child(action("setup-cinemeta", "Open add-ons", |s| {

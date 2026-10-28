@@ -1,9 +1,6 @@
 use super::super::{
     Page, State,
-    design::{
-        icons::{AUDIO, CLOSE},
-        tokens,
-    },
+    design::icons::{AUDIO, CLOSE},
     primitives::{
         button::{Button, Variant},
         hover_overlay::{self, HoverOverlay},
@@ -63,13 +60,9 @@ pub(in crate::ui) fn panel(s: &State) -> Option<El> {
         let id = track.id;
         tracks = tracks.child(
             Button::new(format!("audio-track-{id}"), track_label(track))
-                .variant(Variant::Ghost)
+                .list_item()
                 .selected(s.player.audio.selected == Some(id))
-                .on_press(move |s: &mut State| s.select_audio(id))
-                .w_full()
-                .min_h(38.0)
-                .border(0.0, tokens::transparent_edge())
-                .justify_start(),
+                .on_press(move |s: &mut State| s.select_audio(id)),
         );
     }
     if s.player.audio.tracks.is_empty() {
@@ -91,17 +84,12 @@ pub(in crate::ui) fn panel(s: &State) -> Option<El> {
                 ),
         )
         .child(
-            col()
-                .w_full()
-                .padding(4.0)
-                .radius(8.0)
-                .border(1.0, tokens::edge())
-                .child(
-                    scroll("audio-tracks", tracks)
-                        .h(168.0)
-                        .min_h(168.0)
-                        .grow(0.0),
-                ),
+            super::super::primitives::surface::list().child(
+                scroll("audio-tracks", tracks)
+                    .h(168.0)
+                    .min_h(168.0)
+                    .grow(0.0),
+            ),
         );
     Some(
         hover_overlay::panel("player-audio-overlay", "audio", 420.0, content, overlay)

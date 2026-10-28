@@ -87,10 +87,7 @@ pub(super) fn view(s: &State) -> El {
 }
 
 pub(super) fn small(value: impl Into<String>) -> El {
-    text(value)
-        .font(type_::CAPTION)
-        .color(tokens::theme().text_secondary)
-        .wrap()
+    crate::ui::primitives::text::Variant::Caption.render(value)
 }
 
 fn tab(key: &str, title: &str, selected: bool, target: StatsTab) -> El {
@@ -118,12 +115,12 @@ pub(super) fn panel(key: &str, title: &str, glyph: &'static rune::Icon) -> El {
 }
 
 fn hero(s: &State, stats: &NerdStats) -> El {
-    card()
+    crate::ui::primitives::surface::Variant::Hero
+        .apply(col())
         .key("stats-watch-time")
         .w_full()
         .padding(16.0)
         .gap(6.0)
-        .fill(tokens::stats_hero())
         .child(
             text("YOUR WATCHING CAREER")
                 .font(type_::STATS_KICKER)
@@ -163,7 +160,7 @@ fn hero(s: &State, stats: &NerdStats) -> El {
         } else {
             "A suspiciously clean record. Enjoy it while it lasts."
         }))
-        .child(el().w_full().h(1.0).mt(10.0).mb(8.0).fill(tokens::edge()))
+        .child(crate::ui::primitives::surface::divider().mt(10.0).mb(8.0))
         .child(summary(s, stats))
 }
 
@@ -477,69 +474,25 @@ fn count_share(part: i64, total: i64) -> f64 {
     }
 }
 
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "A finite, clamped chart fraction fits in f32"
-)]
-fn fraction(value: f64) -> f32 {
-    if value.is_finite() {
-        value.clamp(0.0, 1.0) as f32
-    } else {
-        0.0
-    }
-}
-
 pub(super) fn rail(key: &str, value: f64, color: Color) -> El {
-    let fraction = fraction(value);
-    row()
-        .key(key)
-        .role("progressbar")
-        .label(format!("{:.0}%", value.clamp(0.0, 1.0) * 100.0))
-        .w_full()
-        .h(5.0)
-        .radius(2.5)
-        .fill(tokens::stats_rail())
-        .child(
-            el().w(0.0)
-                .min_w(0.0)
-                .grow(fraction)
-                .h_full()
-                .radius(2.5)
-                .fill(color),
-        )
-        .child(el().w(0.0).min_w(0.0).grow(1.0 - fraction).h_full())
+    crate::ui::primitives::progress::indicator(
+        key,
+        value,
+        crate::ui::primitives::progress::Variant::Compact,
+        color,
+    )
 }
 
 fn split_bar(key: &str, tv: f64, has_data: bool) -> El {
-    let fraction = fraction(tv);
-    let mut bar = row()
-        .key(key)
-        .role("img")
-        .label(format!(
+    crate::ui::primitives::progress::split(
+        key,
+        tv,
+        [tokens::accent(), tokens::stats_violet()],
+        has_data,
+        format!(
             "Television {:.0}%, movies {:.0}%",
             tv * 100.0,
             if has_data { (1.0 - tv) * 100.0 } else { 0.0 }
-        ))
-        .w_full()
-        .h(10.0)
-        .radius(3.0)
-        .fill(tokens::stats_rail());
-    if has_data {
-        bar = bar
-            .child(
-                el().w(0.0)
-                    .min_w(0.0)
-                    .grow(fraction)
-                    .h_full()
-                    .fill(tokens::accent()),
-            )
-            .child(
-                el().w(0.0)
-                    .min_w(0.0)
-                    .grow(1.0 - fraction)
-                    .h_full()
-                    .fill(tokens::stats_violet()),
-            );
-    }
-    bar
+        ),
+    )
 }

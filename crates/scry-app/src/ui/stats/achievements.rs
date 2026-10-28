@@ -40,35 +40,20 @@ fn progress(entry: &AchievementEntry) -> f64 {
 
 fn medallion(entry: &AchievementEntry) -> El {
     let hidden = entry.hidden && !entry.unlocked;
-    el().key(format!("achievement-icon-{}", entry.id))
-        .role("img")
-        .label(if hidden {
+    crate::ui::primitives::status::medallion(
+        format!("achievement-icon-{}", entry.id),
+        if hidden {
             "Hidden achievement"
         } else {
             entry.name
-        })
-        .w(56.0)
-        .h(56.0)
-        .radius(6.0)
-        .fill(tokens::stats_badge_fill(entry.unlocked))
-        .border(
-            1.0,
-            if entry.unlocked {
-                tokens::stats_gold()
-            } else {
-                tokens::edge()
-            },
-        )
-        .center()
-        .child(
-            icon(if hidden { &icons::EYE } else { glyph(entry.id) }, 28.0).color(
-                if entry.unlocked {
-                    tokens::stats_gold()
-                } else {
-                    tokens::theme().text_secondary
-                },
-            ),
-        )
+        },
+        if hidden { &icons::EYE } else { glyph(entry.id) },
+        if entry.unlocked {
+            crate::ui::primitives::status::MedallionVariant::Earned
+        } else {
+            crate::ui::primitives::status::MedallionVariant::Locked
+        },
+    )
 }
 
 pub(super) fn view(s: &State) -> El {
@@ -180,7 +165,7 @@ fn achievement_row(entry: &AchievementEntry) -> El {
                 .child(medallion(entry))
                 .child(col().w(0.0).min_w(0.0).grow(1.0).child(details)),
         )
-        .child(el().w_full().h(1.0).fill(tokens::edge()))
+        .child(crate::ui::primitives::surface::divider())
 }
 
 #[cfg(test)]

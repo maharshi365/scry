@@ -10,7 +10,7 @@ use super::super::{
         progress::bar,
     },
 };
-use rune::{El, col, el, row, text};
+use rune::{El, col, row, text};
 
 fn overlay(s: &mut State) -> &mut HoverOverlay {
     &mut s.player.stats_overlay
@@ -136,7 +136,7 @@ fn torrent(stats: Option<&scry_torrents::Stats>) -> El {
         .key("player-torrent-stats")
         .w_full()
         .gap(9.0)
-        .child(el().w_full().h(1.0).fill(tokens::edge()))
+        .child(super::super::primitives::surface::divider())
         .child(
             row()
                 .w_full()

@@ -4,7 +4,7 @@ mod dashboard;
 
 use std::time::{Duration, Instant};
 
-use rune::{El, Tx, row, text};
+use rune::{El, Tx, col, row, text};
 use scry_library::{AchievementEntry, AchievementEvaluation, NerdStats};
 
 use super::{
@@ -13,7 +13,7 @@ use super::{
         icons,
         tokens::{self, type_},
     },
-    primitives::{button::Button, surface::card, text::label},
+    primitives::{button::Button, text::label},
 };
 use crate::library_worker::Command;
 
@@ -171,7 +171,8 @@ pub(super) fn toast(s: &State) -> Option<El> {
         .achievement
         .map_or(&icons::TROPHY, achievements::glyph);
     Some(
-        card()
+        super::primitives::surface::Variant::Notification
+            .apply(col())
             .key(format!("achievement-toast-{}", s.stats.notice_sequence))
             .role("status")
             .label(notice.title.clone())
@@ -179,7 +180,6 @@ pub(super) fn toast(s: &State) -> Option<El> {
             .padding(14.0)
             .gap(8.0)
             .pin(None, Some(24.0), Some(24.0), None)
-            .border(1.0, tokens::stats_gold())
             .child(
                 row()
                     .gap(10.0)

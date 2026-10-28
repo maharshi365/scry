@@ -7,7 +7,91 @@ pub(in crate::ui) fn card() -> El {
 }
 
 pub(in crate::ui) fn surface(content: El) -> El {
-    content.radius(12.0).fill(panel()).border(1.0, edge())
+    Variant::Card.apply(content)
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::ui) enum Variant {
+    Card,
+    Menu,
+    Plain,
+    Source,
+    Provider,
+    Episode,
+    Calendar,
+    Poster,
+    Hero,
+    Notification,
+    Setup,
+}
+
+impl Variant {
+    pub fn apply(self, content: El) -> El {
+        self.apply_selected(content, false)
+    }
+
+    pub fn apply_selected(self, content: El, selected: bool) -> El {
+        let (radius, fill, border) = match self {
+            Self::Card => (tokens::radius::LG, panel(), edge()),
+            Self::Menu => (tokens::radius::MD, panel(), edge()),
+            Self::Plain => (tokens::radius::MD, panel(), tokens::transparent_edge()),
+            Self::Source => (
+                tokens::radius::MD,
+                tokens::source_fill(),
+                tokens::source_edge(),
+            ),
+            Self::Provider => (tokens::radius::PROVIDER, panel(), edge()),
+            Self::Episode => (
+                tokens::radius::EPISODE,
+                if selected {
+                    tokens::selected()
+                } else {
+                    panel()
+                },
+                if selected {
+                    tokens::primary_edge()
+                } else {
+                    tokens::subtle_edge()
+                },
+            ),
+            Self::Calendar => (
+                tokens::radius::CALENDAR,
+                panel(),
+                if selected { accent() } else { edge() },
+            ),
+            Self::Poster => (
+                tokens::poster::RADIUS,
+                if selected {
+                    tokens::selected()
+                } else {
+                    panel()
+                },
+                tokens::transparent_edge(),
+            ),
+            Self::Hero => (tokens::radius::LG, tokens::stats_hero(), edge()),
+            Self::Notification => (tokens::radius::LG, panel(), tokens::stats_gold()),
+            Self::Setup => (tokens::radius::XL, theme().card, tokens::transparent_edge()),
+        };
+        content.radius(radius).fill(fill).border(
+            if matches!(self, Self::Plain | Self::Poster | Self::Setup) {
+                tokens::border::NONE
+            } else {
+                tokens::border::WIDTH
+            },
+            border,
+        )
+    }
+}
+
+/// Unframed inset content inside a menu or panel. Never adds another card.
+pub(in crate::ui) fn list() -> El {
+    col().w_full().padding(4.0)
+}
+
+pub(in crate::ui) fn divider() -> El {
+    el().w_full()
+        .h(tokens::border::WIDTH)
+        .fill(tokens::subtle_edge())
 }
 
 pub(in crate::ui) fn empty_state(
@@ -23,11 +107,11 @@ pub(in crate::ui) fn empty_state(
             .padding(32.0)
             .gap(18.0)
             .center()
-            .radius(16.0)
+            .radius(tokens::radius::XL)
             .child(
                 el().w(64.0)
                     .h(64.0)
-                    .radius(18.0)
+                    .radius(tokens::radius::CHIP)
                     .fill(tokens::empty_icon_fill())
                     .center()
                     .child(icon(glyph, 26.0).color(accent())),
@@ -59,13 +143,13 @@ pub(in crate::ui) fn dropdown<S: 'static>(
     height: f32,
     dismiss: impl Fn(&mut S) + 'static,
 ) -> El {
-    card()
+    Variant::Menu
+        .apply(col())
         .key(key)
         .role("menu")
         .w(width)
         .h(height + 12.0)
         .padding(6.0)
-        .radius(8.0)
         .anchored(trigger, Side::Bottom, Align::Start, 6.0)
         .modal(true, dismiss)
         .focus_group()

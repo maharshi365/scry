@@ -3,11 +3,11 @@ use super::{
     Page, State,
     artwork::{poster, poster_columns, poster_overlay, poster_status_overlay},
     design::tokens::{
-        self, panel,
+        self,
         poster::{CARD_HEIGHT as POSTER_CARD_HEIGHT, GAP as POSTER_GAP},
         theme, type_,
     },
-    primitives::{interaction::focus_ring, surface::scroll, text::label},
+    primitives::{surface::scroll, text::label},
 };
 use rune::{Cx, El, col, text};
 use scry_library::{Media, MediaKey, MediaKind};
@@ -389,25 +389,17 @@ fn card(s: &State, entry: &Entry, index: usize, prefix: &str) -> El {
     };
     let item = entry.media.clone();
     let menu = entry.media.clone();
-    focus_ring(
-        col()
+    super::primitives::interaction::action(
+        super::primitives::surface::Variant::Poster
+            .apply_selected(col(), selected)
             .key(key.clone())
-            .role("button")
-            .label(format!("Open {}", entry.title))
-            .focusable(true)
-            .focus_selected(selected),
+            .label(format!("Open {}", entry.title)),
+        selected,
     )
     .w_full()
     .min_w(0.0)
     .gap(8.0)
     .padding(4.0)
-    .radius(4.0)
-    .fill(if selected {
-        super::design::tokens::selected()
-    } else {
-        panel()
-    })
-    .hover(theme().hover)
     .on_press(move |s: &mut State| {
         s.navigation.anchor = Some(key.clone());
         if let Some(media) = &item {

@@ -31,7 +31,7 @@ pub(in crate::ui) fn input_with_change<S: 'static>(
             .center_y()
             .radius(control::RADIUS)
             .fill(panel())
-            .border(1.0, edge()),
+            .border(super::super::design::tokens::border::WIDTH, edge()),
     )
     .child(
         text_input(edit, type_::BODY)

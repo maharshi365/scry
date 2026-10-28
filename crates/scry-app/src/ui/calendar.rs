@@ -4,7 +4,7 @@ use super::{
     controls::{action, button, icon_action, select_action},
     design::{
         icons,
-        tokens::{accent, edge, panel, theme, type_},
+        tokens::{accent, theme, type_},
     },
     primitives::{
         button::Button,
@@ -378,16 +378,14 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
             let day = *date;
             cells = cells.child(
                 el().key(slot).w_full().min_w(0.0).child(
-                    col()
+                    super::primitives::surface::Variant::Calendar
+                        .apply_selected(col(), today)
                         .key(format!("calendar-day-{date}"))
                         .w_full()
                         .min_w(0.0)
                         .h(day_height)
                         .padding(if month { 4.0 } else { 6.0 })
                         .gap(if month { 4.0 } else { 5.0 })
-                        .radius(7.0)
-                        .fill(panel())
-                        .border(1.0, if today { accent() } else { edge() })
                         .child(
                             row()
                                 .w_full()

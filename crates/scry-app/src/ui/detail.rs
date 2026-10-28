@@ -6,7 +6,7 @@ use super::{
     controls::icon_action,
     design::{
         icons,
-        tokens::{self, accent, panel, theme, type_},
+        tokens::{self, accent, theme, type_},
     },
     library_view,
     primitives::{
@@ -199,17 +199,9 @@ fn chips(title: &str, values: &[String]) -> El {
         let mut line = row().w_full().gap(8.0).min_w(0.0).flex_wrap();
         for value in values.iter().take(6) {
             line = line.child(
-                el().padding(8.0)
+                super::primitives::status::chip(value)
                     .max_w(PREVIEW_WIDTH - PREVIEW_PADDING * 2.0)
-                    .min_w(0.0)
-                    .radius(18.0)
-                    .fill(tokens::chip_fill())
-                    .child(
-                        text(value.clone())
-                            .truncate()
-                            .font(type_::EMPHASIS)
-                            .color(theme().text),
-                    ),
+                    .min_w(0.0),
             );
         }
         section = section.child(line);
@@ -224,20 +216,17 @@ pub(super) fn quick_actions(s: &State, compact: bool) -> El {
         .and_then(|meta| meta.trailer_streams.first());
     let mut actions = input_group().h(52.0).gap(10.0).child(
         Button::new("title-trailer", "Watch trailer in browser")
+            .size(super::primitives::button::Size::Pill)
             .enabled(trailer.is_some())
             .icon(&icons::TRAILER)
-            .on_press(State::open_trailer)
-            .w(52.0)
-            .h(52.0)
-            .radius(26.0),
+            .on_press(State::open_trailer),
     );
     if compact {
         actions = actions.child(
             Button::new("title-play", "Show streams or episodes")
+                .size(super::primitives::button::Size::Pill)
                 .variant(Variant::Primary)
                 .frame()
-                .h(52.0)
-                .radius(26.0)
                 .gap(10.0)
                 .grow(1.0)
                 .child(icon(&icons::PLAY, 22.0).color(accent()))
@@ -312,12 +301,11 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
             ));
         }
         episodes = episodes.child(
-            super::primitives::interaction::focus_ring(
-                row()
-                    .key(format!("episode-{index}"))
-                    .role("button")
-                    .focusable(true)
-                    .focus_selected(selected),
+            super::primitives::interaction::action(
+                super::primitives::surface::Variant::Episode
+                    .apply_selected(row(), selected)
+                    .key(format!("episode-{index}")),
+                selected,
             )
             .label(format!(
                 "Episode {} {}",
@@ -326,16 +314,6 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
             ))
             .padding(12.0)
             .gap(8.0)
-            .radius(9.0)
-            .border(
-                1.0,
-                if selected {
-                    tokens::primary_edge()
-                } else {
-                    tokens::subtle_edge()
-                },
-            )
-            .hover(t.hover)
             .on_press(move |s: &mut State| s.select_episode(index))
             .on_secondary_press(move |s: &mut State, p, _| {
                 let item = s.detail.as_ref().and_then(|meta| {
@@ -378,11 +356,6 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
                 {
                     s.move_episode_page(true);
                 }
-            })
-            .fill(if selected {
-                tokens::selected()
-            } else {
-                panel()
             })
             .child(episode_thumbnail(s, video, index))
             .child(
@@ -443,12 +416,12 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
 }
 
 fn episode_thumbnail(s: &State, video: &scry_addons::Video, index: usize) -> El {
-    let surface = el()
-        .key(format!("episode-thumbnail-{index}"))
-        .w(96.0)
-        .h(60.0)
-        .radius(6.0)
-        .fill(tokens::poster(index));
+    let surface = super::primitives::image::frame(
+        &video.title,
+        index,
+        super::primitives::image::Variant::Episode,
+    )
+    .key(format!("episode-thumbnail-{index}"));
     if let Some(image) = video
         .thumbnail
         .as_ref()
@@ -480,19 +453,17 @@ fn season_selector(s: &State) -> El {
         );
     }
     bar = bar.child(
-        Button::new("season-select", season_label(current))
-            .variant(Variant::Ghost)
-            .on_press(|s: &mut State| {
-                s.source_menu_open = false;
-                s.source_sort_open = false;
-                s.season_menu_open = !s.season_menu_open;
-            })
-            .px(0.0)
-            .hover(tokens::transparent())
-            .cursor(rune::Cursor::Pointer)
-            .on_secondary_press(move |s: &mut State, point, _| s.open_season_menu(point, current))
-            .gap(6.0)
-            .child(icon(&icons::DOWN, 14.0).color(theme().text_secondary)),
+        super::primitives::button::dropdown_trigger(
+            "season-select",
+            season_label(current),
+            super::primitives::button::DropdownVariant::Transparent,
+        )
+        .on_press(|s: &mut State| {
+            s.source_menu_open = false;
+            s.source_sort_open = false;
+            s.season_menu_open = !s.season_menu_open;
+        })
+        .on_secondary_press(move |s: &mut State, point, _| s.open_season_menu(point, current)),
     );
     if let Some(next) = seasons.get(position + 1).copied() {
         bar = bar.child(

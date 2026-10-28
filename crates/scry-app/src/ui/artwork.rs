@@ -130,13 +130,8 @@ pub(super) fn visible_artwork(s: &State) -> Vec<String> {
 }
 
 pub(super) fn poster(s: &State, title: &str, url: Option<&str>, index: usize) -> El {
-    let surface = el()
-        .role("img")
-        .label(title)
-        .w_full()
-        .h(tokens::poster::HEIGHT)
-        .radius(tokens::poster::RADIUS)
-        .fill(tokens::poster(index));
+    let surface =
+        super::primitives::image::frame(title, index, super::primitives::image::Variant::Poster);
     if let Some(image) = url.and_then(|url| s.artwork.as_ref()?.get(url)) {
         surface.pixels_fit(&image, rune::SurfaceFit::Fill)
     } else {
@@ -184,11 +179,10 @@ pub(super) fn poster_status_overlay(
                 .h(24.0)
                 .px(8.0)
                 .child(el().grow(1.0))
-                .child(
-                    super::primitives::status::watched(format!("{key}-watched"), 24.0)
-                        .radius(12.0)
-                        .fill(tokens::scrim()),
-                ),
+                .child(super::primitives::status::watched_badge(
+                    format!("{key}-watched"),
+                    24.0,
+                )),
         );
     }
     let Some(fraction) = progress
@@ -212,14 +206,9 @@ pub(super) fn intersects(a: [f32; 4], b: [f32; 4]) -> bool {
 }
 
 pub(super) fn poster_thumbnail(s: &State, key: &str, url: Option<&str>, title: &str) -> El {
-    let surface = el()
-        .key(key)
-        .role("img")
-        .label(title)
-        .w(tokens::poster::THUMBNAIL_WIDTH)
-        .h(tokens::poster::THUMBNAIL_HEIGHT)
-        .radius(tokens::poster::RADIUS)
-        .fill(tokens::poster(0));
+    let surface =
+        super::primitives::image::frame(title, 0, super::primitives::image::Variant::Thumbnail)
+            .key(key);
     if let Some(image) = url.and_then(|url| s.artwork.as_ref()?.get(url)) {
         surface.child(
             el().key(format!("{key}-image"))

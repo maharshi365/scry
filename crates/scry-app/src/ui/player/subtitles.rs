@@ -1,9 +1,6 @@
 use super::super::{
     Page, State,
-    design::{
-        icons::{ADD, CAPTIONS, CLOSE},
-        tokens::{self, type_},
-    },
+    design::icons::{ADD, CAPTIONS, CLOSE},
     primitives::{
         button::{Button, Variant, tab},
         hover_overlay::{self, HoverOverlay},
@@ -11,7 +8,7 @@ use super::super::{
         text::{heading, label},
     },
 };
-use rune::{El, col, el, row, text};
+use rune::{El, col, row};
 use scry_app::platform::VideoHost;
 use scry_playback::subtitles::{
     Preferences, SIZES, Snapshot, Track, language_code, language_label,
@@ -173,12 +170,8 @@ pub(in crate::ui) fn panel(s: &State) -> Option<El> {
                 )),
         )
         .child(
-            col()
+            super::super::primitives::surface::list()
                 .key("subtitle-languages")
-                .w_full()
-                .padding(4.0)
-                .radius(8.0)
-                .border(1.0, tokens::edge())
                 .child(
                     scroll("subtitle-tracks", track_list(s))
                         .h(168.0)
@@ -269,13 +262,9 @@ fn track_list(s: &State) -> El {
     let selected = subtitles.selected[subtitles.slot.index()];
     let mut tracks = col().w_full().gap(4.0).child(
         Button::new("subtitle-track-off", "Off")
-            .variant(Variant::Ghost)
+            .list_item()
             .selected(selected.is_none())
-            .on_press(|s: &mut State| s.select_subtitle(None))
-            .w_full()
-            .min_h(38.0)
-            .border(0.0, tokens::transparent_edge())
-            .justify_start(),
+            .on_press(|s: &mut State| s.select_subtitle(None)),
     );
     for track in &subtitles.tracks {
         let id = track.id;
@@ -302,13 +291,9 @@ fn track_list(s: &State) -> El {
                 format!("subtitle-track-{id}"),
                 format!("{title} · {source}{badge}"),
             )
-            .variant(Variant::Ghost)
+            .list_item()
             .selected(selected == Some(id))
-            .on_press(move |s: &mut State| s.select_subtitle(Some(id)))
-            .w_full()
-            .min_h(38.0)
-            .border(0.0, tokens::transparent_edge())
-            .justify_start(),
+            .on_press(move |s: &mut State| s.select_subtitle(Some(id))),
         );
     }
     external_tracks(s, tracks)
@@ -331,13 +316,9 @@ fn external_tracks(s: &State, mut tracks: El) -> El {
                 format!("subtitle-source-{index}"),
                 format!("{name} · {}", source.provider),
             )
-            .variant(Variant::Ghost)
+            .list_item()
             .enabled(subtitles.pending.is_none() && subtitles.files.len() < 16)
-            .on_press(move |s: &mut State| s.load_external_subtitle(index))
-            .w_full()
-            .min_h(38.0)
-            .border(0.0, tokens::transparent_edge())
-            .justify_start(),
+            .on_press(move |s: &mut State| s.load_external_subtitle(index)),
         );
     }
     if subtitles.searching {
@@ -367,47 +348,13 @@ fn stepper(
     enabled: bool,
     change: fn(&mut State, i32),
 ) -> El {
-    row()
-        .w_full()
-        .center_y()
-        .gap(12.0)
-        .child(label(title).grow(1.0))
-        .child(
-            row()
-                .key(format!("subtitle-{key}-control"))
-                .w(152.0)
-                .h(38.0)
-                .center_y()
-                .radius(6.0)
-                .border(1.0, tokens::edge())
-                .child(
-                    Button::new(format!("subtitle-{key}-less"), "−")
-                        .variant(Variant::Ghost)
-                        .enabled(enabled)
-                        .on_press(move |s: &mut State| change(s, -1))
-                        .w(38.0)
-                        .border(0.0, tokens::transparent_edge()),
-                )
-                .child(
-                    el().key(format!("subtitle-{key}-value"))
-                        .grow(1.0)
-                        .min_w(0.0)
-                        .center()
-                        .child(text(value).font(type_::LABEL).color(if enabled {
-                            tokens::theme().text
-                        } else {
-                            tokens::disabled()
-                        })),
-                )
-                .child(
-                    Button::new(format!("subtitle-{key}-more"), "+")
-                        .variant(Variant::Ghost)
-                        .enabled(enabled)
-                        .on_press(move |s: &mut State| change(s, 1))
-                        .w(38.0)
-                        .border(0.0, tokens::transparent_edge()),
-                ),
-        )
+    super::super::primitives::stepper::stepper(
+        &format!("subtitle-{key}"),
+        title,
+        value,
+        enabled,
+        change,
+    )
 }
 
 impl State {

@@ -1,18 +1,14 @@
 use super::episodes::season_label;
 use super::{
     State,
-    controls::action,
-    design::{
-        icons,
-        tokens::{accent, edge, panel, theme, type_, warning},
-    },
+    design::tokens::{theme, type_, warning},
     primitives::{
-        button::{Button, Variant, menu_choice},
-        surface::{card, dropdown, scroll},
+        button::{DropdownVariant, dropdown_trigger, menu_choice},
+        surface::{Variant as SurfaceVariant, dropdown, scroll},
         text::label,
     },
 };
-use rune::{Cx, El, col, el, icon, row, text};
+use rune::{Cx, El, col, el, row, text};
 use scry_addons::Stream;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -222,38 +218,34 @@ pub(super) fn view(s: &State) -> El {
     if let Some(video) = video {
         let season = video.season;
         controls = controls.child(
-            Button::new("season-select", season_label(season))
-                .variant(Variant::Ghost)
-                .on_press(|s: &mut State| {
-                    s.source_menu_open = false;
-                    s.source_sort_open = false;
-                    s.season_menu_open = !s.season_menu_open;
-                })
-                .on_secondary_press(move |s: &mut State, point, _| {
-                    s.open_season_menu(point, season);
-                })
-                .px(0.0)
-                .hover(super::design::tokens::transparent())
-                .cursor(rune::Cursor::Pointer)
-                .gap(6.0)
-                .child(icon(&icons::DOWN, 14.0).color(t.text_secondary)),
+            dropdown_trigger(
+                "season-select",
+                season_label(season),
+                DropdownVariant::Transparent,
+            )
+            .on_press(|s: &mut State| {
+                s.source_menu_open = false;
+                s.source_sort_open = false;
+                s.season_menu_open = !s.season_menu_open;
+            })
+            .on_secondary_press(move |s: &mut State, point, _| {
+                s.open_season_menu(point, season);
+            }),
         );
     } else {
         controls = controls.child(text("Sources").font(type_::SECTION_TITLE).color(t.text));
     }
-    let sort = Button::new("source-sort", s.stream_sort.title())
-        .variant(Variant::Ghost)
-        .on_press(|s: &mut State| {
-            s.season_menu_open = false;
-            s.source_menu_open = false;
-            s.source_sort_open = !s.source_sort_open;
-        })
-        .px(0.0)
-        .hover(super::design::tokens::transparent())
-        .cursor(rune::Cursor::Pointer)
-        .gap(6.0)
-        .label("Sort sources")
-        .child(icon(&icons::DOWN, 14.0).color(t.text_secondary));
+    let sort = dropdown_trigger(
+        "source-sort",
+        s.stream_sort.title(),
+        DropdownVariant::Transparent,
+    )
+    .on_press(|s: &mut State| {
+        s.season_menu_open = false;
+        s.source_menu_open = false;
+        s.source_sort_open = !s.source_sort_open;
+    })
+    .label("Sort sources");
     controls = controls.child(el().grow(1.0)).child(sort);
     let mut header = col()
         .key("source-picker-header")
@@ -293,18 +285,17 @@ pub(super) fn view(s: &State) -> El {
     if providers.len() > 1 {
         header = header.child(
             row().key("source-controls").w_full().child(
-                action(
+                dropdown_trigger(
                     "source-select",
                     s.stream_provider.as_deref().unwrap_or("All add-ons"),
-                    |s| {
-                        s.season_menu_open = false;
-                        s.source_sort_open = false;
-                        s.source_menu_open = !s.source_menu_open;
-                    },
+                    DropdownVariant::Framed,
                 )
-                .w_full()
-                .gap(6.0)
-                .child(icon(&icons::DOWN, 14.0).color(t.text)),
+                .on_press(|s: &mut State| {
+                    s.season_menu_open = false;
+                    s.source_sort_open = false;
+                    s.source_menu_open = !s.source_menu_open;
+                })
+                .w_full(),
             ),
         );
     }
@@ -312,11 +303,10 @@ pub(super) fn view(s: &State) -> El {
     let mut list = col().key("detail-body").w_full().gap(8.0);
     for (index, message) in s.warnings.iter().enumerate() {
         list = list.child(
-            col()
+            SurfaceVariant::Plain
+                .apply(col())
                 .w_full()
                 .padding(12.0)
-                .radius(6.0)
-                .fill(panel())
                 .child(
                     text(message.clone())
                         .key(format!("stream-warning-{index}"))
@@ -348,14 +338,12 @@ pub(super) fn view(s: &State) -> El {
             )
         };
         list = list.child(
-            col()
+            SurfaceVariant::Card
+                .apply(col())
                 .key("source-empty")
                 .w_full()
                 .padding(24.0)
                 .gap(8.0)
-                .radius(8.0)
-                .border(1.0, edge())
-                .fill(panel())
                 .child(text(title).font(type_::TITLE).color(t.text))
                 .child(label(message)),
         );
@@ -387,15 +375,13 @@ pub(super) fn view(s: &State) -> El {
                 "This source needs a playback method Scry does not support.",
             ));
         }
-        let mut card = card()
+        let mut card = SurfaceVariant::Source
+            .apply(col())
             .key(format!("stream-{index}"))
             .w_full()
             .min_w(0.0)
             .padding(12.0)
             .gap(10.0)
-            .radius(8.0)
-            .border(1.0, super::design::tokens::source_edge())
-            .fill(super::design::tokens::source_fill())
             .child(
                 row()
                     .w_full()
@@ -410,24 +396,10 @@ pub(super) fn view(s: &State) -> El {
                         ),
                     )
                     .child(details.w(0.0).grow(1.0))
-                    .child(
-                        el().key(format!("stream-play-{index}"))
-                            .w(28.0)
-                            .min_w(28.0)
-                            .h(28.0)
-                            .radius(14.0)
-                            .fill(if supported {
-                                super::design::tokens::play_fill()
-                            } else {
-                                super::design::tokens::source_edge()
-                            })
-                            .center()
-                            .child(if supported {
-                                icon(&icons::PLAY, 14.0).color(accent())
-                            } else {
-                                text("—").font(type_::CAPTION).color(t.text_secondary)
-                            }),
-                    ),
+                    .child(super::primitives::status::play(
+                        format!("stream-play-{index}"),
+                        supported,
+                    )),
             );
         if supported {
             let chosen = stream.clone();
@@ -436,9 +408,8 @@ pub(super) fn view(s: &State) -> El {
                 .as_ref()
                 .map(|meta| meta.name.clone())
                 .unwrap_or_default();
-            card = super::primitives::interaction::focus_ring(card.role("button").focusable(true))
+            card = super::primitives::interaction::action(card, false)
                 .label(format!("Play {name} from {addon}"))
-                .hover(t.hover)
                 .on_press(move |s: &mut State| s.play(chosen.clone(), title.clone()));
         }
         list = list.child(card);

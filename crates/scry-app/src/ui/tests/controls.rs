@@ -5,6 +5,79 @@ use crate::ui::{
 };
 
 #[test]
+fn dropdown_variants_compose_with_sizes_and_gate_disabled_actions() {
+    use crate::ui::primitives::button::{DropdownVariant, Size, dropdown_trigger};
+    struct Control {
+        variant: DropdownVariant,
+        size: Size,
+        enabled: bool,
+        presses: usize,
+    }
+    fn control(s: &Control, _: &mut rune::Cx<Control>) -> rune::El {
+        rune::col().child(
+            dropdown_trigger("choice", "Choose", s.variant)
+                .size(s.size)
+                .enabled(s.enabled)
+                .on_press(|s: &mut Control| s.presses += 1),
+        )
+    }
+    for variant in [DropdownVariant::Transparent, DropdownVariant::Framed] {
+        for (size, height, radius) in [
+            (
+                Size::Default,
+                tokens::control::HEIGHT,
+                tokens::control::RADIUS,
+            ),
+            (
+                Size::Setting,
+                tokens::control::SETTING_HEIGHT,
+                tokens::radius::MD,
+            ),
+            (
+                Size::Pill,
+                tokens::control::PILL_HEIGHT,
+                tokens::control::PILL_RADIUS,
+            ),
+        ] {
+            for enabled in [false, true] {
+                let mut rt = rune::Runtime::new(
+                    Control {
+                        variant,
+                        size,
+                        enabled,
+                        presses: 0,
+                    },
+                    control,
+                    (400.0, 300.0),
+                    rune::Env::default(),
+                );
+                rt.frame(0.0);
+                let element = rt
+                    .elements()
+                    .into_iter()
+                    .find(|e| e.key.as_deref() == Some("choice"))
+                    .unwrap();
+                assert_eq!(element.rect[3], height);
+                assert_eq!(element.radius, radius);
+                assert_eq!(
+                    element.fill,
+                    match variant {
+                        DropdownVariant::Transparent => tokens::transparent(),
+                        DropdownVariant::Framed => tokens::panel(),
+                    }
+                );
+                assert!(rt.find("choice-chevron").is_some());
+                let (x, y) = rt.find("choice").unwrap();
+                rt.pointer_down(x, y);
+                rt.pointer_up(x, y);
+                rt.frame(0.0);
+                assert_eq!(rt.state.presses, usize::from(enabled));
+            }
+        }
+    }
+}
+
+#[test]
 fn shared_progress_bars_bound_values_and_keep_accessible_percentages() {
     struct Bars {
         values: Vec<(&'static str, f64)>,

@@ -1,5 +1,31 @@
 use super::*;
 
+pub(super) fn assert_flat_panel(rt: &rune::Runtime<State>, key: &str) {
+    let elements = rt.elements();
+    let panel = elements
+        .iter()
+        .position(|e| e.key.as_deref() == Some(key))
+        .unwrap();
+    for element in &elements {
+        let mut parent = element.parent;
+        let mut inside = false;
+        while let Some(index) = parent {
+            if index == panel {
+                inside = true;
+                break;
+            }
+            parent = elements[index].parent;
+        }
+        if inside && !matches!(element.role, "button" | "tab") {
+            assert_eq!(
+                element.radius, 0.0,
+                "{key} contains an inner rounded panel: {:?}",
+                element.key
+            );
+        }
+    }
+}
+
 fn runtime(width: f32, height: f32) -> rune::Runtime<State> {
     let mut s = init();
     s.navigate(Page::Detail);
@@ -51,6 +77,7 @@ fn dropdowns_overlay_without_moving_content_and_dismiss_without_navigation() {
             tap(&mut rt, trigger);
             settle(&mut rt);
             let popup = rect(&rt, menu);
+            assert_flat_panel(&rt, menu);
             assert!(popup[0] >= 8.0 && popup[1] >= 8.0);
             assert!(popup[0] + popup[2] <= width - 7.0 && popup[1] + popup[3] <= height - 7.0);
             for (key, bounds) in &before {

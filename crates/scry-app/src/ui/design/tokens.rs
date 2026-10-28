@@ -138,13 +138,33 @@ pub(in crate::ui) mod focus {
 }
 
 pub(in crate::ui) mod overlay {
-    pub const RADIUS: f32 = 12.0;
+    pub const RADIUS: f32 = super::radius::LG;
+}
+
+pub(in crate::ui) mod border {
+    pub const NONE: f32 = 0.0;
+    pub const WIDTH: f32 = 1.0;
+}
+
+pub(in crate::ui) mod radius {
+    pub const NONE: f32 = 0.0;
+    pub const XS: f32 = 4.0;
+    pub const SM: f32 = 6.0;
+    pub const MD: f32 = 8.0;
+    pub const LG: f32 = 12.0;
+    pub const XL: f32 = 16.0;
+    pub const CHIP: f32 = 18.0;
+    pub const SEGMENTED: f32 = 10.0;
+    pub const PROVIDER: f32 = 14.0;
+    pub const CALENDAR: f32 = 7.0;
+    pub const EPISODE: f32 = 9.0;
 }
 
 pub(in crate::ui) mod opacity {
     pub const DISABLED: f32 = 0.5;
     pub const DETAIL_BACKDROP: f32 = 0.38;
     pub const PLAYER_BACKDROP: f32 = 0.45;
+    pub const BUFFERED: f32 = 0.22;
 }
 
 pub(in crate::ui) mod motion {
@@ -157,9 +177,18 @@ pub(in crate::ui) mod poster {
     pub const CARD_HEIGHT: f32 = 302.0;
     pub const GAP: f32 = 18.0;
     pub const MIN_WIDTH: f32 = 156.0;
-    pub const RADIUS: f32 = 4.0;
+    pub const RADIUS: f32 = super::radius::XS;
     pub const THUMBNAIL_WIDTH: f32 = 32.0;
     pub const THUMBNAIL_HEIGHT: f32 = 48.0;
+    pub const EPISODE_WIDTH: f32 = 96.0;
+    pub const EPISODE_HEIGHT: f32 = 60.0;
+}
+
+pub(in crate::ui) mod badge {
+    pub const PLAY_SIZE: f32 = 28.0;
+    pub const PLAY_ICON: f32 = 14.0;
+    pub const MEDALLION_SIZE: f32 = 56.0;
+    pub const MEDALLION_ICON: f32 = 28.0;
 }
 
 pub(in crate::ui) mod progress {
@@ -168,14 +197,23 @@ pub(in crate::ui) mod progress {
     pub const SLIDER_HEIGHT: f32 = 24.0;
     pub const RAIL_HEIGHT: f32 = 4.0;
     pub const THUMB_SIZE: f32 = 10.0;
+    pub const COMPACT_HEIGHT: f32 = 5.0;
+    pub const SPLIT_HEIGHT: f32 = 10.0;
+    pub const SPLIT_RADIUS: f32 = 3.0;
 }
 
 pub(in crate::ui) mod control {
     pub const HEIGHT: f32 = 38.0;
     pub const ICON_SIZE: f32 = 22.0;
     pub const ICON_TARGET: f32 = HEIGHT;
-    pub const RADIUS: f32 = 4.0;
+    pub const RADIUS: f32 = super::radius::XS;
     pub const INPUT_HEIGHT: f32 = HEIGHT;
+    pub const SETTING_HEIGHT: f32 = 46.0;
+    pub const SETTING_MIN_WIDTH: f32 = 64.0;
+    pub const PILL_HEIGHT: f32 = 52.0;
+    pub const PILL_RADIUS: f32 = PILL_HEIGHT / 2.0;
+    pub const CHEVRON_SIZE: f32 = 14.0;
+    pub const STEPPER_WIDTH: f32 = 152.0;
 }
 
 pub(in crate::ui) mod type_ {

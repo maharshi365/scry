@@ -516,13 +516,11 @@ pub(super) fn detail_actions(s: &State) -> El {
                     },
                 )
                 .selected(in_watchlist)
+                .size(super::primitives::button::Size::Pill)
                 .icon(&super::design::icons::LIBRARY)
                 .on_press(move |s: &mut State| {
                     s.db(Command::ToggleWatchlist(a.clone()), true);
-                })
-                .w(52.0)
-                .h(52.0)
-                .radius(26.0),
+                }),
             )
             .child(
                 Button::new(
@@ -534,14 +532,12 @@ pub(super) fn detail_actions(s: &State) -> El {
                     },
                 )
                 .selected(watched)
+                .size(super::primitives::button::Size::Pill)
                 .icon(&super::design::icons::EYE)
                 .enabled(watched || s.can_mark_released(&media))
                 .on_press(move |s: &mut State| {
                     s.mark_media_watched(b.clone(), !watched);
-                })
-                .w(52.0)
-                .h(52.0)
-                .radius(26.0),
+                }),
             )
             .child(super::detail::quick_actions(s, s.detail_preview)),
     );

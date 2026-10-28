@@ -37,6 +37,7 @@ fn subtitle_panel_uses_flat_language_rows_aligned_steppers_and_right_aligned_ico
     let mut rt = rune::Runtime::new(state, view, (1280.0, 820.0), rune::Env::default());
     rt.frame(0.0);
     let languages = rect(&rt, "subtitle-languages");
+    super::dropdowns::assert_flat_panel(&rt, "player-subtitles-overlay");
     let first = rect(&rt, "subtitle-track-off");
     assert!(first[0] > languages[0] && first[0] + first[2] < languages[0] + languages[2]);
     let timing = rect(&rt, "subtitle-delay-control");
@@ -238,6 +239,7 @@ fn subtitle_defaults_are_english_and_settings_edits_do_not_change_current_tracks
         rt.frame(1.0 / 60.0);
     }
     let menu = rect(&rt, "subtitle-language-menu");
+    super::dropdowns::assert_flat_panel(&rt, "subtitle-language-menu");
     rt.wheel(menu[0] + 20.0, menu[1] + 20.0, -1200.0);
     for _ in 0..30 {
         rt.frame(1.0 / 60.0);

@@ -2,14 +2,15 @@
 use super::player::subtitles::Slot;
 use super::{
     State,
-    design::tokens::{self, type_},
+    design::tokens,
     primitives::{
-        button::Button,
-        surface::{card, scroll},
+        button::{Button, DropdownVariant, Size, dropdown_trigger, menu_choice},
+        form::{choices, option_row, section_header},
+        surface::{card, divider, scroll},
         text::{heading, label},
     },
 };
-use rune::{El, col, el, row, text};
+use rune::{El, col};
 use scry_library::guide::{EpisodeOrder, SourcePolicy};
 use scry_playback::subtitles::{LANGUAGES, Preferences, SIZES, language_label};
 
@@ -34,10 +35,6 @@ pub(super) fn view(s: &State) -> El {
         .gap(16.0)
         .child(heading("Settings"))
         .child(scroll("settings-scroll", content))
-}
-
-fn choices() -> El {
-    row().min_w(0.0).gap(8.0).center_y().flex_wrap()
 }
 
 fn subtitle_settings(s: &State) -> El {
@@ -147,13 +144,11 @@ fn subtitle_choice(
     preferences: Preferences,
 ) -> El {
     Button::new(key, title)
+        .size(Size::Setting)
         .selected(selected)
         .enabled(!s.subtitle_settings.busy)
         .on_press(move |s: &mut State| s.save_subtitle_preferences(preferences.clone()))
-        .min_w(64.0)
         .grow(1.0)
-        .h(46.0)
-        .radius(8.0)
 }
 
 fn color_choices(s: &State, kind: &'static str) -> El {
@@ -192,17 +187,17 @@ fn language_trigger(s: &State, slot: Slot) -> El {
             &s.subtitle_preferences.secondary,
         )
     };
-    Button::new(
+    dropdown_trigger(
         key,
         language
             .as_deref()
             .map_or_else(|| "Off".into(), language_label),
+        DropdownVariant::Framed,
     )
+    .size(Size::Setting)
     .enabled(!s.subtitle_settings.busy)
     .on_press(move |s: &mut State| s.subtitle_settings.language_menu = Some(slot))
     .w_full()
-    .h(46.0)
-    .radius(8.0)
 }
 
 pub(super) fn language_menu(s: &State) -> Option<El> {
@@ -230,89 +225,35 @@ pub(super) fn language_menu(s: &State) -> Option<El> {
     let mut options = col().w_full().gap(4.0);
     for (code, title) in std::iter::once(("", "Off")).chain(LANGUAGES.iter().copied()) {
         let language = (!code.is_empty()).then(|| code.to_owned());
-        options = options.child(
-            Button::new(format!("subtitle-language-{code}"), title)
-                .selected(*current == language)
-                .on_press(move |s: &mut State| {
-                    let mut next = s.subtitle_preferences.clone();
-                    if slot == Slot::Primary {
-                        next.primary.clone_from(&language);
-                    } else {
-                        next.secondary.clone_from(&language);
-                    }
-                    s.subtitle_settings.language_menu = None;
-                    s.save_subtitle_preferences(next);
-                })
-                .w_full()
-                .min_h(38.0)
-                .justify_start(),
-        );
+        options = options.child(menu_choice(
+            format!("subtitle-language-{code}"),
+            title,
+            *current == language,
+            move |s: &mut State| {
+                let mut next = s.subtitle_preferences.clone();
+                if slot == Slot::Primary {
+                    next.primary.clone_from(&language);
+                } else {
+                    next.secondary.clone_from(&language);
+                }
+                s.subtitle_settings.language_menu = None;
+                s.save_subtitle_preferences(next);
+            },
+        ));
     }
     Some(menu.child(options))
 }
 
-fn option_row(key: &str, title: &str, description: &str, options: El) -> El {
-    row()
-        .key(format!("{key}-row"))
-        .gap(24.0)
-        .py(20.0)
-        .center_y()
-        .flex_wrap()
-        .w_full()
-        .min_w(0.0)
-        .child(
-            col()
-                .w(0.0)
-                .min_w(200.0)
-                .grow(1.0)
-                .gap(6.0)
-                .child(
-                    text(title)
-                        .key(format!("{key}-label"))
-                        .wrap()
-                        .font(type_::ITEM_TITLE)
-                        .color(tokens::theme().text),
-                )
-                .child(label(description).key(format!("{key}-description"))),
-        )
-        .child(
-            options
-                .key(format!("{key}-choices"))
-                .w(0.0)
-                .min_w(280.0)
-                .grow(1.0),
-        )
-}
-
-fn divider() -> El {
-    el().w_full().h(1.0).fill(tokens::subtle_edge())
-}
-
-fn section_header(title: &str, description: &str) -> El {
-    col()
-        .w_full()
-        .gap(6.0)
-        .pb(20.0)
-        .child(
-            text(title)
-                .font(type_::SECTION_TITLE)
-                .color(tokens::theme().text),
-        )
-        .child(label(description))
-}
-
 fn policy_button(s: &State, key: String, title: &str, selected: bool, policy: SourcePolicy) -> El {
     Button::new(key, title)
+        .size(Size::Setting)
         .selected(selected)
         .enabled(!s.guide.busy)
         .on_press(move |s: &mut State| {
             s.update_guide_policy(policy.clone());
         })
         .w(0.0)
-        .min_w(64.0)
         .grow(1.0)
-        .h(46.0)
-        .radius(8.0)
 }
 
 fn source_settings(s: &State) -> El {
