@@ -217,12 +217,7 @@ fn setup(s: &mut State, wake: rune::Waker) {
 
 pub(super) fn run() -> anyhow::Result<()> {
     if std::env::args().any(|arg| arg == "--playground") {
-        super::playground::run(
-            std::env::args()
-                .skip(1)
-                .filter(|arg| arg != "--playground")
-                .collect(),
-        );
+        super::playground::run(std::env::args().skip(1).collect());
         return Ok(());
     }
     run_app()

@@ -13,6 +13,7 @@ use super::{
         text::label,
     },
 };
+use rune::playground::Playground;
 use rune::{App, AppSpec, Cx, El, Key, KeyEvent, TextEdit, Tx, col, el, row};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -26,31 +27,14 @@ enum Category {
 }
 
 impl Category {
-    const ALL: [Self; 5] = [
-        Self::Controls,
-        Self::Settings,
-        Self::ListDetail,
-        Self::Feedback,
-        Self::Motion,
-    ];
-
-    fn key(self) -> &'static str {
+    #[cfg(test)]
+    const fn story(self) -> &'static str {
         match self {
-            Self::Controls => "controls",
-            Self::Settings => "settings",
-            Self::ListDetail => "list-detail",
-            Self::Feedback => "feedback",
-            Self::Motion => "motion",
-        }
-    }
-
-    fn title(self) -> &'static str {
-        match self {
-            Self::Controls => "Controls",
-            Self::Settings => "Settings",
-            Self::ListDetail => "List / detail",
-            Self::Feedback => "Feedback / dialogs",
-            Self::Motion => "Motion",
+            Self::Controls => "Examples/Controls",
+            Self::Settings => "Examples/Settings",
+            Self::ListDetail => "Examples/List detail",
+            Self::Feedback => "Feedback/Notice",
+            Self::Motion => "Examples/Motion",
         }
     }
 }
@@ -101,12 +85,6 @@ fn init() -> State {
 }
 
 impl State {
-    fn reset(&mut self) {
-        let category = self.category;
-        *self = init();
-        self.category = category;
-    }
-
     fn show(&mut self, category: Category) {
         self.category = category;
         self.dialog_open = false;
@@ -365,18 +343,6 @@ fn motion(s: &State) -> El {
 }
 
 fn view(s: &State, _: &mut Cx<State>) -> El {
-    let mut navigation = choices().key("playground-navigation");
-    for category in Category::ALL {
-        navigation = navigation.child(
-            Button::new(
-                format!("playground-nav-{}", category.key()),
-                category.title(),
-            )
-            .variant(Variant::Ghost)
-            .selected(s.category == category)
-            .on_press(move |s: &mut State| s.show(category)),
-        );
-    }
     let examples = match s.category {
         Category::Controls => controls(s),
         Category::Settings => settings(s),
@@ -394,8 +360,8 @@ fn view(s: &State, _: &mut Cx<State>) -> El {
             "playground-page",
             "UI playground",
             "Isolated examples · in-memory fixtures · no network or saved data",
-            Button::new("playground-reset", "Reset examples").on_press(State::reset),
-            col().gap(24.0).child(navigation).child(examples),
+            el(),
+            examples,
         ));
     if s.dialog_open {
         root = root.child(dialog::layer(
@@ -443,24 +409,31 @@ fn scene_motion(s: &mut State) {
     s.expanded = true;
 }
 
-pub(super) fn run(args: Vec<String>) {
+fn app() -> App<State> {
     App::new(AppSpec {
         fonts: tokens::fonts::FILES,
         families: tokens::fonts::FAMILIES,
         on_key: Some(on_key),
         scenes: &[
-            ("playground-controls", scene_controls),
-            ("playground-settings", scene_settings),
-            ("playground-list-detail", scene_list_detail),
-            ("playground-feedback", scene_feedback),
-            ("playground-dialog", scene_dialog),
-            ("playground-motion", scene_motion),
+            ("Examples/Controls", scene_controls),
+            ("Examples/Settings", scene_settings),
+            ("Examples/List detail", scene_list_detail),
+            ("Feedback/Notice", scene_feedback),
+            ("Feedback/Dialog", scene_dialog),
+            ("Examples/Motion", scene_motion),
         ],
-        min_size: Some((640.0, 480.0)),
+        min_size: Some((1106.0, 480.0)),
         ..AppSpec::new("Scry · UI playground", (1280.0, 820.0), init, view)
     })
-    .args(args)
-    .run();
+    .playground(Playground::new().enabled(true).sizes(&[
+        ("Compact", (640.0, 480.0)),
+        ("Medium", (880.0, 600.0)),
+        ("Wide", (1280.0, 820.0)),
+    ]))
+}
+
+pub(super) fn run(args: Vec<String>) {
+    app().args(args).run();
 }
 
 #[cfg(test)]
