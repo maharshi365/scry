@@ -359,6 +359,9 @@ fn stepper(
 
 impl State {
     fn load_local_subtitle(&mut self) {
+        if !self.player.playing {
+            return;
+        }
         let path = match self.host.pick_subtitle() {
             Ok(Some(path)) => path,
             Ok(None) => return,
@@ -380,13 +383,64 @@ impl State {
         let request = self.player.subtitles.request;
         let title = format!("Local · #{request}");
         self.player.subtitles.manual[self.player.subtitles.slot.index()] = true;
-        self.player.subtitles.pending = Some((
-            self.player.subtitles.slot,
+        self.player.subtitles.pending =
+            Some((self.player.subtitles.slot, request, title, String::new()));
+        self.send_subtitle_load(self.player.generation, request, path);
+    }
+
+    fn send_subtitle_load(
+        &mut self,
+        generation: u64,
+        request: u64,
+        path: std::path::PathBuf,
+    ) -> bool {
+        if generation != self.player.generation || !self.player.playing {
+            return false;
+        }
+        let Some((_, pending, title, language)) = &self.player.subtitles.pending else {
+            return false;
+        };
+        if request != *pending {
+            return false;
+        }
+        let control = crate::services::Control::LoadSubtitle {
+            generation,
             request,
-            title.clone(),
-            String::new(),
-        ));
-        self.command(&["sub-add", &path.to_string_lossy(), "auto", &title]);
+            path,
+            title: title.clone(),
+            language: language.clone(),
+        };
+        let error = match self
+            .services
+            .as_ref()
+            .map(|services| services.control(control))
+        {
+            Some(Ok(())) => return true,
+            Some(Err(error)) => error.to_string(),
+            None => "Player is closed".into(),
+        };
+        self.apply_subtitle_load_failed(generation, request, error);
+        false
+    }
+
+    pub(in crate::ui) fn apply_subtitle_load_failed(
+        &mut self,
+        generation: u64,
+        request: u64,
+        error: String,
+    ) {
+        if generation == self.player.generation
+            && self.player.playing
+            && self
+                .player
+                .subtitles
+                .pending
+                .as_ref()
+                .is_some_and(|(_, pending, ..)| *pending == request)
+        {
+            self.player.subtitles.pending = None;
+            self.player.subtitles.error = Some(error);
+        }
     }
 
     pub(in crate::ui) fn show_subtitles(&mut self) {
@@ -466,7 +520,15 @@ impl State {
             return;
         }
         let slot = self.player.subtitles.slot;
-        self.player.subtitles.pending = None;
+        if self
+            .player
+            .subtitles
+            .pending
+            .as_ref()
+            .is_some_and(|(pending_slot, ..)| *pending_slot == slot)
+        {
+            self.player.subtitles.pending = None;
+        }
         let index = slot.index();
         let other = if slot == Slot::Primary {
             Slot::Secondary
@@ -493,7 +555,7 @@ impl State {
             for slot in [Slot::Primary, Slot::Secondary] {
                 let id = previous[slot.index()]
                     .filter(|id| self.player.subtitles.tracks.iter().any(|t| t.id == *id));
-                self.player.subtitles.manual[slot.index()] = id.is_some();
+                self.player.subtitles.manual[slot.index()] = true;
                 self.set_subtitle(slot, id);
             }
             if self.player.subtitles.selected == [None; 2] {
@@ -509,8 +571,9 @@ impl State {
         if self.player.subtitles.selected[index].is_none() {
             return;
         }
-        self.player.subtitles.delay[index] =
-            (self.player.subtitles.delay[index] + direction).clamp(-36000, 36000);
+        self.player.subtitles.delay[index] = self.player.subtitles.delay[index]
+            .saturating_add(direction)
+            .clamp(-36000, 36000);
         let key = if index == 0 {
             "sub-delay"
         } else {
@@ -603,6 +666,9 @@ impl State {
     }
 
     pub(in crate::ui) fn load_external_subtitle(&mut self, index: usize) {
+        if !self.player.playing {
+            return;
+        }
         let Some(source) = self.player.subtitles.sources.get(index) else {
             return;
         };
@@ -631,6 +697,12 @@ impl State {
         self.player.subtitles.error = None;
         if let Some(services) = &mut self.services {
             services.subtitle_file(self.player.generation, request, source.subtitle);
+        } else {
+            self.apply_subtitle_load_failed(
+                self.player.generation,
+                request,
+                "Player is closed".into(),
+            );
         }
     }
 
@@ -677,28 +749,167 @@ impl State {
         if generation != self.player.generation || !self.player.playing {
             return;
         }
-        let Some((_, pending, title, language)) = &self.player.subtitles.pending else {
+        let Some((_, pending, ..)) = &self.player.subtitles.pending else {
             return;
         };
         if request != *pending {
             return;
         }
-        let (title, language) = (title.clone(), language.clone());
         match file {
             Ok(file) => {
-                self.command(&[
-                    "sub-add",
-                    &file.path.to_string_lossy(),
-                    "auto",
-                    &title,
-                    &language,
-                ]);
-                self.player.subtitles.files.push(file);
+                if self.send_subtitle_load(generation, request, file.path.clone()) {
+                    self.player.subtitles.files.push(file);
+                }
             }
             Err(error) => {
-                self.player.subtitles.pending = None;
-                self.player.subtitles.error = Some(error);
+                self.apply_subtitle_load_failed(generation, request, error);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn track(id: i64, language: &str) -> Track {
+        Track {
+            id,
+            language: language.into(),
+            title: format!("Track {id}"),
+            codec: "subrip".into(),
+            external: false,
+        }
+    }
+
+    #[test]
+    fn unavailable_player_does_not_leave_a_downloaded_subtitle_pending() -> anyhow::Result<()> {
+        for closed in [false, true] {
+            let mut state = crate::ui::app::init();
+            state.player.playing = true;
+            state.player.subtitles.pending =
+                Some((Slot::Primary, 1, "Download".into(), "eng".into()));
+            if closed {
+                state.services = Some(crate::services::Services::install_fixture()?.0);
+            }
+            state.apply_subtitle_file(
+                0,
+                1,
+                Ok(std::sync::Arc::new(crate::services::SubtitleFile {
+                    path: std::path::PathBuf::new(),
+                })),
+            );
+            assert!(state.player.subtitles.pending.is_none(), "closed: {closed}");
+            assert_eq!(
+                state.player.subtitles.error.as_deref(),
+                Some("Player is closed")
+            );
+            assert!(state.player.subtitles.files.is_empty());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn subtitle_load_failures_only_clear_the_matching_live_request() {
+        let mut state = crate::ui::app::init();
+        state.player.playing = true;
+        state.player.generation = 2;
+        state.player.subtitles.pending = Some((Slot::Primary, 7, "Download".into(), "eng".into()));
+        for (generation, request) in [(1, 7), (2, 6)] {
+            state.apply_subtitle_load_failed(generation, request, "stale".into());
+            assert!(state.player.subtitles.pending.is_some());
+            assert!(state.player.subtitles.error.is_none());
+            assert!(!state.send_subtitle_load(generation, request, std::path::PathBuf::new()));
+            assert!(state.player.subtitles.pending.is_some());
+            assert!(state.player.subtitles.error.is_none());
+        }
+        state.apply_subtitle_load_failed(2, 7, "Cannot load this subtitle".into());
+        assert!(state.player.subtitles.pending.is_none());
+        assert_eq!(
+            state.player.subtitles.error.as_deref(),
+            Some("Cannot load this subtitle")
+        );
+        state.apply_subtitle_load_failed(2, 7, "duplicate".into());
+        assert_eq!(
+            state.player.subtitles.error.as_deref(),
+            Some("Cannot load this subtitle")
+        );
+    }
+
+    #[test]
+    fn external_subtitle_without_services_does_not_leave_a_download_pending() {
+        let mut state = crate::ui::app::init();
+        state.player.playing = true;
+        state
+            .player
+            .subtitles
+            .sources
+            .push(crate::services::ExternalSubtitle {
+                provider: "Fixture".into(),
+                subtitle: scry_addons::Subtitle {
+                    id: "fixture".into(),
+                    lang: "eng".into(),
+                    url: "https://example.invalid/subtitle.srt".into(),
+                    label: String::new(),
+                },
+            });
+        state.load_external_subtitle(0);
+        assert!(state.player.subtitles.pending.is_none());
+        assert_eq!(
+            state.player.subtitles.error.as_deref(),
+            Some("Player is closed")
+        );
+    }
+
+    #[test]
+    fn toggling_restores_an_explicitly_disabled_secondary_slot() {
+        let mut state = crate::ui::app::init();
+        state.player.playing = true;
+        state.player.subtitles.defaults.secondary = Some("spa".into());
+        let snapshot = Snapshot {
+            tracks: vec![track(1, "eng"), track(2, "spa")],
+            ..Snapshot::default()
+        };
+        state.apply_subtitle_snapshot(0, snapshot.clone());
+        state.player.subtitles.slot = Slot::Secondary;
+        state.select_subtitle(None);
+        state.toggle_subtitles();
+        state.toggle_subtitles();
+        state.apply_subtitle_snapshot(0, snapshot);
+        assert_eq!(state.player.subtitles.selected, [Some(1), None]);
+    }
+
+    #[test]
+    fn selecting_the_other_slot_does_not_cancel_a_pending_subtitle() {
+        let mut state = crate::ui::app::init();
+        state.player.playing = true;
+        state.player.subtitles.pending = Some((Slot::Primary, 1, "Download".into(), "eng".into()));
+        state.player.subtitles.slot = Slot::Secondary;
+        state.select_subtitle(None);
+        assert!(state.player.subtitles.pending.is_some());
+        state.apply_subtitle_snapshot(
+            0,
+            Snapshot {
+                tracks: vec![Track {
+                    title: "Download".into(),
+                    ..track(3, "eng")
+                }],
+                ..Snapshot::default()
+            },
+        );
+        assert_eq!(state.player.subtitles.selected, [Some(3), None]);
+        assert!(state.player.subtitles.pending.is_none());
+    }
+
+    #[test]
+    fn subtitle_delay_saturates_before_clamping() {
+        let mut state = crate::ui::app::init();
+        state.player.playing = true;
+        state.player.subtitles.selected[0] = Some(1);
+        state.adjust_subtitle_delay(1);
+        state.adjust_subtitle_delay(i32::MAX);
+        assert_eq!(state.player.subtitles.delay[0], 36000);
+        state.adjust_subtitle_delay(i32::MIN);
+        assert_eq!(state.player.subtitles.delay[0], -36000);
     }
 }

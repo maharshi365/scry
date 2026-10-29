@@ -315,7 +315,7 @@ impl Player {
     pub fn event(&self, timeout: f64) -> Option<PlaybackEvent> {
         // SAFETY: copy event data before the next wait_event invalidates it.
         unsafe {
-            let event = &*(self.wait)(self.handle, timeout);
+            let event = &*(self.wait)(self.handle, event_timeout(timeout));
             match event.id {
                 1 => Some(PlaybackEvent::Shutdown),
                 8 => Some(PlaybackEvent::Loaded),
@@ -380,6 +380,12 @@ impl Player {
             cpu_time_s: process::cpu_time_s(),
         }
     }
+}
+
+fn event_timeout(timeout: f64) -> f64 {
+    // mpv converts seconds to an integer deadline. Keep nonfinite values out
+    // of that conversion, while preserving its negative finite wait sentinel.
+    if timeout.is_finite() { timeout } else { 0.0 }
 }
 
 fn classify_end(reason: c_int, error: c_int) -> Option<PlaybackEvent> {
@@ -453,6 +459,20 @@ fn library_path() -> Result<PathBuf> {
 )]
 mod tests {
     use super::*;
+    #[test]
+    fn nonfinite_event_timeouts_become_nonblocking_polls() {
+        for timeout in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert!(event_timeout(timeout) == 0.0, "timeout={timeout}");
+        }
+        for timeout in [-1.0, 0.0, 0.25] {
+            assert_eq!(
+                event_timeout(timeout).to_bits(),
+                timeout.to_bits(),
+                "timeout={timeout}"
+            );
+        }
+    }
+
     #[test]
     fn renderer_setting_accepts_only_supported_names() {
         assert_eq!(VideoRenderer::parse("gpu").unwrap(), VideoRenderer::Gpu);

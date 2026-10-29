@@ -199,7 +199,21 @@ fn collection_members(s: &State, group: &Collection) -> El {
 }
 
 fn create_collection(s: &mut State) {
-    if !s.guide.busy {
+    if !s.guide.busy && !s.guide.name.text.trim().is_empty() {
         s.guide_action(GuideAction::CreateCollection(s.guide.name.text.clone()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn submitting_blank_collection_name_does_not_attempt_a_library_action() {
+        let mut state = crate::ui::app::init();
+        state.guide.name = rune::TextEdit::new(" \t\u{2003}");
+        create_collection(&mut state);
+        assert!(state.guide.error.is_none());
+        assert!(!state.guide.busy);
     }
 }

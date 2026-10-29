@@ -6,7 +6,7 @@ use scry_playback::{
 };
 use std::{
     fs::{self, File},
-    io::{BufRead, BufReader, BufWriter, Write},
+    io::{BufRead, BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -341,7 +341,24 @@ fn analyze(path: &Path) -> Result<Analysis> {
     analyze_reader(BufReader::new(file))
 }
 
-fn analyze_reader(reader: impl BufRead) -> Result<Analysis> {
+fn read_report_line(reader: &mut impl BufRead, line: &mut String) -> Result<bool> {
+    line.clear();
+    let read = reader
+        .take(65539)
+        .read_line(line)
+        .map_err(|_| anyhow::anyhow!("Cannot read diagnostic report"))?;
+    // Match BufRead::lines without reading an unbounded line first.
+    if line.ends_with('\n') {
+        line.pop();
+        if line.ends_with('\r') {
+            line.pop();
+        }
+    }
+    ensure!(line.len() <= 65536, "Diagnostic report line is too large");
+    Ok(read != 0)
+}
+
+fn analyze_reader(mut reader: impl BufRead) -> Result<Analysis> {
     let mut tracker = Tracker::default();
     let mut summary = None;
     let mut session = false;
@@ -353,9 +370,8 @@ fn analyze_reader(reader: impl BufRead) -> Result<Analysis> {
     let mut private_known = false;
     let mut cpu_known = false;
     let mut previous_cpu_known = false;
-    for line in reader.lines() {
-        let line = line.map_err(|_| anyhow::anyhow!("Cannot read diagnostic report"))?;
-        ensure!(line.len() <= 65536, "Diagnostic report line is too large");
+    let mut line = String::new();
+    while read_report_line(&mut reader, &mut line)? {
         let value: serde_json::Value =
             serde_json::from_str(&line).map_err(|_| anyhow::anyhow!("Invalid diagnostic JSONL"))?;
         ensure!(summary.is_none(), "Unexpected data after report summary");
@@ -498,6 +514,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn oversized_report_lines_stop_reading_before_allocating_the_whole_line() {
+        let mut input = std::io::Cursor::new(vec![b' '; 256 * 1024]);
+        assert!(analyze_reader(&mut input).is_err());
+        assert!(
+            input.position() <= 65539,
+            "An oversized line must be rejected within the limit plus CRLF and one byte"
+        );
+        let mut remaining = Vec::new();
+        input.read_to_end(&mut remaining).unwrap();
+        assert!(!remaining.is_empty(), "Oversized input must remain unread");
+    }
+
+    #[test]
     fn a_probe_cannot_truncate_its_media_through_a_path_or_file_url() {
         let directory = tempfile::tempdir().unwrap();
         let source = directory.path().join("media.mp4");
@@ -568,6 +597,17 @@ mod tests {
         }
         lines.push(serde_json::json!({"event":"summary","metrics":tracker.summary}).to_string());
         lines.join("\n")
+    }
+
+    #[test]
+    fn maximum_report_line_accepts_crlf_but_rejects_one_extra_byte() {
+        let text = report_text();
+        let (session, rest) = text.split_once('\n').unwrap();
+        let padding = " ".repeat(65536 - session.len());
+        let valid = format!("{session}{padding}\r\n{rest}");
+        assert!(analyze_reader(valid.as_bytes()).is_ok());
+        let oversized = format!("{session}{padding} \r\n{rest}");
+        assert!(analyze_reader(oversized.as_bytes()).is_err());
     }
 
     #[test]

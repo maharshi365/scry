@@ -64,6 +64,11 @@ pub enum Event {
     Audio(u64, scry_playback::audio::Snapshot),
     SubtitleSources(u64, Vec<ExternalSubtitle>, bool, bool),
     SubtitleFile(u64, u64, Result<Arc<SubtitleFile>, String>),
+    SubtitleLoadFailed {
+        generation: u64,
+        request: u64,
+        error: String,
+    },
     GuideDetails(u64, Vec<(scry_library::Media, Meta)>),
     WatchMetadata(u64, scry_library::Media, bool, Result<Box<Meta>, String>),
     SeriesTrackingDetails(u64, Vec<(scry_library::MediaKey, Option<Meta>)>, bool),
@@ -101,6 +106,15 @@ impl Inbox {
             (self.wake)();
         }
     }
+    async fn send_player(&self, event: Event, lifecycle: &watch::Receiver<Option<Control>>) {
+        let mut lifecycle = lifecycle.clone();
+        // Keep normal events under backpressure, but do not make native teardown
+        // depend on the UI draining its queue after the control sender closes.
+        tokio::select! {
+            () = self.send(event) => {}
+            _ = lifecycle.wait_for(|_| false) => {}
+        }
+    }
     fn notify(&self, event: Event) {
         if self.tx.try_send(event).is_ok() {
             (self.wake)();
@@ -119,6 +133,13 @@ pub enum Source {
 pub enum Control {
     Play(u64, PlaybackTarget, Source),
     Command(u64, Vec<String>),
+    LoadSubtitle {
+        generation: u64,
+        request: u64,
+        path: PathBuf,
+        title: String,
+        language: String,
+    },
     SubtitleAppearance(u64, scry_playback::subtitles::Preferences),
     Stop(u64),
 }
@@ -147,9 +168,54 @@ pub struct Services {
     commands: Option<mpsc::Sender<Control>>,
     stream_stats: watch::Sender<Option<u64>>,
     player: Option<JoinHandle<()>>,
+    #[cfg(test)]
+    install_requests: Option<std::sync::mpsc::Sender<String>>,
 }
 
 impl Services {
+    #[cfg(test)]
+    pub(crate) fn install_fixture() -> Result<(Self, std::sync::mpsc::Receiver<String>)> {
+        let runtime = Arc::new(tokio::runtime::Builder::new_current_thread().build()?);
+        let (tx, _events) = mpsc::channel(1);
+        let (subtitle_settings, _settings) = mpsc::channel(1);
+        let (stream_stats, _stats) = watch::channel(None);
+        let (requests, recorded) = std::sync::mpsc::channel();
+        // No worker, startup load, cache directory, or runtime driver is started.
+        // Tests provide completion events explicitly; dispatch alone is not success.
+        Ok((
+            Self {
+                subtitle_settings,
+                subtitle_task: None,
+                subtitle_file_task: None,
+                runtime,
+                client: Client::new()?,
+                inbox: Inbox {
+                    tx,
+                    wake: Arc::new(|| {}),
+                },
+                config: Arc::new(Mutex::new(Vec::new())),
+                data: PathBuf::new(),
+                catalog_task: None,
+                search_task: None,
+                detail_task: None,
+                stream_task: None,
+                calendar_task: None,
+                library_poster_task: None,
+                series_detail_task: None,
+                series_tracking_task: None,
+                movie_runtime_task: None,
+                guide_task: None,
+                watch_tasks: Vec::new(),
+                control: None,
+                commands: None,
+                stream_stats,
+                player: None,
+                install_requests: Some(requests),
+            },
+            recorded,
+        ))
+    }
+
     pub fn save_subtitle_preferences(
         &self,
         preferences: scry_playback::subtitles::Preferences,
@@ -217,6 +283,8 @@ impl Services {
             commands: Some(commands),
             stream_stats,
             player: Some(player),
+            #[cfg(test)]
+            install_requests: None,
         };
         services.load();
         Ok((services, rx))
@@ -242,6 +310,11 @@ impl Services {
     }
 
     pub fn install(&self, input: String) {
+        #[cfg(test)]
+        if let Some(requests) = &self.install_requests {
+            let _ = requests.send(input);
+            return;
+        }
         let (client, inbox, config, data) = (
             self.client.clone(),
             self.inbox.clone(),
@@ -546,8 +619,8 @@ impl Services {
                                 .map(|stream| (name.clone(), stream)),
                         );
                     }
-                    Ok((name, Err(_))) => {
-                        errors.push(format!("{name}: stream request failed or timed out"));
+                    Ok((_, Err(_))) => {
+                        errors.push("A stream add-on request failed or timed out".into());
                     }
                     Err(_) => errors.push("An add-on request could not finish".into()),
                 }
@@ -895,7 +968,9 @@ impl Services {
 
     pub fn control(&self, command: Control) -> Result<()> {
         match command {
-            command @ (Control::Command(_, _) | Control::SubtitleAppearance(_, _)) => self
+            command @ (Control::Command(_, _)
+            | Control::LoadSubtitle { .. }
+            | Control::SubtitleAppearance(_, _)) => self
                 .commands
                 .as_ref()
                 .context("Player is closed")?
@@ -1003,7 +1078,7 @@ async fn player_loop(
                         match engine.event(0.0) {
                             Some(PlaybackEvent::Failed | PlaybackEvent::Shutdown) => { ended = Some(true); break; }
                             Some(PlaybackEvent::Ended) => { ended = Some(false); break; }
-                            Some(PlaybackEvent::Ready) => inbox.send(Event::Ready(generation)).await,
+                            Some(PlaybackEvent::Ready) => inbox.send_player(Event::Ready(generation), &lifecycle).await,
                             _ => {}
                         }
                     }
@@ -1022,7 +1097,7 @@ async fn player_loop(
                         destroy_player(&mut player);
                         if let Some(report) = report.take() { let _ = report.finish(failed); }
                         if let Some(torrents) = torrents.take() { torrents.stop().await; }
-                        inbox.send(Event::Stopped(generation, failed.then(|| "Playback or report writing failed. Check the runtime and stream source.".into()))).await;
+                        inbox.send_player(Event::Stopped(generation, failed.then(|| "Playback or report writing failed. Check the runtime and stream source.".into())), &lifecycle).await;
                     }
                     continue;
                 }
@@ -1042,10 +1117,13 @@ async fn player_loop(
                 }
                 if failed {
                     inbox
-                        .send(Event::PlayerWarning(
-                            generation,
-                            "Some subtitle appearance settings are not available".into(),
-                        ))
+                        .send_player(
+                            Event::PlayerWarning(
+                                generation,
+                                "Some subtitle appearance settings are not available".into(),
+                            ),
+                            &lifecycle,
+                        )
                         .await;
                 }
             }
@@ -1059,12 +1137,31 @@ async fn player_loop(
                 let refs: Vec<_> = args.iter().map(String::as_str).collect();
                 if engine.command(&refs).is_err() {
                     inbox
-                        .send(Event::PlayerWarning(
-                            generation,
-                            "This control is not available for the current media".into(),
-                        ))
+                        .send_player(
+                            Event::PlayerWarning(
+                                generation,
+                                "This control is not available for the current media".into(),
+                            ),
+                            &lifecycle,
+                        )
                         .await;
                 }
+            }
+            continue;
+        }
+        if let Control::LoadSubtitle {
+            generation: id,
+            request,
+            path,
+            title,
+            language,
+        } = command
+        {
+            if id == generation
+                && let Some(event) =
+                    add_subtitle(player.as_deref(), id, request, &path, &title, &language)
+            {
+                inbox.send_player(event, &lifecycle).await;
             }
             continue;
         }
@@ -1078,7 +1175,9 @@ async fn player_loop(
         match command {
             Control::Stop(id) => {
                 generation = id;
-                inbox.send(Event::Stopped(id, None)).await;
+                inbox
+                    .send_player(Event::Stopped(id, None), &lifecycle)
+                    .await;
             }
             Control::Play(id, target, source) => {
                 generation = id;
@@ -1090,10 +1189,13 @@ async fn player_loop(
                     .and_then(|()| Report::create(&path, "native"));
                 let Ok(active) = created else {
                     inbox
-                        .send(Event::Stopped(
-                            id,
-                            Some("Cannot create private performance report".into()),
-                        ))
+                        .send_player(
+                            Event::Stopped(
+                                id,
+                                Some("Cannot create private performance report".into()),
+                            ),
+                            &lifecycle,
+                        )
                         .await;
                     continue;
                 };
@@ -1162,7 +1264,9 @@ async fn player_loop(
                     Ok(engine) => {
                         player = Some(engine);
                         tick.reset();
-                        inbox.send(Event::Playing(id, path)).await;
+                        inbox
+                            .send_player(Event::Playing(id, path), &lifecycle)
+                            .await;
                     }
                     Err(error) => {
                         if let Some(active) = report.take() {
@@ -1172,7 +1276,7 @@ async fn player_loop(
                             session.stop().await;
                         }
                         inbox
-                            .send(Event::Stopped(id, Some(error.to_string())))
+                            .send_player(Event::Stopped(id, Some(error.to_string())), &lifecycle)
                             .await;
                     }
                 }
@@ -1181,7 +1285,9 @@ async fn player_loop(
                 clippy::unreachable,
                 reason = "Control::Command is handled above and always continues before lifecycle teardown"
             )]
-            Control::Command(_, _) | Control::SubtitleAppearance(_, _) => unreachable!(),
+            Control::Command(_, _)
+            | Control::LoadSubtitle { .. }
+            | Control::SubtitleAppearance(_, _) => unreachable!(),
         }
     }
     destroy_player(&mut player);
@@ -1191,6 +1297,24 @@ async fn player_loop(
     if let Some(torrents) = torrents {
         torrents.stop().await;
     }
+}
+
+fn add_subtitle(
+    engine: Option<&dyn PlaybackEngine>,
+    generation: u64,
+    request: u64,
+    path: &std::path::Path,
+    title: &str,
+    language: &str,
+) -> Option<Event> {
+    let result = engine.context("Player is closed").and_then(|engine| {
+        engine.command(&["sub-add", &path.to_string_lossy(), "auto", title, language])
+    });
+    result.err().map(|_| Event::SubtitleLoadFailed {
+        generation,
+        request,
+        error: "Cannot load this subtitle; try another variant".into(),
+    })
 }
 
 fn destroy_player(player: &mut Option<Box<dyn PlaybackEngine>>) {
@@ -1207,6 +1331,140 @@ fn destroy_player(player: &mut Option<Box<dyn PlaybackEngine>>) {
 )]
 mod tests {
     use super::*;
+
+    #[test]
+    fn install_fixture_records_dispatch_without_installing_or_marking_success() {
+        let (services, requests) = Services::install_fixture().unwrap();
+        let input = "https://invalid.example/private-token/manifest.json";
+        services.install(input.into());
+        assert_eq!(requests.try_recv().unwrap(), input);
+        assert!(services.config.try_lock().unwrap().is_empty());
+        assert!(services.player.is_none());
+    }
+
+    #[test]
+    fn subtitle_load_queue_rejection_is_returned_to_the_caller() {
+        let (mut services, _requests) = Services::install_fixture().unwrap();
+        let (commands, _receiver) = mpsc::channel(1);
+        services.commands = Some(commands);
+        let command = Control::LoadSubtitle {
+            generation: 7,
+            request: 42,
+            path: "private.srt".into(),
+            title: "Track #42".into(),
+            language: "eng".into(),
+        };
+        assert!(services.control(command.clone()).is_ok());
+        assert_eq!(
+            services.control(command.clone()).unwrap_err().to_string(),
+            "Player is busy; try again"
+        );
+        services.commands = None;
+        assert_eq!(
+            services.control(command).unwrap_err().to_string(),
+            "Player is closed"
+        );
+    }
+
+    struct SubtitleEngine {
+        fail: bool,
+        commands: std::cell::RefCell<Vec<Vec<String>>>,
+    }
+
+    impl PlaybackEngine for SubtitleEngine {
+        fn property(&self, _: &str) -> Option<String> {
+            None
+        }
+        fn load(&self, _: &str) -> Result<()> {
+            Ok(())
+        }
+        fn command(&self, args: &[&str]) -> Result<()> {
+            self.commands
+                .borrow_mut()
+                .push(args.iter().map(|arg| (*arg).into()).collect());
+            anyhow::ensure!(!self.fail, "private subtitle path and native error");
+            Ok(())
+        }
+        fn event(&self, _: f64) -> Option<PlaybackEvent> {
+            None
+        }
+        fn sample(&self, _: f64) -> Sample {
+            Sample::default()
+        }
+    }
+
+    #[test]
+    fn subtitle_load_failure_preserves_request_identity_and_hides_native_errors() {
+        let engine = SubtitleEngine {
+            fail: true,
+            commands: std::cell::RefCell::default(),
+        };
+        for engine in [Some(&engine as &dyn PlaybackEngine), None] {
+            let event = add_subtitle(
+                engine,
+                7,
+                42,
+                std::path::Path::new("private.srt"),
+                "Track #42",
+                "eng",
+            );
+            assert!(
+                matches!(event, Some(Event::SubtitleLoadFailed { generation: 7, request: 42, ref error }) if error == "Cannot load this subtitle; try another variant")
+            );
+        }
+    }
+
+    #[test]
+    fn successful_subtitle_load_dispatches_the_requested_track_without_a_failure() {
+        let engine = SubtitleEngine {
+            fail: false,
+            commands: std::cell::RefCell::default(),
+        };
+        assert!(
+            add_subtitle(
+                Some(&engine),
+                7,
+                42,
+                std::path::Path::new("subtitle.srt"),
+                "Track #42",
+                "eng"
+            )
+            .is_none()
+        );
+        assert_eq!(
+            *engine.commands.borrow(),
+            vec![vec!["sub-add", "subtitle.srt", "auto", "Track #42", "eng"]]
+        );
+    }
+
+    #[tokio::test]
+    async fn player_shutdown_does_not_wait_for_a_full_ui_queue() {
+        let (tx, _events) = mpsc::channel(1);
+        tx.send(Event::Ready(0)).await.unwrap();
+        let inbox = Inbox {
+            tx,
+            wake: Arc::new(|| {}),
+        };
+        let (control, lifecycle) = watch::channel(None);
+        let (_commands, commands) = mpsc::channel(1);
+        let (_stats, stats) = watch::channel(None);
+        control.send(Some(Control::Stop(1))).unwrap();
+        let task = player_loop(lifecycle, commands, stats, inbox, PathBuf::new());
+        tokio::pin!(task);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), &mut task)
+                .await
+                .is_err(),
+            "The stop event must face backpressure"
+        );
+        drop(control);
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), &mut task)
+                .await
+                .is_ok(),
+            "Closing player control must interrupt event delivery without a UI drain"
+        );
+    }
 
     #[test]
     fn fresh_configuration_includes_kitsu_but_removal_survives_restart() {

@@ -45,6 +45,15 @@ impl State {
                 self.command(&["seek", &seconds.to_string(), "relative"]);
             }
             PlayerAction::SeekTo(target) => {
+                if !target.is_finite() {
+                    return;
+                }
+                let target = self
+                    .player
+                    .sample
+                    .duration_s
+                    .filter(|duration| duration.is_finite() && *duration > 0.0)
+                    .map_or_else(|| target.max(0.0), |duration| target.clamp(0.0, duration));
                 self.player.sample.cache_s = None;
                 self.library.observed = None;
                 self.player.sample.position_s = Some(target);
@@ -92,6 +101,35 @@ impl State {
         {
             Ok(()) => self.app_fullscreen = fullscreen,
             Err(error) => self.error = Some(error.to_string()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn absolute_seek_rejects_nonfinite_targets_without_changing_progress() {
+        let mut state = crate::ui::app::init();
+        state.player.playing = true;
+        state.player.sample.position_s = Some(12.0);
+        state.player.sample.cache_s = Some(4.0);
+        for target in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            state.player_action(PlayerAction::SeekTo(target));
+            assert_eq!(state.player.sample.position_s, Some(12.0));
+            assert_eq!(state.player.sample.cache_s, Some(4.0));
+        }
+    }
+
+    #[test]
+    fn absolute_seek_stays_within_the_media_duration() {
+        let mut state = crate::ui::app::init();
+        state.player.playing = true;
+        state.player.sample.duration_s = Some(60.0);
+        for (target, expected) in [(-5.0, 0.0), (70.0, 60.0), (25.0, 25.0)] {
+            state.player_action(PlayerAction::SeekTo(target));
+            assert_eq!(state.player.sample.position_s, Some(expected));
         }
     }
 }

@@ -26,16 +26,38 @@ async fn held() -> (
     tokio::sync::oneshot::Sender<()>,
     tokio::task::JoinHandle<()>,
 ) {
+    held_body(b"body", 1).await
+}
+
+async fn held_body(
+    body: &[u8],
+    requests: usize,
+) -> (
+    url::Url,
+    tokio::sync::oneshot::Receiver<()>,
+    tokio::sync::oneshot::Sender<()>,
+    tokio::task::JoinHandle<()>,
+) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let (seen, received) = tokio::sync::oneshot::channel();
     let (release, released) = tokio::sync::oneshot::channel();
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nCache-Control: max-age=60\r\nConnection: close\r\n\r\n",
+        body.len()
+    ).into_bytes();
+    let response = [response, body.to_vec()].concat();
     let server = tokio::spawn(async move {
         let (mut socket, _) = listener.accept().await.unwrap();
         read_request(&mut socket).await;
         seen.send(()).unwrap();
         let _ = released.await;
-        let _ = socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nCache-Control: max-age=60\r\nConnection: close\r\n\r\nbody").await;
+        let _ = socket.write_all(&response).await;
+        for _ in 1..requests {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            read_request(&mut socket).await;
+            socket.write_all(&response).await.unwrap();
+        }
     });
     (
         url::Url::parse(&format!("http://{address}/private")).unwrap(),
@@ -56,6 +78,87 @@ async fn until(cache: &HttpCache, predicate: impl Fn(&State) -> bool) {
     })
     .await
     .unwrap();
+}
+
+#[tokio::test]
+async fn json_consumers_use_their_own_response_schema() {
+    let (url, received, release, server) = held_body(b"42", 2).await;
+    let cache = HttpCache::new(reqwest::Client::new(), None);
+    let (first_cache, first_url) = (cache.clone(), url.clone());
+    let first =
+        tokio::spawn(async move { first_cache.get_json::<u32>(first_url, 100, true).await });
+    received.await.unwrap();
+    let second_cache = cache.clone();
+    let second = tokio::spawn(async move { second_cache.get_json::<String>(url, 100, true).await });
+    until(&cache, |state| {
+        state
+            .active
+            .values()
+            .map(|active| active.result.receiver_count())
+            .sum::<usize>()
+            == 2
+    })
+    .await;
+    release.send(()).unwrap();
+    assert_eq!(first.await.unwrap().unwrap().bytes.as_slice(), b"42");
+    assert_eq!(
+        second.await.unwrap().err().unwrap().to_string(),
+        "Invalid add-on response"
+    );
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn raw_and_json_consumers_do_not_share_validation_failures() {
+    for json_first in [false, true] {
+        let (url, received, release, server) = held_body(b"body", 2).await;
+        let cache = HttpCache::new(reqwest::Client::new(), None);
+        let (first_cache, first_url) = (cache.clone(), url.clone());
+        let first = tokio::spawn(async move {
+            if json_first {
+                first_cache
+                    .get_json::<serde_json::Value>(first_url, 100, true)
+                    .await
+            } else {
+                first_cache.get(first_url, 100, true).await
+            }
+        });
+        received.await.unwrap();
+        let second_cache = cache.clone();
+        let second = tokio::spawn(async move {
+            if json_first {
+                second_cache.get(url, 100, true).await
+            } else {
+                second_cache
+                    .get_json::<serde_json::Value>(url, 100, true)
+                    .await
+            }
+        });
+        // Both consumers must join or start their own request before releasing the first.
+        until(&cache, |state| {
+            state
+                .active
+                .values()
+                .map(|active| active.result.receiver_count())
+                .sum::<usize>()
+                == 2
+        })
+        .await;
+        release.send(()).unwrap();
+        let first = first.await.unwrap();
+        let second = second.await.unwrap();
+        let (json, raw) = if json_first {
+            (first, second)
+        } else {
+            (second, first)
+        };
+        assert!(
+            json.is_err(),
+            "Malformed JSON must be rejected for either arrival order"
+        );
+        assert_eq!(raw.unwrap().bytes.as_slice(), b"body");
+        server.await.unwrap();
+    }
 }
 
 #[tokio::test]

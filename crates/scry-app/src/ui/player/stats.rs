@@ -23,10 +23,16 @@ pub(super) fn trigger(s: &State) -> El {
         .selected(s.player.stats_overlay.is_open())
         .enabled(s.player.playing)
         .on_press_tx(|s: &mut State, tx| {
-            s.player.stats_overlay.show();
+            show(s);
             tx.instant();
         });
     hover_overlay::trigger(trigger, s.player.playing, overlay)
+}
+
+fn show(s: &mut State) {
+    s.player.subtitles.overlay.dismiss();
+    s.player.audio.overlay.dismiss();
+    s.player.stats_overlay.show();
 }
 
 pub(in crate::ui) fn panel(s: &State) -> Option<El> {
@@ -220,6 +226,20 @@ fn bytes(value: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opening_stats_replaces_the_active_track_menu() {
+        let mut state = crate::ui::app::init();
+        state.player.playing = true;
+        state.show_subtitles();
+        show(&mut state);
+        assert!(state.player.stats_overlay.is_open());
+        assert!(!state.player.subtitles.overlay.is_open());
+        state.show_audio();
+        show(&mut state);
+        assert!(state.player.stats_overlay.is_open());
+        assert!(!state.player.audio.overlay.is_open());
+    }
 
     #[test]
     fn unavailable_metrics_are_not_displayed_as_zero() {

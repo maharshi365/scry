@@ -6,6 +6,7 @@ mod tests;
 use anyhow::{Result, anyhow, bail};
 use http_cache_semantics::{AfterResponse, BeforeRequest, CacheOptions, CachePolicy};
 use std::{
+    any::TypeId,
     collections::{HashMap, VecDeque},
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -41,6 +42,7 @@ type Outcome = std::result::Result<Response, String>;
 struct Flight {
     key: String,
     revision: u64,
+    validation: Option<TypeId>,
 }
 
 struct Active {
@@ -111,20 +113,44 @@ impl HttpCache {
     /// # Errors
     /// Returns a private, URL-free error on failed, oversized, or excess requests.
     pub async fn get(&self, url: url::Url, limit: usize, allow_stale: bool) -> Result<Response> {
-        self.get_inner(url, limit, allow_stale, |_| true).await
+        self.get_inner(url, limit, allow_stale, None, |_| Ok(()))
+            .await
     }
 
     /// # Errors
     /// Returns an error without storing malformed resource responses.
-    pub async fn get_json<T: serde::de::DeserializeOwned>(
+    pub async fn get_json<T: serde::de::DeserializeOwned + 'static>(
         &self,
         url: url::Url,
         limit: usize,
         allow_stale: bool,
     ) -> Result<Response> {
-        self.get_inner(url, limit, allow_stale, |bytes| {
-            serde_json::from_slice::<T>(bytes).is_ok()
-        })
+        self.get_json_checked::<T, _>(url, limit, allow_stale, |_| Ok(()))
+            .await
+    }
+
+    pub(crate) async fn get_json_checked<T, F>(
+        &self,
+        url: url::Url,
+        limit: usize,
+        allow_stale: bool,
+        check: F,
+    ) -> Result<Response>
+    where
+        T: serde::de::DeserializeOwned + 'static,
+        F: Fn(&T) -> Result<()> + Send + Sync + 'static,
+    {
+        self.get_inner(
+            url,
+            limit,
+            allow_stale,
+            Some(TypeId::of::<(T, F)>()),
+            move |bytes| {
+                let value = serde_json::from_slice::<T>(bytes)
+                    .map_err(|_| anyhow!("Invalid add-on response"))?;
+                check(&value)
+            },
+        )
         .await
     }
 
@@ -132,7 +158,7 @@ impl HttpCache {
     /// # Errors
     /// Returns a URL-free error on cancellation or HTTP failure.
     pub async fn get_cancellable(&self, url: url::Url, limit: usize) -> Result<Response> {
-        self.get_inner(url, limit, false, |_| true).await
+        self.get_inner(url, limit, false, None, |_| Ok(())).await
     }
 
     async fn get_inner(
@@ -140,7 +166,8 @@ impl HttpCache {
         url: url::Url,
         limit: usize,
         allow_stale: bool,
-        validate: fn(&[u8]) -> bool,
+        validation: Option<TypeId>,
+        validate: impl Fn(&[u8]) -> Result<()> + Send + Sync + 'static,
     ) -> Result<Response> {
         let limit = limit.min(MAX_BODY);
         if url.as_str().len() > 16 * 1024 {
@@ -156,6 +183,7 @@ impl HttpCache {
             let flight = Flight {
                 key,
                 revision: state.revision,
+                validation,
             };
             if let Some(active) = state.active.get(&flight) {
                 if !self.1 {
@@ -268,13 +296,13 @@ impl HttpCache {
         url: url::Url,
         limit: usize,
         allow_stale: bool,
-        validate: fn(&[u8]) -> bool,
+        validate: impl Fn(&[u8]) -> Result<()> + Send + Sync,
         mut priority: watch::Receiver<bool>,
     ) -> Result<Response> {
         let cached = self
             .cached(&flight.key)
             .await
-            .filter(|entry| entry.bytes.len() <= limit && validate(&entry.bytes));
+            .filter(|entry| entry.bytes.len() <= limit && validate(&entry.bytes).is_ok());
         let request = http::Request::get(url.as_str())
             .body(())
             .map_err(|_| anyhow!("Invalid HTTP request"))?;
@@ -346,9 +374,7 @@ impl HttpCache {
         .unwrap_or_else(|_| Err(Failure::request()));
         match result {
             Ok(entry) => {
-                if !validate(&entry.bytes) {
-                    bail!("Invalid add-on response");
-                }
+                validate(&entry.bytes)?;
                 let response = entry.response();
                 self.store(&flight.key, entry).await;
                 Ok(response)

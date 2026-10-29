@@ -54,11 +54,13 @@ impl State {
         if self.config_busy {
             return;
         }
+        let Some(services) = &self.services else {
+            self.error = Some("Add-on services are unavailable. Restart the app to retry.".into());
+            return;
+        };
         self.error = None;
         self.config_busy = true;
-        if let Some(services) = &self.services {
-            services.install(input);
-        }
+        services.install(input);
     }
 
     pub(super) fn catalogs(&self) -> Vec<(Addon, Catalog)> {
@@ -100,6 +102,8 @@ impl State {
         self.poster_visible = 0..0;
         self.providers = Arc::default();
         self.error = None;
+        self.warnings.clear();
+        self.status.clear();
         let Some((addon, catalog)) = self.catalog.clone() else {
             self.loading = false;
             return;

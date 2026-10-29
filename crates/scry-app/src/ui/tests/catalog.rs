@@ -1,6 +1,37 @@
 use super::*;
 
 #[test]
+fn installing_without_services_reports_failure_without_staying_busy() {
+    let mut s = init();
+    s.config_busy = false;
+    s.install("https://example.invalid/manifest.json".into());
+    assert!(!s.config_busy, "No completion can arrive without services");
+    assert_eq!(
+        s.error.as_deref(),
+        Some("Add-on services are unavailable. Restart the app to retry.")
+    );
+}
+
+#[test]
+fn starting_a_catalog_clears_search_warnings_and_stale_status() {
+    let mut s = init();
+    scene_discover(&mut s);
+    s.warnings = vec!["Previous search provider failed".into()];
+    s.status = "Previous search status".into();
+    s.fetch_catalog();
+    assert!(s.warnings.is_empty());
+    assert_eq!(s.status, "Loading catalog…");
+
+    s.catalog = None;
+    s.fetch_catalog();
+    assert!(
+        s.status.is_empty(),
+        "No request is loading without a catalog"
+    );
+    assert!(!s.loading);
+}
+
+#[test]
 fn manifest_categories_browse_mixed_media() {
     for category in ["anime", "documentary"] {
         let mut s = init();

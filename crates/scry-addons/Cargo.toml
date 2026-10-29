@@ -14,7 +14,7 @@ reqwest = { workspace = true, features = ["json"] }
 serde.workspace = true
 serde_json.workspace = true
 url.workspace = true
-tokio = { workspace = true, features = ["rt", "sync", "time"] }
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
 http = "1"
 http-cache-semantics = { version = "3", features = ["serde"] }
 blake3 = "1"

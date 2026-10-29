@@ -74,9 +74,10 @@ unsafe extern "system" fn history_proc(
         _ => None,
     };
     if let Some(direction) = direction {
-        // SAFETY: data belongs to this live subclass. Enqueue only; do not mutate
-        // app state reentrantly inside the native window procedure.
-        unsafe { &*(data as *const NavigationInput) }.push(direction);
+        // SAFETY: data belongs to this live subclass. Clone before invoking the
+        // wake callback: it can destroy the window and free the subclass data.
+        let input = unsafe { &*(data as *const NavigationInput) }.clone();
+        input.push(direction);
         return 1;
     }
     // SAFETY: forward the original parameters from this live subclass callback.
@@ -115,7 +116,7 @@ mod tests {
         let input = NavigationInput::default();
         attach_hwnd(hwnd, input.clone())?;
         // SAFETY: hwnd is a live test-owned window on this thread. Messages carry
-        // only integer parameters, and DestroyWindow releases it exactly once.
+        // only integer parameters. The wake callback below destroys it once.
         unsafe {
             SendMessageW(hwnd, WM_XBUTTONDOWN, 1 << 16, 0);
             SendMessageW(hwnd, WM_XBUTTONUP, 1 << 16, 0);
@@ -123,7 +124,6 @@ mod tests {
             SendMessageW(hwnd, WM_XBUTTONUP, 2 << 16, 0);
             SendMessageW(hwnd, WM_APPCOMMAND, 0, 1 << 16);
             SendMessageW(hwnd, WM_APPCOMMAND, 0, 2 << 16);
-            DestroyWindow(hwnd);
         }
         assert_eq!(
             input.drain(),
@@ -135,6 +135,15 @@ mod tests {
             ]
         );
         assert!(input.drain().is_empty());
+        let handle = hwnd as usize;
+        input.connect(std::sync::Arc::new(move || {
+            // SAFETY: this wake runs synchronously on the test window's owner
+            // thread, once, while handling its final history message.
+            unsafe { DestroyWindow(handle as HWND) };
+        }));
+        // SAFETY: hwnd remains live until this message invokes the wake above.
+        unsafe { SendMessageW(hwnd, WM_XBUTTONUP, 1 << 16, 0) };
+        assert_eq!(input.drain(), vec![HistoryDirection::Back]);
         Ok(())
     }
 }

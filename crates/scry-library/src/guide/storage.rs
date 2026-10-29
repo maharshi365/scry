@@ -27,8 +27,9 @@ struct Payload {
 }
 
 pub(crate) fn validate(connection: &mut SqliteConnection) -> Result<()> {
-    diesel::sql_query("SELECT payload FROM guide_state LIMIT 0").load::<Payload>(connection)?;
-    diesel::sql_query("SELECT payload FROM guide_metadata LIMIT 0").load::<Payload>(connection)?;
+    diesel::sql_query("SELECT id,payload FROM guide_state LIMIT 0").load::<Payload>(connection)?;
+    diesel::sql_query("SELECT media_id,payload FROM guide_metadata LIMIT 0")
+        .load::<Payload>(connection)?;
     Ok(())
 }
 
@@ -194,6 +195,18 @@ fn update(connection: &mut SqliteConnection, action: GuideAction, now: i64) -> R
                 !group.members.is_empty(),
                 "add titles before enabling a channel"
             );
+            let kind = group.members.first().context("empty collection")?.key.kind;
+            ensure!(
+                matches!(kind, MediaKind::Series | MediaKind::Movie)
+                    && !diesel::select(diesel::dsl::exists(
+                        media::table
+                            .inner_join(playlist_items::table)
+                            .filter(playlist_items::playlist_id.eq(id))
+                            .filter(media::kind.ne(kind.as_str())),
+                    ))
+                    .get_result::<bool>(connection)?,
+                "channels require a collection of only shows or only movies"
+            );
             if !stored
                 .channels
                 .iter()
@@ -203,7 +216,6 @@ fn update(connection: &mut SqliteConnection, action: GuideAction, now: i64) -> R
                     stored.channels.len() < MAX_CHANNELS,
                     "channel limit reached"
                 );
-                let kind = group.members.first().context("empty collection")?.key.kind;
                 stored.channels.push(Channel {
                     id: format!("collection-{id}"),
                     name: group.playlist.name.clone(),

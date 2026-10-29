@@ -474,16 +474,18 @@ impl Addon {
                     });
             }
             r["name"].as_str() == Some(resource)
-                && r.get("types")
-                    .and_then(|v| v.as_array())
-                    .is_none_or(|types| types.iter().any(|t| t.as_str() == Some(kind)))
-                && r.get("idPrefixes")
-                    .and_then(|v| v.as_array())
-                    .is_none_or(|prefixes| {
+                && r.get("types").is_none_or(|value| {
+                    value
+                        .as_array()
+                        .is_some_and(|types| types.iter().any(|t| t.as_str() == Some(kind)))
+                })
+                && r.get("idPrefixes").is_none_or(|value| {
+                    value.as_array().is_some_and(|prefixes| {
                         prefixes
                             .iter()
                             .any(|p| p.as_str().is_some_and(|p| id.starts_with(p)))
                     })
+                })
         })
     }
 }
@@ -542,18 +544,26 @@ impl Client {
         Self(self.0.background())
     }
 
-    async fn json<T: serde::de::DeserializeOwned>(&self, url: Url) -> Result<T> {
+    async fn json<T: serde::de::DeserializeOwned + 'static>(&self, url: Url) -> Result<T> {
         self.json_mode(url, true).await
     }
 
-    async fn json_mode<T: serde::de::DeserializeOwned>(
+    async fn json_mode<T: serde::de::DeserializeOwned + 'static>(
         &self,
         url: Url,
         allow_stale: bool,
     ) -> Result<T> {
+        self.json_checked(url, allow_stale, |_| Ok(())).await
+    }
+
+    async fn json_checked<T, F>(&self, url: Url, allow_stale: bool, check: F) -> Result<T>
+    where
+        T: serde::de::DeserializeOwned + 'static,
+        F: Fn(&T) -> Result<()> + Send + Sync + 'static,
+    {
         let response = self
             .0
-            .get_json::<T>(url, 4 * 1024 * 1024, allow_stale)
+            .get_json_checked::<T, _>(url, 4 * 1024 * 1024, allow_stale, check)
             .await?;
         // Serde errors can echo an invalid string value, including private URLs.
         serde_json::from_slice(&response.bytes)
@@ -564,10 +574,14 @@ impl Client {
     /// Returns an error for an invalid manifest URL, failed request, or invalid manifest.
     pub async fn install(&self, input: &str) -> Result<Addon> {
         let url = manifest_url(input)?;
-        let manifest: Manifest = self.json(url.clone()).await?;
-        if manifest.id.trim().is_empty() || manifest.name.trim().is_empty() {
-            bail!("Add-on manifest has no ID or name");
-        }
+        let manifest = self
+            .json_checked(url.clone(), true, |manifest: &Manifest| {
+                if manifest.id.trim().is_empty() || manifest.name.trim().is_empty() {
+                    bail!("Add-on manifest has no ID or name");
+                }
+                Ok(())
+            })
+            .await?;
         Ok(Addon {
             disabled: false,
             manifest_url: url.to_string(),
@@ -607,14 +621,17 @@ impl Client {
         struct Response {
             meta: Meta,
         }
-        let meta = self
-            .json::<Response>(resource_url(&addon.manifest_url, "meta", kind, id, None)?)
+        let url = resource_url(&addon.manifest_url, "meta", kind, id, None)?;
+        let (id, kind) = (id.to_owned(), kind.to_owned());
+        Ok(self
+            .json_checked(url, true, move |response: &Response| {
+                if response.meta.id != id || response.meta.kind != kind {
+                    bail!("Add-on metadata identity does not match the request");
+                }
+                Ok(())
+            })
             .await?
-            .meta;
-        if meta.id != id || meta.kind != kind {
-            bail!("Add-on metadata identity does not match the request");
-        }
-        Ok(meta)
+            .meta)
     }
 
     /// # Errors

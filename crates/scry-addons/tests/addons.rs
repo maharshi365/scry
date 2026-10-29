@@ -172,6 +172,19 @@ fn object_resources_replace_global_filters() {
     assert!(!addon.supports("stream", "movie", "tt123"));
 }
 
+#[test]
+fn malformed_resource_filters_do_not_expand_supported_resources() {
+    for filters in [
+        json!({"name":"stream", "types":"movie"}),
+        json!({"name":"stream", "types":null}),
+        json!({"name":"stream", "idPrefixes":42}),
+        json!({"name":"stream", "idPrefixes":null}),
+    ] {
+        let provider = addon(json!([filters]));
+        assert!(!provider.supports("stream", "movie", "tt123"));
+    }
+}
+
 fn addon_with_empty_filters() -> Addon {
     addon(json!([{"name":"stream", "types":["movie"], "idPrefixes":[]}]))
 }

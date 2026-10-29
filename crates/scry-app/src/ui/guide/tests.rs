@@ -42,6 +42,30 @@ fn stream(value: serde_json::Value) -> Stream {
 }
 
 #[test]
+fn full_metadata_queue_accepts_updates_but_not_new_titles() {
+    let mut state = state();
+    let mut meta: Meta = serde_json::from_value(serde_json::json!({
+        "id": "title", "type": "movie", "name": "Original"
+    }))
+    .unwrap();
+    for index in 0..200 {
+        state.register_guide_metadata(
+            &MediaKey::new("test", MediaKind::Movie, index.to_string()),
+            &meta,
+        );
+    }
+    let existing = MediaKey::new("test", MediaKind::Movie, "0");
+    meta.name = "Updated".into();
+    state.register_guide_metadata(&existing, &meta);
+    state.register_guide_metadata(&MediaKey::new("test", MediaKind::Movie, "overflow"), &meta);
+    assert_eq!(state.guide.metadata.len(), 200);
+    assert_eq!(
+        state.guide.metadata.get(&existing).unwrap().0.title,
+        "Updated"
+    );
+}
+
+#[test]
 fn automatic_sources_play_direct_streams_by_default_and_never_choose_blocked_torrents() {
     let sources = vec![
         (

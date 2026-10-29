@@ -73,6 +73,7 @@ impl State {
         if !self.seasons().contains(&season) || self.active_season() == season {
             return;
         }
+        self.library.quick_play = None;
         self.episode_season = Some(season);
         self.episode_offset = 0;
         self.episode_state_offset = None;
@@ -116,11 +117,13 @@ impl State {
         if let Some(meta) = &self.detail
             && let Some(video) = meta.videos.get(index)
         {
+            self.library.quick_play = None;
             self.find_streams(meta.kind.clone(), video.id.clone());
         }
     }
 
     pub(super) fn show_episodes(&mut self) {
+        self.library.quick_play = None;
         self.selected_video_id = None;
         self.stream_id += 1;
         self.streams.clear();

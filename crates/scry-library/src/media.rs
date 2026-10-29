@@ -107,17 +107,24 @@ pub(crate) fn hydrate(
         .collect()
 }
 
-pub(crate) fn upsert_media(connection: &mut SqliteConnection, item: &Media) -> Result<()> {
+pub(crate) fn validate_media(item: &Media) -> Result<()> {
     ensure!(
         !item.key.namespace.trim().is_empty() && !item.key.id.trim().is_empty(),
         "media identity cannot be empty"
     );
     ensure!(!item.title.trim().is_empty(), "media title cannot be empty");
-    let parent_id = if let Some(parent) = &item.parent {
+    if let Some(parent) = &item.parent {
         ensure!(
             item.key.kind == MediaKind::Episode && parent.kind == MediaKind::Series,
             "only episodes can link to a parent series"
         );
+    }
+    Ok(())
+}
+
+pub(crate) fn upsert_media(connection: &mut SqliteConnection, item: &Media) -> Result<()> {
+    validate_media(item)?;
+    let parent_id = if let Some(parent) = &item.parent {
         Some(media_id(connection, parent)?)
     } else {
         None

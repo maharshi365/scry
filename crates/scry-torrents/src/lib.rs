@@ -18,6 +18,11 @@ use std::{io::SeekFrom, path::PathBuf, sync::Arc};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
 
+// Bound URL parsing and magnet escaping even when an add-on supplies huge sources.
+const MAX_TRACKER_URL_BYTES: usize = 8 * 1024;
+// The engine opens every file in a pack, including files outside `only_files`.
+const MAX_TORRENT_FILES: usize = 1024;
+
 /// Created only when a torrent is selected. Exactly one torrent runs at a time.
 pub struct Torrents {
     #[cfg(feature = "profiling")]
@@ -105,54 +110,54 @@ impl Torrents {
 
     async fn prepare(&self, stream: &Stream) -> Result<String> {
         let magnet = magnet(stream)?;
-        let (source, index) = if let Some(index) = stream.file_idx {
-            (AddTorrent::from_url(magnet), index)
-        } else {
-            // Resolve metadata without opening or allocating every file in a season pack.
-            let listed = tokio::time::timeout(
-                std::time::Duration::from_secs(90),
-                self.session.add_torrent(
-                    AddTorrent::from_url(magnet),
-                    Some(AddTorrentOptions {
-                        #[cfg(feature = "profiling")]
-                        initial_peers: self.peer.map(|peer| vec![peer]),
-                        #[cfg(feature = "profiling")]
-                        disable_trackers: self.peer.is_some(),
-                        list_only: true,
-                        ..Default::default()
-                    }),
-                ),
-            )
-            .await
-            .context("Torrent metadata timed out")??;
-            let AddTorrentResponse::ListOnly(listed) = listed else {
-                bail!("Unexpected torrent metadata response");
-            };
-            let files = listed
-                .info
-                .iter_file_details()?
-                .map(|file| Ok((file.filename.to_string()?, file.len)))
-                .collect::<Result<Vec<_>>>()?;
-            let index = select_video(
-                &files
-                    .iter()
-                    .map(|(name, len)| (name.as_str(), *len))
-                    .collect::<Vec<_>>(),
-            )
-            .context("Torrent has no supported video file")?;
-            (AddTorrent::from_bytes(listed.torrent_bytes), index)
-        };
-        let added = tokio::time::timeout(
+        // Inspect every path before the engine opens files, even with an explicit index.
+        let listed = tokio::time::timeout(
             std::time::Duration::from_secs(90),
-            self.api.api_add_torrent(
-                source,
+            self.session.add_torrent(
+                AddTorrent::from_url(magnet),
                 Some(AddTorrentOptions {
                     #[cfg(feature = "profiling")]
                     initial_peers: self.peer.map(|peer| vec![peer]),
                     #[cfg(feature = "profiling")]
                     disable_trackers: self.peer.is_some(),
+                    list_only: true,
+                    sub_folder: Some(String::new()),
+                    ..Default::default()
+                }),
+            ),
+        )
+        .await
+        .context("Torrent metadata timed out")??;
+        let AddTorrentResponse::ListOnly(listed) = listed else {
+            bail!("Unexpected torrent metadata response");
+        };
+        let files = listed
+            .info
+            .iter_file_details()?
+            .take(MAX_TORRENT_FILES + 1)
+            .map(|file| Ok((file.filename.to_string()?, file.len)))
+            .collect::<Result<Vec<_>>>()?;
+        let index = select_torrent_file(
+            &files
+                .iter()
+                .map(|(name, len)| (name.as_str(), *len))
+                .collect::<Vec<_>>(),
+            stream.file_idx,
+        )?;
+        let initial_peers = listed.seen_peers;
+        #[cfg(feature = "profiling")]
+        let initial_peers = self.peer.map_or(initial_peers, |peer| vec![peer]);
+        let added = tokio::time::timeout(
+            std::time::Duration::from_secs(90),
+            self.api.api_add_torrent(
+                AddTorrent::from_bytes(listed.torrent_bytes),
+                Some(AddTorrentOptions {
+                    initial_peers: Some(initial_peers),
+                    #[cfg(feature = "profiling")]
+                    disable_trackers: self.peer.is_some(),
                     paused: true,
                     only_files: Some(vec![index]),
+                    sub_folder: Some(String::new()),
                     overwrite: true,
                     ..Default::default()
                 }),
@@ -209,6 +214,7 @@ pub fn magnet(stream: &Stream) -> Result<String> {
         .append_pair("xt", &format!("urn:btih:{hash}"));
     for source in stream.sources.iter().take(32) {
         if let Some(tracker) = source.strip_prefix("tracker:")
+            && tracker.len() <= MAX_TRACKER_URL_BYTES
             && url::Url::parse(tracker)
                 .is_ok_and(|u| matches!(u.scheme(), "udp" | "http" | "https"))
         {
@@ -235,6 +241,48 @@ fn select_video(files: &[(&str, u64)]) -> Option<usize> {
         .map(|(i, _)| i)
 }
 
+fn select_torrent_file(files: &[(&str, u64)], index: Option<usize>) -> Result<usize> {
+    if files.len() > MAX_TORRENT_FILES {
+        bail!("Torrent contains too many files");
+    }
+    // The engine opens unselected files too. Reject Windows prefixes, alternate
+    // streams, device aliases, and components Win32 can normalize into parents.
+    for (name, _) in files {
+        if name.split(['/', '\\']).any(|part| {
+            part.is_empty()
+                || part.contains(':')
+                || part.ends_with(['.', ' '])
+                || is_windows_device_name(part)
+        }) {
+            bail!("Torrent contains an unsafe file path");
+        }
+    }
+    if index.is_some_and(|index| index >= files.len()) {
+        bail!("Torrent file index is out of range");
+    }
+    index
+        .or_else(|| select_video(files))
+        .context("Torrent has no supported video file")
+}
+
+fn is_windows_device_name(component: &str) -> bool {
+    // DOS aliases remain reserved with extensions, including COM/LPT with ¹²³.
+    let stem = component
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches(' ');
+    ["CON", "PRN", "AUX", "NUL"]
+        .iter()
+        .any(|device| stem.eq_ignore_ascii_case(device))
+        || (stem.get(..3).is_some_and(|prefix| {
+            prefix.eq_ignore_ascii_case("COM") || prefix.eq_ignore_ascii_case("LPT")
+        }) && matches!(
+            stem.get(3..),
+            Some("1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³")
+        ))
+}
+
 /// Inclusive single byte range. Multipart ranges are deliberately rejected.
 fn byte_range(value: Option<&str>, len: u64) -> Result<(u64, u64, bool)> {
     if len == 0 {
@@ -245,6 +293,11 @@ fn byte_range(value: Option<&str>, len: u64) -> Result<(u64, u64, bool)> {
     };
     let value = value.strip_prefix("bytes=").context("Invalid range unit")?;
     let (start, end) = value.split_once('-').context("Invalid range")?;
+    if !start.bytes().all(|byte| byte.is_ascii_digit())
+        || !end.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        bail!("Invalid range digits");
+    }
     if start.is_empty() {
         let suffix = end.parse::<u64>()?;
         if suffix == 0 {
@@ -338,8 +391,11 @@ mod tests {
             "bytes=-0",
             "bytes=0-1,4-5",
             "items=0-1",
+            "bytes=+1-2",
+            "bytes=1-+2",
+            "bytes=-+2",
         ] {
-            assert!(byte_range(Some(value), 100).is_err());
+            assert!(byte_range(Some(value), 100).is_err(), "range {value}");
         }
         assert!(byte_range(None, 0).is_err());
     }
@@ -350,6 +406,98 @@ mod tests {
             Some(2)
         );
         assert_eq!(select_video(&[("a.txt", 100)]), None);
+    }
+
+    #[test]
+    fn torrent_paths_cannot_escape_the_cache_or_name_windows_streams() {
+        for name in [
+            "C:escape.mp4",
+            "movie.mp4:stream",
+            "../escape.mp4",
+            "../film/ok.mp4",
+            "/escape.mp4",
+            "folder./film.mp4",
+            "folder /film.mp4",
+        ] {
+            for index in [None, Some(0)] {
+                assert!(
+                    select_torrent_file(&[(name, 100)], index).is_err(),
+                    "path {name}, index {index:?}"
+                );
+            }
+            assert!(
+                select_torrent_file(&[("film.mp4", 100), (name, 1)], Some(0)).is_err(),
+                "unselected path {name}"
+            );
+        }
+        assert_eq!(
+            select_torrent_file(&[("season/film.mp4", 100)], None).unwrap(),
+            0
+        );
+        assert!(select_torrent_file(&[("film.mp4", 100)], Some(1)).is_err());
+    }
+
+    #[test]
+    fn oversized_torrent_packs_are_rejected_before_file_initialization() {
+        let files = vec![("film.mp4", 100); 1025];
+        assert!(select_torrent_file(&files, Some(0)).is_err());
+    }
+
+    #[test]
+    fn torrent_paths_reject_windows_device_components() {
+        let devices = ["CON", "PRN", "AUX", "NUL"]
+            .into_iter()
+            .map(str::to_owned)
+            .chain(["COM", "LPT"].into_iter().flat_map(|prefix| {
+                ["1", "2", "3", "4", "5", "6", "7", "8", "9", "¹", "²", "³"]
+                    .into_iter()
+                    .map(move |digit| format!("{prefix}{digit}"))
+            }));
+        for device in devices {
+            for spelling in [device.clone(), device.to_ascii_lowercase()] {
+                for suffix in ["", ".mp4", ".tar.mp4", " .mp4"] {
+                    let component = format!("{spelling}{suffix}");
+                    for name in [
+                        component.clone(),
+                        format!("season/{component}"),
+                        format!("{component}/film.mp4"),
+                        format!("season\\{component}\\film.mp4"),
+                    ] {
+                        assert!(
+                            select_torrent_file(&[(&name, 100)], Some(0)).is_err(),
+                            "selected device path {name}"
+                        );
+                        assert!(
+                            select_torrent_file(&[("film.mp4", 100), (&name, 1)], Some(0)).is_err(),
+                            "unselected device path {name}"
+                        );
+                    }
+                }
+            }
+        }
+        assert!(select_torrent_file(&[("cOm1.mp4", 100)], None).is_err());
+    }
+
+    #[test]
+    fn torrent_paths_preserve_names_that_only_resemble_windows_devices() {
+        for name in [
+            "concert.mp4",
+            "auxiliary/film.mp4",
+            "COM0.mp4",
+            "COM10.mp4",
+            "LPT0.mp4",
+            "LPT10.mp4",
+            "COM¹0.mp4",
+            "COM⁴.mp4",
+            "film.CON.mp4",
+            "season/film.mp4",
+        ] {
+            assert_eq!(
+                select_torrent_file(&[(name, 100)], None).unwrap(),
+                0,
+                "path {name}"
+            );
+        }
     }
 
     #[test]
@@ -366,6 +514,22 @@ mod tests {
             "urn:btih:0123456789abcdef0123456789abcdef01234567"
         );
         assert_eq!(pairs[1].1, "udp://tracker.example:80/announce");
+    }
+
+    #[test]
+    fn magnet_bounds_tracker_url_size() {
+        let stream: Stream = serde_json::from_value(serde_json::json!({
+            "infoHash":"0123456789abcdef0123456789abcdef01234567",
+            "sources":[
+                format!("tracker:https://tracker.example/{}", "a".repeat(8192)),
+                "tracker:https://tracker.example/announce"
+            ]
+        }))
+        .unwrap();
+        let url = url::Url::parse(&magnet(&stream).unwrap()).unwrap();
+        let trackers: Vec<_> = url.query_pairs().filter(|(key, _)| key == "tr").collect();
+        assert_eq!(trackers.len(), 1);
+        assert_eq!(trackers[0].1, "https://tracker.example/announce");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

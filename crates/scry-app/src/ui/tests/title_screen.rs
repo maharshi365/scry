@@ -1,6 +1,24 @@
 use super::*;
 
 #[test]
+fn late_details_keep_the_episode_selected_while_metadata_was_loading() {
+    let (mut s, tx) = state_with_events();
+    s.open_detail_from(series(3));
+    let generation = s.detail_id;
+    s.select_episode(1);
+    let old_streams = s.stream_id;
+    tx.try_send(Event::Detail(generation, Ok((series(3), "imdb".into()))))
+        .unwrap();
+    poll(&mut s, 0.0, &mut Tx::default());
+    assert_eq!(s.selected_video_id.as_deref(), Some("tt123:1:2"));
+    assert!(s.loading, "The selected episode still needs its streams");
+    assert!(
+        s.stream_id > old_streams,
+        "Restart streams for the resolved metadata"
+    );
+}
+
+#[test]
 fn quick_preview_is_compact_and_chips_share_rows_when_they_fit() {
     let mut s = init();
     scene_discover(&mut s);

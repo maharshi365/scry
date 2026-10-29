@@ -250,6 +250,134 @@ async fn malformed_resource_is_not_persisted_or_used_to_replace_good_data() {
 }
 
 #[tokio::test]
+async fn mismatched_metadata_is_not_cached_before_retrying() {
+    let directory = tempfile::tempdir().unwrap();
+    let wrong = response("200 OK", "Cache-Control: max-age=60\r\n", "Wrong")
+        .replace("\"id\":\"film\"", "\"id\":\"fake\"");
+    let (addon, requests, server) = provider(vec![
+        wrong,
+        response("200 OK", "Cache-Control: max-age=60\r\n", "Valid"),
+    ])
+    .await;
+    let client = Client::with_cache_dir(Some(directory.path().into())).unwrap();
+    assert!(client.meta(&addon, "movie", "film").await.is_err());
+    assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+    assert_eq!(
+        client.meta(&addon, "movie", "film").await.unwrap().name,
+        "Valid"
+    );
+    assert_eq!(requests.lock().unwrap().len(), 2);
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn invalid_manifest_identity_is_not_cached_before_retrying() {
+    let directory = tempfile::tempdir().unwrap();
+    let responses = ["", "valid"].map(|id| {
+        let body = serde_json::json!({"id":id,"name":"Provider"}).to_string();
+        format!("HTTP/1.1 200 OK\r\nCache-Control: max-age=60\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
+    });
+    let (addon, requests, server) = provider(responses.into()).await;
+    let client = Client::with_cache_dir(Some(directory.path().into())).unwrap();
+    assert!(client.install(&addon.manifest_url).await.is_err());
+    assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+    assert_eq!(
+        client
+            .install(&addon.manifest_url)
+            .await
+            .unwrap()
+            .manifest
+            .id,
+        "valid"
+    );
+    assert_eq!(requests.lock().unwrap().len(), 2);
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn invalid_identity_refresh_preserves_good_memory_and_disk_entries() {
+    for manifest in [false, true] {
+        let headers = "Cache-Control: max-age=0, stale-if-error=60\r\n";
+        let (good, invalid) = if manifest {
+            let encode = |id: &str| {
+                let body = serde_json::json!({"id":id,"name":"Saved"}).to_string();
+                format!(
+                    "HTTP/1.1 200 OK\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+            };
+            (encode("valid"), encode(""))
+        } else {
+            (
+                response("200 OK", headers, "Saved"),
+                response("200 OK", headers, "Invalid")
+                    .replace("\"id\":\"film\"", "\"id\":\"fake\""),
+            )
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let (addon, requests, server) = provider(vec![
+            good,
+            invalid,
+            response("503 Unavailable", "", ""),
+            response("503 Unavailable", "", ""),
+        ])
+        .await;
+        let client = Client::with_cache_dir(Some(directory.path().into())).unwrap();
+        if manifest {
+            assert_eq!(
+                client
+                    .install(&addon.manifest_url)
+                    .await
+                    .unwrap()
+                    .manifest
+                    .id,
+                "valid"
+            );
+            assert!(client.install(&addon.manifest_url).await.is_err());
+            assert_eq!(
+                client
+                    .install(&addon.manifest_url)
+                    .await
+                    .unwrap()
+                    .manifest
+                    .id,
+                "valid"
+            );
+        } else {
+            assert_eq!(
+                client.meta(&addon, "movie", "film").await.unwrap().name,
+                "Saved"
+            );
+            assert!(client.meta(&addon, "movie", "film").await.is_err());
+            assert_eq!(
+                client.meta(&addon, "movie", "film").await.unwrap().name,
+                "Saved"
+            );
+        }
+        drop(client);
+        let restarted = Client::with_cache_dir(Some(directory.path().into())).unwrap();
+        if manifest {
+            assert_eq!(
+                restarted
+                    .install(&addon.manifest_url)
+                    .await
+                    .unwrap()
+                    .manifest
+                    .id,
+                "valid"
+            );
+        } else {
+            assert_eq!(
+                restarted.meta(&addon, "movie", "film").await.unwrap().name,
+                "Saved"
+            );
+        }
+        assert_eq!(requests.lock().unwrap().len(), 4);
+        server.await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn streams_never_use_the_metadata_stale_fallback_policy() {
     let body = r#"{"streams":[]}"#;
     let good = format!(

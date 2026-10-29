@@ -42,7 +42,10 @@ impl Sample {
             return 0.0;
         };
         let delta = after - before;
-        let elapsed = (self.elapsed_s - previous.elapsed_s).max(0.0);
+        let elapsed = self.elapsed_s - previous.elapsed_s;
+        if !elapsed.is_finite() || elapsed <= 0.0 {
+            return 0.0;
+        }
         let speed = self.speed.unwrap_or(1.0).clamp(0.1, 10.0);
         if delta.is_finite() && delta > 0.0 && delta <= elapsed * speed + 0.5 {
             delta
@@ -76,6 +79,9 @@ pub struct Tracker {
 
 impl Tracker {
     pub fn observe(&mut self, sample: &Sample) {
+        if !sample.elapsed_s.is_finite() || sample.elapsed_s < 0.0 {
+            return;
+        }
         let summary = &mut self.summary;
         summary.samples += 1;
         summary.peak_resident_bytes = summary
@@ -87,12 +93,19 @@ impl Tracker {
         summary.dropped_frames = summary
             .dropped_frames
             .max(sample.dropped_frames.unwrap_or(0));
-        if summary.startup_s.is_none() && sample.position_s.is_some_and(|p| p > 0.05) {
+        if summary.startup_s.is_none()
+            && sample.position_s.is_some_and(|p| p.is_finite() && p > 0.05)
+        {
             summary.startup_s = Some(sample.elapsed_s);
         }
         if let Some(previous) = &self.previous {
             let dt = (sample.elapsed_s - previous.elapsed_s).max(0.0);
-            if let (Some(before), Some(after)) = (previous.cpu_time_s, sample.cpu_time_s) {
+            if let (Some(before), Some(after)) = (previous.cpu_time_s, sample.cpu_time_s)
+                && before.is_finite()
+                && after.is_finite()
+                && before >= 0.0
+                && after >= 0.0
+            {
                 summary.cpu_time_s += (after - before).max(0.0);
             }
             // Do not count an interval that crosses a pause/unpause transition.
@@ -103,7 +116,7 @@ impl Tracker {
                 if let (Some(before), Some(after)) = (previous.position_s, sample.position_s) {
                     let advance = after - before;
                     // Ignore seeks rather than treating them as playback progress.
-                    if sample.playback_advance_since(previous) > 0.01 {
+                    if sample.playback_advance_since(previous) > 0.0 {
                         summary.playback_advanced_s += advance;
                         self.stall_s = 0.0;
                         self.in_stall = false;
@@ -293,5 +306,56 @@ mod tests {
                 "speed={speed}, buffering={buffering}"
             );
         }
+    }
+
+    #[test]
+    fn small_playback_steps_are_progress_not_stalls() {
+        let mut tracker = Tracker::default();
+        for tick in 0..=400 {
+            let elapsed = f64::from(tick) / 100.0;
+            tracker.observe(&sample(elapsed, 1.0 + elapsed / 2.0));
+        }
+        assert_eq!(tracker.summary.stalls, 0);
+        assert!((tracker.summary.playback_advanced_s - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn invalid_clock_intervals_do_not_count_seek_progress() {
+        let previous = sample(1.0, 1.0);
+        for elapsed in [0.0, 1.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(
+                sample(elapsed, 1.25).playback_advance_since(&previous),
+                0.0,
+                "elapsed={elapsed}"
+            );
+        }
+    }
+
+    #[test]
+    fn nonfinite_measurements_do_not_poison_summary_totals() {
+        let mut tracker = Tracker::default();
+        for (elapsed_s, cpu_time_s) in [(0.0, 0.0), (f64::INFINITY, f64::INFINITY), (1.0, 1.0)] {
+            tracker.observe(&Sample {
+                elapsed_s,
+                cpu_time_s: Some(cpu_time_s),
+                buffering: true,
+                ..Sample::default()
+            });
+        }
+        assert_eq!(tracker.summary.buffering_s, 1.0);
+        assert_eq!(tracker.summary.cpu_time_s, 1.0);
+        tracker.observe(&Sample {
+            cpu_time_s: Some(f64::INFINITY),
+            ..sample(2.0, 1.0)
+        });
+        tracker.observe(&Sample {
+            cpu_time_s: Some(3.0),
+            ..sample(3.0, 2.0)
+        });
+        tracker.observe(&Sample {
+            cpu_time_s: Some(4.0),
+            ..sample(4.0, 3.0)
+        });
+        assert_eq!(tracker.summary.cpu_time_s, 2.0);
     }
 }

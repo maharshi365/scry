@@ -71,7 +71,7 @@ impl Default for GuideUi {
 impl State {
     pub(in crate::ui) fn register_guide_metadata(&mut self, key: &MediaKey, meta: &Meta) {
         if !matches!(key.kind, MediaKind::Series | MediaKind::Movie)
-            || self.guide.metadata.len() >= 200
+            || (self.guide.metadata.len() >= 200 && !self.guide.metadata.contains_key(key))
         {
             return;
         }

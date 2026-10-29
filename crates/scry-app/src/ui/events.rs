@@ -114,6 +114,11 @@ fn apply(s: &mut State, event: Event) {
             s.apply_subtitle_sources(id, sources, done, failed);
         }
         Event::SubtitleFile(id, request, file) => s.apply_subtitle_file(id, request, file),
+        Event::SubtitleLoadFailed {
+            generation,
+            request,
+            error,
+        } => s.apply_subtitle_load_failed(generation, request, error),
         Event::GuideDetails(generation, found) => s.apply_guide_details(generation, found),
         Event::WatchMetadata(token, media, watched, result) => {
             s.apply_watch_metadata(token, media, watched, result);
@@ -280,6 +285,9 @@ fn apply(s: &mut State, event: Event) {
             s.player.playing = false;
             s.player.subtitles = super::player::subtitles::Subtitles::default();
             s.player.audio = super::player::audio::Audio::default();
+            if let Some(services) = &mut s.services {
+                services.cancel_subtitles();
+            }
             s.player.ready = false;
             s.player.seek_preview = None;
             s.player.sample.cache_s = None;
@@ -301,7 +309,11 @@ fn apply(s: &mut State, event: Event) {
 fn apply_detail(s: &mut State, meta: Meta) {
     let movie = meta.kind == "movie";
     let (kind, id) = (meta.kind.clone(), meta.id.clone());
-    let episode = s.pending_episode.take().filter(|_| !movie);
+    let episode = s
+        .pending_episode
+        .take()
+        .or_else(|| s.selected_video_id.clone())
+        .filter(|_| !movie);
     if let Some(index) = episode
         .as_ref()
         .and_then(|id| meta.videos.iter().position(|video| &video.id == id))

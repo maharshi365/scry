@@ -103,6 +103,55 @@ fn up_next_entries_appear_with_or_without_currently_watching_items() {
 }
 
 #[test]
+fn manual_episode_and_season_choices_cancel_pending_quick_play() {
+    let mut s = init();
+    s.navigation.page = Page::Detail;
+    s.detail = Some(multi_season_series());
+    s.library.quick_play = Some(s.detail_id);
+    s.select_episode(4);
+    assert!(s.library.quick_play.is_none());
+    assert_eq!(s.selected_video_id.as_deref(), Some("show:1:1"));
+
+    s.library.quick_play = Some(s.detail_id);
+    s.select_season(Some(2));
+    assert!(s.library.quick_play.is_none());
+    assert!(s.selected_video_id.is_none());
+    assert_eq!(s.active_season(), Some(2));
+}
+
+#[test]
+fn returning_to_episodes_cancels_quick_play_for_later_manual_selections() {
+    let (mut s, tx) = state_with_events();
+    s.navigation.page = Page::Detail;
+    s.detail = Some(series(3));
+    s.selected_video_id = Some("tt123:1:1".into());
+    s.library.quick_play = Some(s.detail_id);
+    s.show_episodes();
+    assert!(
+        s.library.quick_play.is_none(),
+        "Back cancels the pending quick play"
+    );
+    s.select_episode(1);
+    let stream: Stream =
+        serde_json::from_value(serde_json::json!({"url":"https://example.invalid/video.mp4"}))
+            .unwrap();
+    tx.try_send(Event::Streams(
+        s.stream_id,
+        vec![("Provider".into(), stream)],
+        vec![],
+        true,
+    ))
+    .unwrap();
+    poll(&mut s, 0.0, &mut Tx::default());
+    assert!(
+        s.library.playing.is_none(),
+        "A manual selection must show its sources"
+    );
+    assert_eq!(s.navigation.page, Page::Detail);
+    assert_eq!(s.streams.len(), 1);
+}
+
+#[test]
 fn quick_play_starts_a_single_source_but_keeps_multiple_sources_in_the_picker() {
     for count in [1, 2] {
         let (mut s, tx) = state_with_events();

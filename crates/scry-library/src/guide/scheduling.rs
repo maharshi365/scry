@@ -48,7 +48,7 @@ struct Candidate {
 }
 
 fn candidates(connection: &mut SqliteConnection, now: i64) -> Result<Vec<Candidate>> {
-    let rows = diesel::sql_query("SELECT m.namespace,m.kind,m.external_id,m.title,p.namespace AS parent_namespace,p.external_id AS parent_external_id,COALESCE(p.title,m.title) AS show_title,e.season,e.episode,CAST(COALESCE(pr.duration_seconds,r.seconds) AS INTEGER) AS duration,COALESCE(w.watched,0) AS watched,EXISTS(SELECT 1 FROM watchlist l WHERE l.media_id=COALESCE(p.media_id,m.media_id)) AS saved,COALESCE(g.payload,'{}') AS metadata FROM media m LEFT JOIN media p ON p.media_id=m.parent_id JOIN episode_releases e ON e.media_id=m.media_id LEFT JOIN progress pr ON pr.media_id=m.media_id LEFT JOIN media_runtime r ON r.media_id=m.media_id LEFT JOIN watched w ON w.media_id=m.media_id LEFT JOIN guide_metadata g ON g.media_id=COALESCE(p.media_id,m.media_id) WHERE e.released_at<=? AND (m.kind='movie' OR (m.kind='episode' AND e.season>0 AND e.episode>0)) AND (EXISTS(SELECT 1 FROM watchlist l WHERE l.media_id=COALESCE(p.media_id,m.media_id)) OR w.watched=1 OR EXISTS(SELECT 1 FROM playlist_items pi WHERE pi.media_id=COALESCE(p.media_id,m.media_id))) ORDER BY m.media_id LIMIT 20000")
+    let rows = diesel::sql_query("SELECT m.namespace,m.kind,m.external_id,m.title,p.namespace AS parent_namespace,p.external_id AS parent_external_id,COALESCE(p.title,m.title) AS show_title,e.season,e.episode,CAST(COALESCE(CASE WHEN CAST(pr.duration_seconds AS INTEGER) BETWEEN 60 AND 43200 THEN pr.duration_seconds END,r.seconds) AS INTEGER) AS duration,COALESCE(w.watched,0) AS watched,EXISTS(SELECT 1 FROM watchlist l WHERE l.media_id=COALESCE(p.media_id,m.media_id)) AS saved,COALESCE(g.payload,'{}') AS metadata FROM media m LEFT JOIN media p ON p.media_id=m.parent_id JOIN episode_releases e ON e.media_id=m.media_id LEFT JOIN progress pr ON pr.media_id=m.media_id LEFT JOIN media_runtime r ON r.media_id=m.media_id LEFT JOIN watched w ON w.media_id=m.media_id LEFT JOIN guide_metadata g ON g.media_id=COALESCE(p.media_id,m.media_id) WHERE e.released_at<=? AND (m.kind='movie' OR (m.kind='episode' AND e.season>0 AND e.episode>0)) AND (EXISTS(SELECT 1 FROM watchlist l WHERE l.media_id=COALESCE(p.media_id,m.media_id)) OR w.watched=1 OR EXISTS(SELECT 1 FROM playlist_items pi WHERE pi.media_id=COALESCE(p.media_id,m.media_id))) ORDER BY m.media_id LIMIT 20000")
         .bind::<BigInt,_>(now).load::<CandidateRow>(connection)?;
     rows.into_iter()
         .map(|row| {
@@ -225,11 +225,11 @@ fn hash(value: &str, seed: u64) -> u64 {
 }
 
 fn fill(channel: &mut Channel, candidates: &[&Candidate], order: EpisodeOrder, now: i64) {
-    let mut groups: BTreeMap<String, Vec<&Program>> = BTreeMap::new();
+    let mut groups: BTreeMap<(&str, &str), Vec<&Program>> = BTreeMap::new();
     for candidate in candidates {
         let key = group_key(&candidate.program);
         groups
-            .entry(format!("{}:{}", key.namespace, key.id))
+            .entry((key.namespace.as_str(), key.id.as_str()))
             .or_default()
             .push(&candidate.program);
     }
@@ -259,7 +259,7 @@ fn fill(channel: &mut Channel, candidates: &[&Candidate], order: EpisodeOrder, n
                         .first()
                         .is_some_and(|p| Some(group_key(p)) != previous)
             })
-            .min_by_key(|(key, _)| hash(key, seed))
+            .min_by_key(|((namespace, id), _)| hash(id, hash(namespace, seed)))
         else {
             break;
         };

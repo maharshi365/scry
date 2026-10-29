@@ -1,9 +1,9 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use diesel::prelude::*;
 
 use crate::{
     Library, Media,
-    media::{media_id, upsert_media},
+    media::{media_id, upsert_media, validate_media},
     schema::watchlist,
 };
 
@@ -33,17 +33,16 @@ impl Library {
     /// # Errors
     /// Returns an error for invalid metadata, missing parents, or failed reads/writes.
     pub fn update_media_watchlist(&mut self, item: &Media, added: Option<bool>) -> Result<()> {
-        let parent = item
-            .parent
-            .as_ref()
-            .map(|key| self.get_media(key)?.context("missing series"))
-            .transpose()?;
-        let item = parent.as_ref().unwrap_or(item);
+        validate_media(item)?;
         self.connection
             .borrow_mut()
             .immediate_transaction(|connection| {
-                upsert_media(connection, item)?;
-                let id = media_id(connection, &item.key)?;
+                let id = if let Some(parent) = &item.parent {
+                    media_id(connection, parent)?
+                } else {
+                    upsert_media(connection, item)?;
+                    media_id(connection, &item.key)?
+                };
                 let added = match added {
                     Some(added) => added,
                     None => !contains(connection, id)?,

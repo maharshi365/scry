@@ -1,5 +1,5 @@
 use super::{Event, Inbox};
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use scry_playback::subtitles::Preferences;
 use std::{
     io::{Read, Write},
@@ -43,7 +43,8 @@ fn load(data: &Path) -> Result<Preferences> {
         Err(error) => return Err(error.into()),
     };
     let mut text = String::new();
-    file.take(16 * 1024).read_to_string(&mut text)?;
+    file.take(16 * 1024 + 1).read_to_string(&mut text)?;
+    ensure!(text.len() <= 16 * 1024, "Subtitle settings are too large");
     let preferences: Preferences = serde_json::from_str(&text)?;
     preferences.validate()?;
     Ok(preferences)
@@ -80,6 +81,16 @@ fn save(data: &Path, preferences: &Preferences) -> Result<()> {
 )]
 mod tests {
     use super::*;
+
+    #[test]
+    fn oversized_settings_do_not_accept_a_valid_truncated_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut bytes = serde_json::to_vec(&Preferences::default()).unwrap();
+        bytes.resize(16 * 1024, b' ');
+        bytes.extend_from_slice(b"private trailing garbage");
+        std::fs::write(dir.path().join("subtitle-settings.json"), bytes).unwrap();
+        assert!(load(dir.path()).is_err());
+    }
 
     #[test]
     fn preferences_survive_restart_and_replacement() {

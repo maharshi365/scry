@@ -1,6 +1,108 @@
 use super::*;
 use scry_playback::subtitles::{Snapshot, Track};
 
+fn pending_external_subtitle() -> (State, tokio::sync::mpsc::Sender<Event>) {
+    let (mut s, tx) = state_with_events();
+    let (services, _requests) = crate::services::Services::install_fixture().unwrap();
+    s.services = Some(services);
+    s.navigation.page = Page::Player;
+    s.player.playing = true;
+    s.player.generation = 7;
+    s.player.subtitles.slot = crate::ui::player::subtitles::Slot::Secondary;
+    s.player.subtitles.sources = vec![crate::services::ExternalSubtitle {
+        provider: "Provider".into(),
+        subtitle: serde_json::from_value(serde_json::json!({
+            "id":"variant", "lang":"eng", "label":"Variant",
+            "url":"https://example.invalid/subtitle.srt"
+        }))
+        .unwrap(),
+    }];
+    s.load_external_subtitle(0);
+    s.player.subtitles.slot = crate::ui::player::subtitles::Slot::Primary;
+    (s, tx)
+}
+
+#[test]
+fn matching_subtitle_load_failure_clears_pending_and_reports_the_error() {
+    let (mut s, tx) = pending_external_subtitle();
+    tx.try_send(Event::SubtitleLoadFailed {
+        generation: 7,
+        request: 1,
+        error: "Cannot load this subtitle; try another variant".into(),
+    })
+    .unwrap();
+    poll(&mut s, 0.0, &mut Tx::default());
+    assert_eq!(
+        s.player.subtitles.error.as_deref(),
+        Some("Cannot load this subtitle; try another variant")
+    );
+    s.apply_subtitle_snapshot(
+        7,
+        Snapshot {
+            tracks: vec![Track {
+                id: 9,
+                title: "Provider · Variant · #1".into(),
+                language: "eng".into(),
+                codec: "subrip".into(),
+                external: true,
+            }],
+            ..Snapshot::default()
+        },
+    );
+    assert_eq!(
+        s.player.subtitles.selected[1], None,
+        "The failed pending request must not select a late track"
+    );
+}
+
+#[test]
+fn stale_subtitle_load_failures_preserve_the_new_request_and_its_original_slot() {
+    let (mut s, tx) = pending_external_subtitle();
+    s.player.subtitles.slot = crate::ui::player::subtitles::Slot::Secondary;
+    s.load_external_subtitle(0);
+    s.player.subtitles.slot = crate::ui::player::subtitles::Slot::Primary;
+    for (generation, request) in [(6, 2), (7, 1)] {
+        tx.try_send(Event::SubtitleLoadFailed {
+            generation,
+            request,
+            error: "Stale failure".into(),
+        })
+        .unwrap();
+    }
+    poll(&mut s, 0.0, &mut Tx::default());
+    assert!(s.player.subtitles.error.is_none());
+    s.apply_subtitle_snapshot(
+        7,
+        Snapshot {
+            tracks: vec![Track {
+                id: 9,
+                title: "Provider · Variant · #2".into(),
+                language: "eng".into(),
+                codec: "subrip".into(),
+                external: true,
+            }],
+            ..Snapshot::default()
+        },
+    );
+    assert_eq!(
+        s.player.subtitles.selected[1],
+        Some(9),
+        "Stale failures must preserve the pending request's secondary slot"
+    );
+    tx.try_send(Event::SubtitleLoadFailed {
+        generation: 7,
+        request: 2,
+        error: "Late failure after success".into(),
+    })
+    .unwrap();
+    poll(&mut s, 0.0, &mut Tx::default());
+    assert!(
+        s.player.subtitles.error.is_none(),
+        "A failure without a pending request must not show an error"
+    );
+    assert_eq!(s.player.subtitles.selected[1], Some(9));
+}
+
 fn tracks() -> Vec<Track> {
     vec![
         Track {

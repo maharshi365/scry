@@ -184,7 +184,10 @@ impl Snapshot {
             if get("type").as_deref() != Some("sub") {
                 continue;
             }
-            let Some(id) = get("id").and_then(|v| v.parse().ok()) else {
+            let Some(id) = get("id")
+                .and_then(|v| v.parse::<i64>().ok())
+                .filter(|id| *id > 0)
+            else {
                 continue;
             };
             tracks.push(Track {
@@ -195,11 +198,13 @@ impl Snapshot {
                 external: get("external").as_deref() == Some("yes"),
             });
         }
-        Self {
-            tracks,
-            selected: ["sid", "secondary-sid"]
-                .map(|key| engine.property(key).and_then(|v| v.parse().ok())),
-        }
+        let selected = ["sid", "secondary-sid"].map(|key| {
+            engine
+                .property(key)
+                .and_then(|v| v.parse().ok())
+                .filter(|id| tracks.iter().any(|track| track.id == *id))
+        });
+        Self { tracks, selected }
     }
 }
 
@@ -273,6 +278,53 @@ pub fn language_label(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{PlaybackEvent, telemetry::Sample};
+
+    struct Engine(Vec<(String, String)>);
+
+    impl PlaybackEngine for Engine {
+        fn property(&self, name: &str) -> Option<String> {
+            self.0
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.clone())
+        }
+        fn load(&self, _: &str) -> Result<()> {
+            Ok(())
+        }
+        fn command(&self, _: &[&str]) -> Result<()> {
+            Ok(())
+        }
+        fn event(&self, _: f64) -> Option<PlaybackEvent> {
+            None
+        }
+        fn sample(&self, _: f64) -> Sample {
+            Sample::default()
+        }
+    }
+
+    #[test]
+    fn snapshots_reject_sentinel_ids_and_unavailable_selections() {
+        let mut properties = vec![("track-list/count".into(), "4".into())];
+        for (index, id) in ["0", "-1", "3", "invalid"].into_iter().enumerate() {
+            properties.push((format!("track-list/{index}/type"), "sub".into()));
+            properties.push((format!("track-list/{index}/id"), id.into()));
+        }
+        properties.extend([
+            ("sid".into(), "3".into()),
+            ("secondary-sid".into(), "99".into()),
+        ]);
+        let snapshot = Snapshot::read(&Engine(properties));
+        assert_eq!(
+            snapshot
+                .tracks
+                .iter()
+                .map(|track| track.id)
+                .collect::<Vec<_>>(),
+            vec![3]
+        );
+        assert_eq!(snapshot.selected, [Some(3), None]);
+    }
 
     #[test]
     fn invalid_preferences_are_rejected() {

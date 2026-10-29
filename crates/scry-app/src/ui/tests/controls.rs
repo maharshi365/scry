@@ -274,6 +274,8 @@ fn addon_artwork_tracks_scrolling_without_starving_available_cards() {
 fn built_in_addons_install_immediately_without_opening_the_url_dialog() {
     for index in 0..3 {
         let mut s = init();
+        let (services, requests) = crate::services::Services::install_fixture().unwrap();
+        s.services = Some(services);
         s.navigation.page = Page::Addons;
         s.config_busy = false;
         s.install = TextEdit::new("https://example.invalid/custom/manifest.json");
@@ -281,6 +283,18 @@ fn built_in_addons_install_immediately_without_opening_the_url_dialog() {
         let mut rt = rune::Runtime::new(s, view, (1000.0, 1000.0), rune::Env::default());
         rt.frame(0.0);
         tap(&mut rt, &format!("supported-addon-{index}"));
+        assert_eq!(
+            requests.try_recv().unwrap(),
+            [
+                crate::services::CINEMETA,
+                crate::services::KITSU,
+                "https://torrentio.strem.fun/manifest.json"
+            ][index]
+        );
+        assert!(
+            requests.try_recv().is_err(),
+            "One click dispatches one install"
+        );
         assert!(rt.state.config_busy, "one click must start installation");
         assert!(!rt.state.addon_install_open);
         assert!(rt.state.error.is_none());
@@ -301,6 +315,8 @@ fn built_in_addons_install_immediately_without_opening_the_url_dialog() {
 #[test]
 fn custom_addons_still_require_the_url_dialog_and_explicit_install() {
     let mut s = init();
+    let (services, requests) = crate::services::Services::install_fixture().unwrap();
+    s.services = Some(services);
     s.navigation.page = Page::Addons;
     s.config_busy = false;
     let mut rt = rune::Runtime::new(s, view, (1000.0, 800.0), rune::Env::default());
@@ -309,8 +325,20 @@ fn custom_addons_still_require_the_url_dialog_and_explicit_install() {
     assert!(rt.state.addon_install_open);
     assert!(rt.find("addon-install-dialog").is_some());
     assert!(!rt.state.config_busy);
+    assert!(
+        requests.try_recv().is_err(),
+        "Opening the dialog does not install"
+    );
     rt.update(|s, _| s.install = TextEdit::new("https://example.invalid/custom/manifest.json"));
     tap(&mut rt, "install-addon");
+    assert_eq!(
+        requests.try_recv().unwrap(),
+        "https://example.invalid/custom/manifest.json"
+    );
+    assert!(
+        requests.try_recv().is_err(),
+        "One submission dispatches one install"
+    );
     assert!(rt.state.config_busy);
     assert!(rt.state.addon_install_open);
 }
@@ -318,12 +346,15 @@ fn custom_addons_still_require_the_url_dialog_and_explicit_install() {
 #[test]
 fn built_in_install_failure_allows_retry_and_success_updates_the_list_without_a_dialog() {
     let (mut s, tx) = state_with_events();
+    let (services, requests) = crate::services::Services::install_fixture().unwrap();
+    s.services = Some(services);
     s.navigation.page = Page::Addons;
     s.config_busy = false;
     let mut rt = rune::Runtime::new(s, view, (1000.0, 800.0), rune::Env::default());
     rt.poll = Some(poll);
     rt.frame(0.0);
     tap(&mut rt, "supported-addon-0");
+    assert_eq!(requests.try_recv().unwrap(), crate::services::CINEMETA);
     tx.try_send(Event::Addons(Err("Cannot fetch manifest".into())))
         .unwrap();
     rt.frame(1.0 / 60.0);
@@ -331,6 +362,11 @@ fn built_in_install_failure_allows_retry_and_success_updates_the_list_without_a_
     assert!(!rt.state.addon_install_open);
     assert_eq!(rt.state.error.as_deref(), Some("Cannot fetch manifest"));
     tap(&mut rt, "supported-addon-0");
+    assert_eq!(requests.try_recv().unwrap(), crate::services::CINEMETA);
+    assert!(
+        requests.try_recv().is_err(),
+        "Only the original request and retry dispatch"
+    );
     assert!(rt.state.config_busy);
     assert!(rt.state.error.is_none());
     let addon = serde_json::from_value(serde_json::json!({
