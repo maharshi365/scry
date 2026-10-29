@@ -57,6 +57,11 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
     if matches!(s.navigation.page, Page::Guide | Page::Player) && s.player.fullscreen {
         return fullscreen_player(s, cx.env().scale);
     }
+    let content = page_content(s, cx);
+    window_chrome(s, cx, content)
+}
+
+fn page_content(s: &State, cx: &mut Cx<State>) -> El {
     let mut content = col()
         .key("content")
         .grow(1.0)
@@ -91,6 +96,10 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
         Page::Detail => detail(s),
         Page::Player => player(s, cx.env().scale),
     });
+    content
+}
+
+fn window_chrome(s: &State, cx: &mut Cx<State>, content: El) -> El {
     let body = row()
         .grow(1.0)
         .min_w(0.0)

@@ -167,12 +167,7 @@ fn movie_and_tv_catalogs_load_on_scroll_append_without_jumping_and_stop_on_repea
             rt.frame(1.0 / 60.0);
         }
         assert_eq!(rt.state.metas.len(), 10);
-        assert!(
-            rt.state
-                .poster_rects
-                .keys()
-                .all(|row| *row < 10usize.div_ceil(rt.state.poster_columns))
-        );
+        assert!(rt.state.poster_visible.end <= 10usize.div_ceil(rt.state.poster_columns));
     }
 }
 
@@ -184,7 +179,8 @@ fn catalog_page_failures_keep_loaded_titles_and_require_explicit_retry() {
     assert_eq!(s.metas.len(), 40);
     assert!(s.catalog_paging.failed);
     s.poster_viewport = Some([0.0, 0.0, 600.0, 400.0]);
-    s.poster_rects.insert(0, [0.0, 0.0, 600.0, 320.0]);
+    let rows = s.metas.len().div_ceil(s.poster_columns);
+    s.poster_visible = rows - 1..rows;
     s.request_more_catalog();
     assert_eq!(s.catalog_paging.pending, None);
     s.catalog_paging.failed = false;
@@ -341,6 +337,40 @@ fn poster_fetching_tracks_real_layout_across_large_screen_resizes() {
 }
 
 #[test]
+fn keyed_reveal_reaches_an_unmounted_poster_row_and_loads_only_visible_artwork() {
+    let mut s = paged_catalog("movie");
+    s.metas = Arc::new(
+        (0..1000)
+            .map(|index| {
+                let mut meta = catalog_title("movie", index);
+                meta.poster = Some(format!("https://example.invalid/{index}.jpg"));
+                meta
+            })
+            .collect(),
+    );
+    let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
+    rt.poll = Some(poll);
+    for _ in 0..120 {
+        rt.frame(1.0 / 60.0);
+    }
+    assert!(rt.find("title-900").is_none());
+    let row = 900 / rt.state.poster_columns;
+    rt.update(move |_, tx| {
+        tx.scroll_into_view_in("titles-scroll-0", format!("title-row-{row}"));
+    });
+    for _ in 0..120 {
+        rt.frame(1.0 / 60.0);
+    }
+    let viewport = rect(&rt, "titles-scroll-0");
+    let card = rect(&rt, "title-900");
+    assert!(card[1] < viewport[1] + viewport[3] && card[1] + card[3] > viewport[1]);
+    let urls = visible_artwork(&rt.state);
+    assert!(urls.contains(&"https://example.invalid/900.jpg".into()));
+    assert!(!urls.contains(&"https://example.invalid/0.jpg".into()));
+    assert!(urls.len() <= rt.state.poster_columns * 3);
+}
+
+#[test]
 fn large_viewport_includes_partial_rows_without_fetching_offscreen_posters() {
     let mut s = init();
     scene_discover(&mut s);
@@ -356,12 +386,7 @@ fn large_viewport_includes_partial_rows_without_fetching_offscreen_posters() {
     s.poster_route = s.navigation.route_key;
     s.poster_columns = 10;
     s.poster_viewport = Some([0.0, 0.0, 2000.0, 1201.0]);
-    for row in 0_u16..8 {
-        s.poster_rects.insert(
-            usize::from(row),
-            [0.0, f32::from(row) * 300.0, 2000.0, 300.0],
-        );
-    }
+    s.poster_visible = 0..5;
     assert_eq!(
         visible_artwork(&s),
         (0..50)
@@ -369,6 +394,7 @@ fn large_viewport_includes_partial_rows_without_fetching_offscreen_posters() {
             .collect::<Vec<_>>()
     );
     s.poster_viewport = Some([0.0, 0.0, 2000.0, 600.0]);
+    s.poster_visible = 0..2;
     assert_eq!(visible_artwork(&s).len(), 20);
 }
 

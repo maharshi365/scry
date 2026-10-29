@@ -36,15 +36,11 @@ fn large_visible_series_set_is_not_evicted_until_it_leaves_the_viewport() {
     s.poster_route = s.navigation.route_key;
     s.poster_columns = 10;
     s.poster_viewport = Some([0.0, 0.0, 2000.0, 1500.0]);
-    for row in 0_u16..5 {
-        s.poster_rects.insert(
-            usize::from(row),
-            [0.0, f32::from(row) * 300.0, 2000.0, 300.0],
-        );
-    }
+    s.poster_visible = 0..5;
     s.request_series_states();
     assert_eq!(s.library.series.details.len(), 50);
     s.poster_viewport = Some([0.0, 0.0, 2000.0, 300.0]);
+    s.poster_visible = 0..1;
     s.request_series_states();
     assert_eq!(s.library.series.details.len(), 32);
     assert!(

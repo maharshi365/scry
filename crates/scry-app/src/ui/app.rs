@@ -14,10 +14,7 @@ use super::{
 use crate::services::Services;
 use rune::{App, AppSpec, TextEdit};
 use scry_app::platform::{Host, VideoHost};
-use std::{
-    collections::BTreeMap,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 const SHORTCUTS: &[Registration] = &[
     Registration {
@@ -99,7 +96,7 @@ impl State {
             artwork_urls: Vec::new(),
             player_artwork: None,
             player_artwork_urls: Vec::new(),
-            poster_rects: BTreeMap::default(),
+            poster_visible: 0..0,
             poster_columns: 3,
             poster_viewport: None,
             poster_route: 0,

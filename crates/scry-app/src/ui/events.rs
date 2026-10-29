@@ -1,5 +1,5 @@
 //! Bounded service polling and generation-checked event application.
-use super::{EPISODES_PER_PAGE, Page, State, app::headless, artwork::poster_columns};
+use super::{EPISODES_PER_PAGE, Page, State, app::headless};
 use crate::services::{Event, Source};
 use rune::{TextEdit, Tx};
 use scry_addons::Meta;
@@ -17,37 +17,7 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
         tx.instant();
     }
     if let Some(anchor) = s.navigation.reveal.take() {
-        if s.navigation.page == Page::Discover
-            && let Some(index) = anchor
-                .strip_prefix("title-")
-                .and_then(|index| index.parse::<usize>().ok())
-        {
-            let columns = s.poster_viewport.map_or(3, |rect| poster_columns(rect[2]));
-            tx.scroll_into_view(format!("title-row-{}", index / columns));
-        } else if s.navigation.page == Page::Library
-            && let Some(index) = anchor
-                .strip_prefix("library-open-")
-                .and_then(|index| index.parse::<usize>().ok())
-        {
-            let columns = s.poster_viewport.map_or(3, |rect| poster_columns(rect[2]));
-            tx.scroll_into_view(format!("library-row-{}", index / columns));
-        } else if s.navigation.page == Page::Watching
-            && let Some(index) = anchor
-                .strip_prefix("up-next-open-")
-                .and_then(|index| index.parse::<usize>().ok())
-        {
-            let columns = s.poster_viewport.map_or(3, |rect| poster_columns(rect[2]));
-            tx.scroll_into_view(format!("up-next-row-{}", index / columns));
-        } else if s.navigation.page == Page::Watching
-            && let Some(index) = anchor
-                .strip_prefix("watching-open-")
-                .and_then(|index| index.parse::<usize>().ok())
-        {
-            let columns = s.poster_viewport.map_or(3, |rect| poster_columns(rect[2]));
-            tx.scroll_into_view(format!("watching-row-{}", index / columns));
-        } else {
-            tx.scroll_into_view(anchor);
-        }
+        super::poster_grid::reveal(s, anchor, tx);
     }
     s.refresh_artwork();
     let mut changed = s.poll_player_interaction(tx)

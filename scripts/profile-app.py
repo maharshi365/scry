@@ -344,12 +344,12 @@ def main():
                 rest(2)
                 for index in range(3):
                     phase = f"scroll-{index}"
-                    initial_y = read_status().get("first_row_y")
+                    initial_row = read_status().get("first_visible_row")
                     for _ in range(20):
                         wheel(-1200)
                         rest(0.1)
-                    final_y = read_status().get("first_row_y")
-                    if initial_y is not None and final_y is not None and final_y >= initial_y - 1:
+                    final_row = read_status().get("first_visible_row")
+                    if initial_row is not None and final_row is not None and final_row <= initial_row:
                         raise RuntimeError("Native wheel input did not scroll the catalog")
                     wheel(120000)
                     rest(1)

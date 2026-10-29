@@ -97,7 +97,7 @@ impl State {
         self.catalog_id += 1;
         self.catalog_paging = CatalogPaging::default();
         self.metas = Arc::default();
-        self.poster_rects.clear();
+        self.poster_visible = 0..0;
         self.providers = Arc::default();
         self.error = None;
         let Some((addon, catalog)) = self.catalog.clone() else {
@@ -136,7 +136,7 @@ impl State {
 
     fn fetch_search(&mut self) {
         self.catalog_paging = CatalogPaging::default();
-        self.poster_rects.clear();
+        self.poster_visible = 0..0;
         self.catalog_id += 1;
         self.metas = Arc::default();
         self.providers = Arc::default();
@@ -162,12 +162,10 @@ impl State {
         {
             return;
         }
-        let near_end = self.poster_viewport.is_some_and(|viewport| {
-            self.poster_rects
-                .values()
-                .next_back()
-                .is_some_and(|last| last[1] + last[3] <= viewport[1] + viewport[3] * 2.0)
-        });
+        let near_end = self.poster_route == self.navigation.route_key
+            && !self.poster_visible.is_empty()
+            && self.poster_visible.end + self.poster_visible.len()
+                >= self.metas.len().div_ceil(self.poster_columns);
         if !near_end {
             return;
         }

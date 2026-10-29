@@ -201,14 +201,8 @@ pub(super) fn sort_menu(s: &State, cx: &Cx<State>) -> Option<El> {
     )
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "Declarative source picker layout keeps provider filters and source-card bindings together"
-)]
-pub(super) fn view(s: &State) -> El {
+fn header(s: &State) -> El {
     let t = theme();
-    let sources = visible_sources(s);
-    let visible = sources.len();
     let video = s.detail.as_ref().and_then(|meta| {
         meta.videos
             .iter()
@@ -300,6 +294,12 @@ pub(super) fn view(s: &State) -> El {
         );
     }
 
+    header
+}
+
+fn source_list(s: &State) -> El {
+    let t = theme();
+    let sources = visible_sources(s);
     let mut list = col().key("detail-body").w_full().gap(8.0);
     for (index, message) in s.warnings.iter().enumerate() {
         list = list.child(
@@ -316,7 +316,7 @@ pub(super) fn view(s: &State) -> El {
                 ),
         );
     }
-    if visible == 0 {
+    if sources.is_empty() {
         let (title, message) = if s.loading {
             (
                 "Finding streams…",
@@ -349,71 +349,12 @@ pub(super) fn view(s: &State) -> El {
         );
     }
     for (index, addon, stream) in sources {
-        let supported = stream.validate_playback().is_ok();
-        let name = source_name(stream, addon);
-        let mut details = col().w_full().min_w(0.0).gap(6.0).clip_rounded(0.0);
-        let lines = release_lines(stream);
-        if let Some(release) = lines.first() {
-            details = details.child(
-                text(wrap_filename(release))
-                    .key(format!("stream-release-{index}"))
-                    .w_full()
-                    .wrap()
-                    .font(type_::EMPHASIS)
-                    .color(t.text),
-            );
-        }
-        if lines.len() > 1 {
-            details = details.child(
-                label(lines[1..].join("\n"))
-                    .w_full()
-                    .key(format!("stream-details-{index}")),
-            );
-        }
-        if !supported {
-            details = details.child(label(
-                "This source needs a playback method Scry does not support.",
-            ));
-        }
-        let mut card = SurfaceVariant::Source
-            .apply(col())
-            .key(format!("stream-{index}"))
-            .w_full()
-            .min_w(0.0)
-            .padding(10.0)
-            .gap(tokens::layout::ACTION_GAP)
-            .child(
-                row()
-                    .w_full()
-                    .min_w(0.0)
-                    .gap(10.0)
-                    .child(
-                        col().w(86.0).min_w(86.0).clip_rounded(0.0).gap(6.0).child(
-                            text(name.clone())
-                                .wrap()
-                                .font(type_::ITEM_TITLE)
-                                .color(t.text),
-                        ),
-                    )
-                    .child(details.w(0.0).grow(1.0))
-                    .child(super::primitives::status::play(
-                        format!("stream-play-{index}"),
-                        supported,
-                    )),
-            );
-        if supported {
-            let chosen = stream.clone();
-            let title = s
-                .detail
-                .as_ref()
-                .map(|meta| meta.name.clone())
-                .unwrap_or_default();
-            card = super::primitives::interaction::action(card, false)
-                .label(format!("Play {name} from {addon}"))
-                .on_press(move |s: &mut State| s.play(chosen.clone(), title.clone()));
-        }
-        list = list.child(card);
+        list = list.child(source_card(s, index, addon, stream));
     }
+    list
+}
+
+pub(super) fn view(s: &State) -> El {
     col()
         .key("source-picker")
         .w(0.0)
@@ -421,11 +362,79 @@ pub(super) fn view(s: &State) -> El {
         .min_w(0.0)
         .min_h(0.0)
         .gap(12.0)
-        .child(header)
+        .child(header(s))
         .child(scroll(
             format!("sources-scroll-{}", s.navigation.route_key),
-            list,
+            source_list(s),
         ))
+}
+
+fn source_card(s: &State, index: usize, addon: &str, stream: &Stream) -> El {
+    let t = theme();
+    let supported = stream.validate_playback().is_ok();
+    let name = source_name(stream, addon);
+    let mut details = col().w_full().min_w(0.0).gap(6.0).clip_rounded(0.0);
+    let lines = release_lines(stream);
+    if let Some(release) = lines.first() {
+        details = details.child(
+            text(wrap_filename(release))
+                .key(format!("stream-release-{index}"))
+                .w_full()
+                .wrap()
+                .font(type_::EMPHASIS)
+                .color(t.text),
+        );
+    }
+    if lines.len() > 1 {
+        details = details.child(
+            label(lines[1..].join("\n"))
+                .w_full()
+                .key(format!("stream-details-{index}")),
+        );
+    }
+    if !supported {
+        details = details.child(label(
+            "This source needs a playback method Scry does not support.",
+        ));
+    }
+    let mut card = SurfaceVariant::Source
+        .apply(col())
+        .key(format!("stream-{index}"))
+        .w_full()
+        .min_w(0.0)
+        .padding(10.0)
+        .gap(tokens::layout::ACTION_GAP)
+        .child(
+            row()
+                .w_full()
+                .min_w(0.0)
+                .gap(10.0)
+                .child(
+                    col().w(86.0).min_w(86.0).clip_rounded(0.0).gap(6.0).child(
+                        text(name.clone())
+                            .wrap()
+                            .font(type_::ITEM_TITLE)
+                            .color(t.text),
+                    ),
+                )
+                .child(details.w(0.0).grow(1.0))
+                .child(super::primitives::status::play(
+                    format!("stream-play-{index}"),
+                    supported,
+                )),
+        );
+    if supported {
+        let chosen = stream.clone();
+        let title = s
+            .detail
+            .as_ref()
+            .map(|meta| meta.name.clone())
+            .unwrap_or_default();
+        card = super::primitives::interaction::action(card, false)
+            .label(format!("Play {name} from {addon}"))
+            .on_press(move |s: &mut State| s.play(chosen.clone(), title.clone()));
+    }
+    card
 }
 
 #[cfg(test)]

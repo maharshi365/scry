@@ -9,7 +9,7 @@ use super::{
     },
     primitives::{surface::scroll, text::label},
 };
-use rune::{Cx, El, col, text};
+use rune::{Cx, El, GrowthSpec, Tx, col, text};
 use scry_library::{Media, MediaKey, MediaKind};
 
 struct Entry {
@@ -30,8 +30,26 @@ enum Overlay {
     },
 }
 
-fn entry(s: &State, saved: &[&Media], index: usize) -> Entry {
-    if let Some(media) = saved.get(index).copied() {
+fn saved_media(s: &State, index: usize) -> Option<&Media> {
+    match s.navigation.page {
+        Page::Library => s.library.entries.as_ref()?.get(index),
+        Page::Watching => s
+            .library
+            .watching
+            .get(index)
+            .map(|(media, _)| media)
+            .or_else(|| {
+                s.library
+                    .up_next
+                    .get(index.checked_sub(s.library.watching.len())?)
+                    .map(|(media, _)| media)
+            }),
+        _ => None,
+    }
+}
+
+fn entry(s: &State, index: usize) -> Entry {
+    if let Some(media) = saved_media(s, index) {
         let info = s.library_poster(media);
         let subtitle = if s.navigation.page == Page::Watching
             && media.key.kind == MediaKind::Episode
@@ -178,20 +196,16 @@ fn visible_urls<'a>(s: &State, posters: impl Iterator<Item = Option<&'a String>>
 }
 
 pub(super) fn visible(s: &State, index: usize) -> bool {
-    if s.poster_route == s.navigation.route_key && !s.poster_rects.is_empty() {
-        s.poster_viewport
-            .zip(s.poster_rects.get(&row_index(s, index, s.poster_columns)))
-            .is_some_and(|(viewport, rect)| {
-                rect[1] < viewport[1] + viewport[3] && rect[1] + rect[3] > viewport[1]
-            })
-    } else {
-        false
-    }
+    s.poster_route == s.navigation.route_key
+        && s.poster_visible
+            .contains(&row_index(s, index, s.poster_columns))
 }
 
 fn row_index(s: &State, index: usize, columns: usize) -> usize {
     if s.navigation.page == Page::Watching && index >= s.library.watching.len() {
-        s.library.watching.len().div_ceil(columns) + (index - s.library.watching.len()) / columns
+        s.library.watching.len().div_ceil(columns)
+            + 1
+            + (index - s.library.watching.len()) / columns
     } else {
         index / columns
     }
@@ -199,169 +213,173 @@ fn row_index(s: &State, index: usize, columns: usize) -> usize {
 
 pub(super) fn view(s: &State, cx: &Cx<State>) -> El {
     let prefix = prefix(s);
-    let viewport_key = match s.navigation.page {
-        Page::Library => super::library_view::grid_key(s),
-        Page::Watching => "watching-scroll".into(),
-        _ => format!("titles-scroll-{}", s.navigation.route_key),
-    };
+    let viewport_key = viewport_key(s);
     let columns = cx
-        .layout(&viewport_key)
-        .map_or(3, |rect| poster_columns(rect[2]));
-    let saved = s.saved_grid_media();
-    let count = if matches!(s.navigation.page, Page::Library | Page::Watching) {
-        saved.len()
-    } else {
-        s.metas.len()
-    };
-    let mut cards = col().key(format!("{prefix}-sections")).w_full();
-    if s.navigation.page == Page::Watching {
-        let split = s.library.watching.len();
-        if split == 0 && s.library.up_next.is_empty() {
-            cards = cards.child(super::library_view::watching_empty());
-        } else if split > 0 {
-            cards = append_rows(cards, s, &saved, 0..split, columns, 0, prefix);
-        }
-        if !s.library.up_next.is_empty() {
-            cards = cards.child(super::library_view::up_next_header(s).pb(POSTER_GAP));
-            cards = append_rows(
-                cards,
-                s,
-                &saved,
-                split..count,
-                columns,
-                split.div_ceil(columns),
-                "up-next",
-            );
-            cards = cards.child(super::library_view::up_next_pages(s).key("up-next-pages"));
-        }
-    } else {
-        cards = append_rows(cards, s, &saved, 0..count, columns, 0, prefix);
-        if s.navigation.page == Page::Discover
-            && s.catalog_paging.pending.is_some_and(|offset| offset > 0)
-        {
-            cards = cards.child(label("Loading more titles…").key("catalog-loading-more"));
-        }
-    }
-    scroll(viewport_key, cards).on_layout(|s: &mut State, rect| {
-        s.poster_viewport = Some(rect);
-        s.refresh_artwork();
-        s.request_library_posters();
-        s.request_movie_states();
-        s.request_series_states();
-        s.request_more_catalog();
-    })
-}
-
-fn append_rows(
-    mut cards: El,
-    s: &State,
-    saved: &[&Media],
-    range: std::ops::Range<usize>,
-    columns: usize,
-    row_offset: usize,
-    prefix: &'static str,
-) -> El {
-    let row_count = range.len().div_ceil(columns);
+        .layout_size(&viewport_key)
+        .map_or(3, |size| poster_columns(size[0]));
+    let rows = Rows::new(s, columns);
     let route_key = s.navigation.route_key;
-    let stride = POSTER_CARD_HEIGHT + POSTER_GAP;
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "Paged row counts are small layout coordinates"
-    )]
-    let height = row_count as f32 * stride;
     let source_generation = if matches!(s.navigation.page, Page::Library | Page::Watching) {
         s.library.grid_generation
     } else {
         s.catalog_id
     };
-    let mut section = col()
-        // Reset sources re-report geometry even if their bounds have not moved.
-        .key(format!("{prefix}-cards-{source_generation}"))
+    let cards = col()
+        .key(format!("{prefix}-cards-{source_generation}-{columns}"))
         .w_full()
-        .h(height)
-        .min_h(height)
-        .on_layout(move |s: &mut State, rect| {
-            if s.poster_route != route_key || s.poster_columns != columns {
-                s.poster_rects.clear();
-            }
+        .growth(GrowthSpec::default())
+        .virtual_rows(
+            rows.len(),
+            POSTER_CARD_HEIGHT + POSTER_GAP,
+            move |_: &State, index| rows.key(index).into(),
+            move |s: &State, index| rows.build(s, index),
+        )
+        .virtual_rows_version((rows.main, rows.next, rows.watching, rows.loading))
+        .on_visible_rows(move |s: &mut State, range| {
+            let pending = s.catalog_paging.pending;
             s.poster_route = route_key;
             s.poster_columns = columns;
-            for index in 0..row_count {
-                #[expect(
-                    clippy::cast_precision_loss,
-                    reason = "Paged row counts are small layout coordinates"
-                )]
-                let y = rect[1] + index as f32 * stride;
-                s.poster_rects
-                    .insert(row_offset + index, [rect[0], y, rect[2], stride]);
-            }
-            // A section reports one coherent geometry snapshot, not one update per row.
-            s.refresh_artwork();
-            s.request_library_posters();
-            s.request_movie_states();
-            s.request_series_states();
-            s.request_more_catalog();
+            s.poster_visible = range;
+            refresh_visible(s);
+            pending != s.catalog_paging.pending
         });
-    let anchor_row = s.navigation.anchor.as_deref().and_then(|anchor| {
+    scroll(viewport_key, cards).on_layout(|s: &mut State, rect| {
+        s.poster_viewport = Some(rect);
+        refresh_visible(s);
+    })
+}
+
+fn viewport_key(s: &State) -> String {
+    match s.navigation.page {
+        Page::Library => super::library_view::grid_key(s),
+        Page::Watching => "watching-scroll".into(),
+        _ => format!("titles-scroll-{}", s.navigation.route_key),
+    }
+}
+
+pub(super) fn reveal(s: &State, anchor: String, tx: &mut Tx) {
+    let columns = s.poster_viewport.map_or(3, |rect| poster_columns(rect[2]));
+    let row = [
+        (Page::Discover, "title-", "title"),
+        (Page::Library, "library-open-", "library"),
+        (Page::Watching, "up-next-open-", "up-next"),
+        (Page::Watching, "watching-open-", "watching"),
+    ]
+    .into_iter()
+    .filter(|(page, _, _)| *page == s.navigation.page)
+    .find_map(|(_, prefix, row)| {
         anchor
-            .strip_prefix(&format!("{prefix}-open-"))
-            .or_else(|| anchor.strip_prefix(&format!("{prefix}-")))?
+            .strip_prefix(prefix)?
             .parse::<usize>()
             .ok()
-            .map(|index| index / columns)
+            .map(|index| format!("{row}-row-{}", index / columns))
     });
-    let mut skipped = 0;
-    for row_index in 0..row_count {
-        let layout_index = row_offset + row_index;
-        let nearby = if s.poster_route == route_key && s.poster_columns == columns {
-            s.poster_viewport
-                .zip(s.poster_rects.get(&layout_index))
-                .map_or(layout_index < 4, |(viewport, rect)| {
-                    rect[1] < viewport[1] + viewport[3] * 2.0
-                        && rect[1] + rect[3] > viewport[1] - viewport[3]
-                })
+    if let Some(row) = row {
+        tx.scroll_into_view_in(viewport_key(s), row);
+    } else {
+        tx.scroll_into_view(anchor);
+    }
+}
+
+fn refresh_visible(s: &mut State) {
+    s.refresh_artwork();
+    s.request_library_posters();
+    s.request_movie_states();
+    s.request_series_states();
+    s.request_more_catalog();
+}
+
+#[derive(Clone, Copy)]
+struct Rows {
+    columns: usize,
+    main: usize,
+    next: usize,
+    watching: bool,
+    loading: bool,
+    prefix: &'static str,
+}
+
+impl Rows {
+    fn new(s: &State, columns: usize) -> Self {
+        Self {
+            columns,
+            main: match s.navigation.page {
+                Page::Watching => s.library.watching.len(),
+                Page::Library => s.library.entries.as_ref().map_or(0, Vec::len),
+                _ => s.metas.len(),
+            },
+            next: if s.navigation.page == Page::Watching {
+                s.library.up_next.len()
+            } else {
+                0
+            },
+            watching: s.navigation.page == Page::Watching,
+            loading: s.navigation.page == Page::Discover
+                && s.catalog_paging.pending.is_some_and(|offset| offset > 0),
+            prefix: prefix(s),
+        }
+    }
+
+    fn len(self) -> usize {
+        if self.watching && self.main == 0 && self.next == 0 {
+            1
         } else {
-            layout_index < 4
+            self.main.div_ceil(self.columns)
+                + self.next.div_ceil(self.columns)
+                + if self.next > 0 { 2 } else { 0 }
+                + usize::from(self.loading)
+        }
+    }
+
+    fn key(self, index: usize) -> String {
+        let main_rows = self.main.div_ceil(self.columns);
+        if self.watching && self.main == 0 && self.next == 0 {
+            "watching-empty".into()
+        } else if index < main_rows {
+            format!("{}-row-{index}", self.prefix)
+        } else if self.next > 0 {
+            if index == main_rows {
+                "up-next-heading".into()
+            } else if index == self.len() - 1 {
+                "up-next-pages".into()
+            } else {
+                format!("up-next-row-{}", index - main_rows - 1)
+            }
+        } else {
+            "catalog-loading-more".into()
+        }
+    }
+
+    fn build(self, s: &State, index: usize) -> El {
+        let main_rows = self.main.div_ceil(self.columns);
+        if self.watching && self.main == 0 && self.next == 0 {
+            return super::library_view::watching_empty();
+        }
+        let (start, count, row_index, prefix) = if index < main_rows {
+            (0, self.main, index, self.prefix)
+        } else if self.next > 0 {
+            if index == main_rows {
+                return super::library_view::up_next_header(s).pb(POSTER_GAP);
+            }
+            if index == self.len() - 1 {
+                return super::library_view::up_next_pages(s);
+            }
+            (self.main, self.next, index - main_rows - 1, "up-next")
+        } else {
+            return label("Loading more titles…");
         };
-        if !nearby && anchor_row != Some(row_index) {
-            skipped += 1;
-            continue;
-        }
-        if skipped > 0 {
-            section = section.child(spacer(prefix, row_index - skipped, skipped));
-            skipped = 0;
-        }
         let mut card_row = col()
-            .key(format!("{prefix}-row-{row_index}"))
             .w_full()
             .h(POSTER_CARD_HEIGHT + POSTER_GAP)
             .pb(POSTER_GAP)
             .gap(POSTER_GAP)
-            .equal_columns(columns);
-        for index in row_index * columns..((row_index + 1) * columns).min(range.len()) {
-            let item = entry(s, saved, range.start + index);
+            .equal_columns(self.columns);
+        for index in row_index * self.columns..((row_index + 1) * self.columns).min(count) {
+            let item = entry(s, start + index);
             card_row = card_row.child(card(s, &item, index, prefix));
         }
-        section = section.child(card_row);
+        card_row
     }
-    if skipped > 0 {
-        section = section.child(spacer(prefix, row_count - skipped, skipped));
-    }
-    cards = cards.child(section);
-    cards
-}
-
-fn spacer(prefix: &str, start: usize, count: usize) -> El {
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "Paged row counts are small layout coordinates"
-    )]
-    let height = count as f32 * (POSTER_CARD_HEIGHT + POSTER_GAP);
-    col()
-        .key(format!("{prefix}-spacer-{start}"))
-        .w_full()
-        .h(height)
-        .min_h(height)
 }
 
 fn prefix(s: &State) -> &'static str {
@@ -385,7 +403,12 @@ fn card(s: &State, entry: &Entry, index: usize, prefix: &str) -> El {
         format!("{prefix}-{index}")
     };
     let item = entry.media.clone();
-    let menu = entry.media.clone();
+    let result = entry
+        .media
+        .is_none()
+        .then(|| s.result_media(index))
+        .flatten();
+    let menu = entry.media.clone().or_else(|| result.clone());
     super::primitives::interaction::action(
         super::primitives::surface::Variant::Poster
             .apply_selected(col(), selected)
@@ -401,12 +424,17 @@ fn card(s: &State, entry: &Entry, index: usize, prefix: &str) -> El {
         s.navigation.anchor = Some(key.clone());
         if let Some(media) = &item {
             s.open_library_media(media);
-        } else {
+        } else if let Some(result) = &result
+            && let Some(index) = (0..s.metas.len()).find(|&index| {
+                s.result_media(index)
+                    .is_some_and(|media| media.key == result.key)
+            })
+        {
             s.open_result(index);
         }
     })
     .on_secondary_press(move |s: &mut State, p, _| {
-        s.open_title_menu(p, menu.clone().or_else(|| s.result_media(index)));
+        s.open_title_menu(p, menu.clone());
     })
     .child({
         let surface = poster(s, &entry.title, entry.poster.as_deref(), index);

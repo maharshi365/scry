@@ -53,7 +53,7 @@ pub struct State {
     artwork_urls: Vec<String>,
     player_artwork: Option<crate::artwork::Artwork>,
     player_artwork_urls: Vec<String>,
-    poster_rects: std::collections::BTreeMap<usize, [f32; 4]>,
+    poster_visible: std::ops::Range<usize>,
     poster_columns: usize,
     poster_viewport: Option<[f32; 4]>,
     poster_route: u64,

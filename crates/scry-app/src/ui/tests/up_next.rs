@@ -414,6 +414,58 @@ fn library_pagination_does_not_page_currently_watching() {
 }
 
 #[test]
+fn watching_sections_reveal_unmounted_rows_and_restore_each_history_anchor() {
+    let mut s = init();
+    s.apply_watching_entries(
+        (0..100)
+            .map(|index| {
+                (
+                    media(MediaKind::Movie, &format!("current-{index}"), None),
+                    Progress {
+                        position_seconds: 25.0,
+                        duration_seconds: 100.0,
+                    },
+                )
+            })
+            .collect(),
+    );
+    s.apply_up_next_entries(
+        (0..100)
+            .map(|index| {
+                (
+                    media(MediaKind::Movie, &format!("next-{index}"), None),
+                    None,
+                )
+            })
+            .collect(),
+    );
+    let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
+    rt.poll = Some(poll);
+    settle_grid(&mut rt);
+    for prefix in ["up-next", "watching"] {
+        let row = 90 / rt.state.poster_columns;
+        let key = format!("{prefix}-row-{row}");
+        rt.update(move |_, tx| tx.scroll_into_view_in("watching-scroll", key));
+        settle_grid(&mut rt);
+        let key = format!("{prefix}-open-90");
+        let viewport = rect(&rt, "watching-scroll");
+        let card = rect(&rt, &key);
+        assert!(card[1] < viewport[1] + viewport[3] && card[1] + card[3] > viewport[1]);
+        tap(&mut rt, &key);
+        let expected = if prefix == "up-next" {
+            "next-90"
+        } else {
+            "current-90"
+        };
+        assert_eq!(rt.state.detail.as_ref().unwrap().id, expected);
+        tap(&mut rt, "nav-back");
+        settle_grid(&mut rt);
+        let restored = rect(&rt, &key);
+        assert!(restored[1] < viewport[1] + viewport[3] && restored[1] + restored[3] > viewport[1]);
+    }
+}
+
+#[test]
 fn currently_watching_episode_badge_does_not_use_the_whole_shows_status() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("library.sqlite3");

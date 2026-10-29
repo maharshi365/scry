@@ -262,7 +262,7 @@ fn watching_requests_parent_series_artwork_and_keeps_it_after_library_refreshes(
     )];
     s.poster_route = s.navigation.route_key;
     s.poster_viewport = Some([0.0, 0.0, 880.0, 600.0]);
-    s.poster_rects.insert(0, [0.0, 0.0, 880.0, 302.0]);
+    s.poster_visible = 0..1;
     let missing = s.missing_library_posters();
     assert_eq!(missing.len(), 1);
     assert_eq!(missing[0].key, parent);
@@ -568,8 +568,7 @@ fn library_posters_are_bounded_visible_and_ignore_stale_or_unrelated_results() {
     s.poster_route = s.navigation.route_key;
     s.poster_columns = 3;
     s.poster_viewport = Some([0.0, 0.0, 700.0, 300.0]);
-    s.poster_rects.insert(0, [0.0, -320.0, 700.0, 302.0]);
-    s.poster_rects.insert(1, [0.0, 0.0, 700.0, 302.0]);
+    s.poster_visible = 1..2;
     let missing = s.missing_library_posters();
     assert_eq!(
         missing

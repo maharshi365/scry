@@ -23,7 +23,7 @@ impl State {
         self.sync_library_posters();
         if self.navigation.page == crate::ui::Page::Watching && relayout {
             self.library.grid_generation += 1;
-            self.poster_rects.clear();
+            self.poster_visible = 0..0;
         }
         self.refresh_artwork();
     }
@@ -39,7 +39,7 @@ impl State {
         self.sync_library_posters();
         if self.navigation.page == crate::ui::Page::Library && relayout {
             self.library.grid_generation += 1;
-            self.poster_rects.clear();
+            self.poster_visible = 0..0;
         }
         self.refresh_artwork();
     }
@@ -60,7 +60,7 @@ impl State {
         self.sync_library_posters();
         if self.navigation.page == crate::ui::Page::Watching && relayout {
             self.library.grid_generation += 1;
-            self.poster_rects.clear();
+            self.poster_visible = 0..0;
         }
         self.refresh_artwork();
     }
