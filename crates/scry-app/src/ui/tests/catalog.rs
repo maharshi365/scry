@@ -138,6 +138,163 @@ fn catalog_title(kind: &str, index: usize) -> Meta {
 }
 
 #[test]
+fn discover_catalog_selector_uses_manifest_catalogs_and_restores_history() {
+    for kind in ["anime", "documentary"] {
+        let mut s = init();
+        s.addons =
+            vec![serde_json::from_value(serde_json::json!({
+            "manifest_url":"https://example.com/manifest.json",
+            "manifest":{"id":"catalog-provider", "name":"Catalog provider", "catalogs":[
+                {"id":"trending", "name":"Trending", "type":kind},
+                {"id":"popular", "name":"Most Popular", "type":kind, "extra":[{"name":"skip"}]},
+                {"id":"search", "type":kind, "extra":[{"name":"search", "isRequired":true}]},
+                {"id":"filtered", "type":kind, "extra":[{"name":"genre", "isRequired":true}]}
+            ]}
+        })).unwrap()];
+        s.choose_kind(kind);
+        s.apply_catalog_page(s.catalog_id, 0, Ok(vec![catalog_title("series", 0)]));
+        let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
+        rt.on_key = Some(on_key);
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        let before = rect(&rt, "title-0");
+        tap(&mut rt, "catalog-select");
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        assert_eq!(rect(&rt, "title-0"), before);
+        super::dropdowns::assert_flat_panel(&rt, "catalog-menu");
+        assert!(rt.find("catalog-option-0-selected").is_some());
+        assert!(rt.find("catalog-option-1").is_some());
+        assert!(rt.find("catalog-option-2").is_none());
+        assert!(
+            rt.elements()
+                .iter()
+                .any(|element| { element.text.as_deref() == Some("Trending (limited list)") })
+        );
+        tap(&mut rt, "catalog-option-1");
+        assert_eq!(rt.state.catalog.as_ref().unwrap().1.id, "popular");
+        assert!(rt.state.metas.is_empty());
+        assert_eq!(rt.state.catalog_paging.pending, Some(0));
+        assert!(rt.find("catalog-menu").is_none());
+        rt.update(|s, _| {
+            s.apply_catalog_page(s.catalog_id - 1, 0, Ok(vec![catalog_title("series", 999)]));
+            s.apply_catalog_page(s.catalog_id, 0, Ok(vec![catalog_title("series", 1)]));
+        });
+        assert_eq!(rt.state.metas[0].id, "title-1");
+        tap(&mut rt, "nav-back");
+        assert_eq!(rt.state.kind, kind);
+        assert_eq!(rt.state.catalog.as_ref().unwrap().1.id, "trending");
+        assert_eq!(rt.state.metas[0].id, "title-0");
+    }
+}
+
+#[test]
+fn catalog_selector_dismisses_without_loading_and_distinguishes_providers() {
+    for (width, height) in [(880.0, 600.0), (1280.0, 820.0)] {
+        let mut s = init();
+        s.addons = ["First", "Second"]
+            .into_iter()
+            .map(|name| {
+                serde_json::from_value(serde_json::json!({
+                    "manifest_url":format!("https://example.com/{name}/manifest.json"),
+                    "manifest":{"id":name, "name":name, "catalogs":[
+                        {"id":"popular", "name":"Popular", "type":"movie", "extra":[{"name":"skip"}]}
+                    ]}
+                })).unwrap()
+            })
+            .collect();
+        s.choose_kind("movie");
+        s.apply_catalog_page(s.catalog_id, 0, Ok(vec![catalog_title("movie", 0)]));
+        let mut rt = rune::Runtime::new(s, view, (width, height), rune::Env::default());
+        rt.on_key = Some(on_key);
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        let generation = rt.state.catalog_id;
+        let history = rt.state.navigation.back.len();
+        for dismiss in 0..3 {
+            tap(&mut rt, "catalog-select");
+            for _ in 0..30 {
+                rt.frame(1.0 / 60.0);
+            }
+            let popup = rect(&rt, "catalog-menu");
+            assert!(popup[0] >= 0.0 && popup[1] >= 0.0);
+            assert!(popup[0] + popup[2] <= width && popup[1] + popup[3] <= height);
+            match dismiss {
+                0 => rt.key(rune::KeyEvent {
+                    key: rune::Key::Escape,
+                    mods: rune::Mods::default(),
+                }),
+                1 => {
+                    rt.pointer_down(10.0, 10.0);
+                    rt.pointer_up(10.0, 10.0);
+                }
+                _ => tap(&mut rt, "catalog-option-0"),
+            }
+            rt.frame(0.0);
+            assert!(!rt.state.catalog_menu_open);
+            assert_eq!(rt.state.catalog_id, generation);
+            assert_eq!(rt.state.navigation.back.len(), history);
+        }
+        tap(&mut rt, "catalog-select");
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        tap(&mut rt, "catalog-option-1");
+        assert_eq!(rt.state.catalog.as_ref().unwrap().0.manifest.id, "Second");
+        assert_eq!(rt.state.catalog_paging.pending, Some(0));
+        rt.update(|s, _| {
+            s.displayed_query = "Arrival".into();
+        });
+        rt.frame(0.0);
+        assert!(rt.find("catalog-select").is_none());
+    }
+}
+
+#[test]
+fn duplicate_catalog_pages_advance_automatically_but_have_a_retry_bound() {
+    let s = paged_catalog("series");
+    let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
+    rt.poll = Some(poll);
+    for _ in 0..30 {
+        rt.frame(1.0 / 60.0);
+    }
+    let viewport = rect(&rt, "titles-scroll-0");
+    rt.wheel(viewport[0] + 20.0, viewport[1] + 20.0, -100_000.0);
+    for _ in 0..30 {
+        rt.frame(1.0 / 60.0);
+    }
+    rt.update(|s, _| {
+        s.apply_catalog_page(
+            s.catalog_id,
+            40,
+            Ok((0..40)
+                .map(|index| catalog_title("series", index))
+                .collect()),
+        );
+    });
+    assert_eq!(rt.state.metas.len(), 40);
+    assert_eq!(rt.state.catalog_paging.pending, Some(80));
+    rt.update(|s, _| {
+        s.apply_catalog_page(s.catalog_id, 80, Ok(vec![catalog_title("series", 40)]));
+    });
+    assert_eq!(rt.state.metas.len(), 41);
+    assert!(rt.state.catalog_paging.has_more);
+    rt.update(|s, _| {
+        s.request_more_catalog();
+        for offset in 81..84 {
+            assert_eq!(s.catalog_paging.pending, Some(offset));
+            s.apply_catalog_page(s.catalog_id, offset, Ok(vec![catalog_title("series", 0)]));
+        }
+    });
+    assert!(!rt.state.catalog_paging.has_more);
+    assert_eq!(rt.state.catalog_paging.pending, None);
+    assert_eq!(rt.state.metas.len(), 41);
+}
+
+#[test]
 fn movie_and_tv_catalogs_load_on_scroll_append_without_jumping_and_stop_on_repeats() {
     for kind in ["movie", "series"] {
         let s = paged_catalog(kind);
@@ -172,7 +329,11 @@ fn movie_and_tv_catalogs_load_on_scroll_append_without_jumping_and_stop_on_repea
             rt.frame(1.0 / 60.0);
         }
         assert_eq!(rt.state.catalog_paging.pending, Some(51));
-        rt.update(|s, _| s.apply_catalog_page(s.catalog_id, 51, Ok(vec![catalog_title(kind, 0)])));
+        rt.update(|s, _| {
+            for offset in 51..54 {
+                s.apply_catalog_page(s.catalog_id, offset, Ok(vec![catalog_title(kind, 0)]));
+            }
+        });
         for _ in 0..30 {
             rt.frame(1.0 / 60.0);
         }

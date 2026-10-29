@@ -127,6 +127,7 @@ impl State {
             kind: "movie".into(),
             catalog: None,
             catalog_paging: super::catalog::CatalogPaging::default(),
+            catalog_menu_open: false,
             metas: Arc::default(),
             providers: Arc::default(),
             detail: None,

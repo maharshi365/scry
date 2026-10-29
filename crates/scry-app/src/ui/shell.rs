@@ -121,6 +121,7 @@ fn window_chrome(s: &State, cx: &mut Cx<State>, content: El) -> El {
     root = root
         .child(body.child(content))
         .children(super::stats::toast(s));
+    root = root.children(super::discover::catalog_menu(s, cx));
     if s.navigation.page == Page::Detail {
         if let Some(menu) = super::detail::season_menu(s, cx) {
             root = root.child(menu);
@@ -149,6 +150,7 @@ fn window_chrome(s: &State, cx: &mut Cx<State>, content: El) -> El {
 
 fn on_window_focus(s: &mut State, focused: bool, tx: &mut rune::Tx) {
     if !focused {
+        s.catalog_menu_open = false;
         s.player.subtitles.overlay.dismiss();
         s.player.audio.overlay.dismiss();
         s.player.stats_overlay.dismiss();

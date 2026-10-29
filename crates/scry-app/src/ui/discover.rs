@@ -5,7 +5,9 @@ use super::{
     design::tokens,
     poster_grid,
     primitives::{
+        button::{DropdownVariant, dropdown_trigger, menu_choice},
         pattern::detail_header,
+        surface::dropdown,
         text::{heading, label},
     },
 };
@@ -30,7 +32,7 @@ pub(super) fn discover(s: &State, cx: &Cx<State>) -> El {
                 s.metas.len(),
                 if s.loading { " / loading" } else { "" }
             ),
-            row(),
+            catalog_selector(s),
         ));
     if s.addons.is_empty() {
         body = body.child(
@@ -61,4 +63,69 @@ pub(super) fn discover(s: &State, cx: &Cx<State>) -> El {
         }));
     }
     body.child(poster_grid::view(s, cx))
+}
+
+fn catalog_selector(s: &State) -> El {
+    let mut actions = row();
+    if s.navigation.page == super::Page::Discover
+        && s.displayed_query.is_empty()
+        && let Some((_, catalog)) = &s.catalog
+    {
+        let name = if catalog.name.is_empty() {
+            &catalog.id
+        } else {
+            &catalog.name
+        };
+        let title = if catalog.supports_paging() {
+            name.clone()
+        } else {
+            format!("{name} (limited list)")
+        };
+        actions = actions.child(
+            dropdown_trigger("catalog-select", title, DropdownVariant::Framed)
+                .on_press(|s: &mut State| s.catalog_menu_open = !s.catalog_menu_open),
+        );
+    }
+    actions
+}
+
+pub(super) fn catalog_menu(s: &State, cx: &Cx<State>) -> Option<El> {
+    if !s.catalog_menu_open || s.navigation.page != super::Page::Discover {
+        return None;
+    }
+    let anchor = cx.layout("catalog-select")?;
+    let catalogs = s.catalogs();
+    let mut choices = col().w_full().gap(tokens::layout::COPY_GAP);
+    for (index, (addon, catalog)) in catalogs.iter().enumerate() {
+        let selected = s.catalog.as_ref().is_some_and(|(current_addon, current)| {
+            current_addon.manifest_url == addon.manifest_url
+                && current.id == catalog.id
+                && current.kind == catalog.kind
+        });
+        let name = if catalog.name.is_empty() {
+            &catalog.id
+        } else {
+            &catalog.name
+        };
+        choices = choices.child(
+            menu_choice(
+                format!("catalog-option-{index}"),
+                format!("{name} · {}", addon.manifest.name),
+                selected,
+                move |s: &mut State| s.select_catalog(index),
+            )
+            .w_full(),
+        );
+    }
+    let visible = u16::try_from(catalogs.len().min(5)).unwrap_or(5);
+    Some(
+        dropdown(
+            "catalog-menu",
+            "catalog-select",
+            anchor[2].max(tokens::layout::CONTROL_MIN_WIDTH),
+            f32::from(visible) * (tokens::control::HEIGHT + tokens::layout::COPY_GAP),
+            |s: &mut State| s.catalog_menu_open = false,
+        )
+        .child(choices),
+    )
 }

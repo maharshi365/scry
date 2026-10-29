@@ -150,6 +150,7 @@ impl State {
     }
 
     pub(super) fn remember(&mut self) {
+        self.catalog_menu_open = false;
         if self.navigation.back.len() == 32 {
             self.navigation.back.remove(0);
         }
@@ -170,6 +171,7 @@ impl State {
         let Some(route) = route else {
             return;
         };
+        self.catalog_menu_open = false;
         self.context_menu = None;
         self.addon_install_open = false;
         self.calendar.expanded_day = None;

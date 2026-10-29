@@ -4,6 +4,9 @@ use rune::TextEdit;
 use scry_addons::{Addon, Catalog, Meta};
 use std::sync::Arc;
 
+// Allow transient repeated pages without following a broken provider indefinitely.
+const MAX_NO_PROGRESS_PAGES: u8 = 3;
+
 fn compatible_catalog(catalog: &Catalog) -> bool {
     !catalog.kind.trim().is_empty()
         && !catalog
@@ -31,6 +34,7 @@ pub(super) struct CatalogPaging {
     pub pending: Option<u32>,
     pub has_more: bool,
     pub failed: bool,
+    no_progress_pages: u8,
 }
 
 impl State {
@@ -71,7 +75,11 @@ impl State {
                 a.manifest
                     .catalogs
                     .iter()
-                    .filter(|c| c.kind == self.kind && compatible_catalog(c))
+                    .filter(|c| {
+                        c.kind == self.kind
+                            && compatible_catalog(c)
+                            && !c.extra.iter().any(|e| e.name == "search" && e.is_required)
+                    })
                     .map(|c| (a.clone(), c.clone()))
             })
             .collect()
@@ -90,7 +98,31 @@ impl State {
         self.fetch_catalog();
     }
 
+    pub(super) fn select_catalog(&mut self, index: usize) {
+        self.catalog_menu_open = false;
+        let Some((addon, catalog)) = self.catalogs().into_iter().nth(index) else {
+            return;
+        };
+        if self
+            .catalog
+            .as_ref()
+            .is_some_and(|(current_addon, current)| {
+                current_addon.manifest_url == addon.manifest_url
+                    && current.id == catalog.id
+                    && current.kind == catalog.kind
+            })
+        {
+            return;
+        }
+        self.remember();
+        self.navigation.page = Page::Discover;
+        self.catalog = Some((addon, catalog));
+        self.search = TextEdit::new("");
+        self.fetch_catalog();
+    }
+
     pub(super) fn fetch_catalog(&mut self) {
+        self.catalog_menu_open = false;
         self.displayed_query = self.search.text.trim().to_owned();
         if !self.search.text.trim().is_empty() {
             self.fetch_search();
@@ -221,14 +253,22 @@ impl State {
                     }
                 }
                 self.catalog_paging.next_offset = offset.saturating_add(count);
-                self.catalog_paging.has_more = added > 0
-                    && count > 0
+                self.catalog_paging.no_progress_pages = if added > 0 {
+                    0
+                } else {
+                    self.catalog_paging.no_progress_pages.saturating_add(1)
+                };
+                self.catalog_paging.has_more = count > 0
+                    && self.catalog_paging.no_progress_pages < MAX_NO_PROGRESS_PAGES
                     && self.catalog_paging.next_offset > offset
                     && self
                         .catalog
                         .as_ref()
                         .is_some_and(|(_, catalog)| catalog.supports_paging());
                 self.status.clear();
+                if added == 0 {
+                    self.request_more_catalog();
+                }
             }
             Err(error) => {
                 self.catalog_paging.failed = true;

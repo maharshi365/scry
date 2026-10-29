@@ -84,6 +84,7 @@ pub struct State {
     kind: String,
     catalog: Option<(Addon, Catalog)>,
     catalog_paging: catalog::CatalogPaging,
+    catalog_menu_open: bool,
     metas: Arc<Vec<Meta>>,
     providers: Arc<Vec<Addon>>,
     detail: Option<Meta>,
