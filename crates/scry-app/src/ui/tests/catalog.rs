@@ -223,6 +223,29 @@ fn catalog_page_failures_keep_loaded_titles_and_require_explicit_retry() {
 }
 
 #[test]
+fn discover_title_count_is_not_zero_padded() {
+    for count in [0, 5, 50, 100] {
+        let mut s = init();
+        scene_discover(&mut s);
+        s.loading = false;
+        s.metas = Arc::new(
+            (0..count)
+                .map(|index| catalog_title("series", index))
+                .collect(),
+        );
+        let mut rt = rune::Runtime::new(s, view, (1000.0, 800.0), rune::Env::default());
+        rt.frame(0.0);
+        let expected = format!("{count} titles loaded");
+        assert!(
+            rt.elements()
+                .iter()
+                .any(|element| element.text.as_deref() == Some(expected.as_str())),
+            "Discover must display {expected:?}"
+        );
+    }
+}
+
+#[test]
 fn explorer_shows_titles_and_years() {
     let mut state = init();
     scene_discover(&mut state);

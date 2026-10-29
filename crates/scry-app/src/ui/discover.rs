@@ -26,7 +26,7 @@ pub(super) fn discover(s: &State, cx: &Cx<State>) -> El {
                 format!("Results for “{}”", s.displayed_query)
             },
             &format!(
-                "{:03} titles loaded{}",
+                "{} titles loaded{}",
                 s.metas.len(),
                 if s.loading { " / loading" } else { "" }
             ),
