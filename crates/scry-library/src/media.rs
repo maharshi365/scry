@@ -54,11 +54,11 @@ pub(crate) fn hydrate_progress(
 }
 
 impl MediaRecord {
-    fn key(&self) -> Result<MediaKey> {
+    fn into_key(self) -> Result<MediaKey> {
         Ok(MediaKey::new(
-            &self.namespace,
+            self.namespace,
             MediaKind::parse(&self.kind)?,
-            &self.external_id,
+            self.external_id,
         ))
     }
 }
@@ -89,14 +89,18 @@ pub(crate) fn hydrate(
             .select(MediaRecord::as_select())
             .load(connection)?
         {
-            parents.insert(parent.media_id, parent.key()?);
+            parents.insert(parent.media_id, parent.into_key()?);
         }
     }
     records
         .into_iter()
         .map(|record| {
             Ok(Media {
-                key: record.key()?,
+                key: MediaKey::new(
+                    record.namespace,
+                    MediaKind::parse(&record.kind)?,
+                    record.external_id,
+                ),
                 title: record.title,
                 parent: record
                     .parent_id
@@ -262,17 +266,14 @@ impl Library {
         page: Page,
     ) -> Result<Vec<Media>> {
         let connection = &mut *self.connection.borrow_mut();
-        let query = media::table
-            .inner_join(watchlist::table)
-            .inner_join(effective_watched::table)
-            .filter(media::kind.eq(kind.as_str()))
-            .filter(effective_watched::is_watched.eq(is_watched))
-            .into_boxed();
-        let records = query
-            .order(media::media_id.desc())
-            .limit(i64::from(page.limit))
-            .offset(i64::from(page.offset))
-            .select(MediaRecord::as_select())
+        let complete = crate::watch_status::completion_sql("m.media_id", "unixepoch()");
+        let records = diesel::sql_query(format!(
+            "SELECT m.* FROM media m JOIN watchlist s ON s.media_id=m.media_id LEFT JOIN watched v ON v.media_id=m.media_id WHERE m.kind=? AND (CASE WHEN m.kind='series' THEN ({complete}) ELSE COALESCE(v.watched,0) END)=? ORDER BY m.media_id DESC LIMIT ? OFFSET ?"
+        ))
+            .bind::<diesel::sql_types::Text, _>(kind.as_str())
+            .bind::<diesel::sql_types::Bool, _>(is_watched)
+            .bind::<diesel::sql_types::BigInt, _>(i64::from(page.limit))
+            .bind::<diesel::sql_types::BigInt, _>(i64::from(page.offset))
             .load(connection)?;
         hydrate(connection, records)
     }

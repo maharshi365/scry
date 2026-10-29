@@ -4,27 +4,25 @@ use crate::{
     schema::{episode_releases, media, series_inventory, watched},
     watch_status::{ReleaseScope, clear_future_watches},
 };
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use diesel::{prelude::*, upsert::excluded};
 use std::collections::HashMap;
 
-type Inventory = HashMap<(String, String), (String, Option<i64>, Option<i64>, Option<i64>)>;
+type Inventory<'a> = HashMap<(&'a str, &'a str), (usize, &'a EpisodeRelease)>;
+// Leave room below SQLite's parameter limit when deleting a large inventory.
+const DELETE_BATCH: usize = 500;
 
-fn inventory(releases: &[EpisodeRelease]) -> Inventory {
+fn inventory(releases: &[EpisodeRelease]) -> Inventory<'_> {
     releases
         .iter()
-        .map(|release| {
+        .enumerate()
+        .map(|(index, release)| {
             (
                 (
-                    release.media.key.namespace.clone(),
-                    release.media.key.id.clone(),
+                    release.media.key.namespace.as_str(),
+                    release.media.key.id.as_str(),
                 ),
-                (
-                    release.media.title.clone(),
-                    release.released_at,
-                    release.season.map(i64::from),
-                    release.episode.map(i64::from),
-                ),
+                (index, release),
             )
         })
         .collect()
@@ -96,10 +94,13 @@ pub(crate) fn sync_episode_releases(
         .on_conflict_do_nothing()
         .execute(connection)?
         == 0;
+    let mut removed = Vec::new();
+    let mut unchanged = vec![false; releases.len()];
     let stored = media::table
         .inner_join(episode_releases::table)
         .filter(media::parent_id.eq(id))
         .select((
+            media::media_id,
             media::namespace,
             media::external_id,
             media::title,
@@ -107,40 +108,45 @@ pub(crate) fn sync_episode_releases(
             episode_releases::season,
             episode_releases::episode,
         ))
-        .load::<(
+        .load_iter::<(
+            i64,
             String,
             String,
             String,
             Option<i64>,
             Option<i64>,
             Option<i64>,
-        )>(connection)?;
-    let existing: HashMap<_, _> = stored
-        .into_iter()
-        .map(|(namespace, external_id, title, date, season, episode)| {
-            ((namespace, external_id), (title, date, season, episode))
-        })
-        .collect();
-    if known && existing == incoming {
+        ), diesel::connection::DefaultLoadingMode>(connection)?;
+    for record in stored {
+        let (episode_id, namespace, external_id, title, date, season, episode) = record?;
+        let key = (namespace.as_str(), external_id.as_str());
+        match incoming.get(&key) {
+            Some((index, release))
+                if release.media.title == title
+                    && release.released_at == date
+                    && release.season.map(i64::from) == season
+                    && release.episode.map(i64::from) == episode =>
+            {
+                *unchanged
+                    .get_mut(*index)
+                    .context("missing inventory entry")? = true;
+            }
+            Some(_) => {}
+            None => {
+                removed.push(episode_id);
+            }
+        }
+    }
+    if known && unchanged.iter().all(|value| *value) && removed.is_empty() {
         return Ok(cleared);
     }
-    // Keep unchanged rows in place. A new release must not rewrite
-    // thousands of older episodes or their index entries.
-    for (namespace, external_id) in existing.keys().filter(|key| !incoming.contains_key(*key)) {
-        let removed = media::table
-            .filter(media::parent_id.eq(id))
-            .filter(media::namespace.eq(namespace))
-            .filter(media::external_id.eq(external_id))
-            .select(media::media_id);
-        diesel::delete(episode_releases::table.filter(episode_releases::media_id.eq_any(removed)))
+    for ids in removed.chunks(DELETE_BATCH) {
+        diesel::delete(episode_releases::table.filter(episode_releases::media_id.eq_any(ids)))
             .execute(connection)?;
     }
-    for release in releases {
-        let key = (
-            release.media.key.namespace.clone(),
-            release.media.key.id.clone(),
-        );
-        if existing.get(&key) == incoming.get(&key) {
+    // Keep provider order when assigning new media IDs.
+    for (release, unchanged) in releases.iter().zip(unchanged) {
+        if unchanged {
             continue;
         }
         upsert_media(connection, &release.media)?;

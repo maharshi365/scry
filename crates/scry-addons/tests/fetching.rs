@@ -223,8 +223,13 @@ async fn concurrent_consumers_share_even_a_no_store_request() {
         client.meta(&addon, "movie", "film"),
         client.meta(&addon, "movie", "film")
     );
-    assert_eq!(first.unwrap().name, "Shared");
-    assert_eq!(second.unwrap().name, "Shared");
+    let (first, second) = (first.unwrap(), second.unwrap());
+    assert_eq!(first.name, "Shared");
+    assert_eq!(second.name, "Shared");
+    assert!(
+        std::ptr::eq(&raw const *first, &raw const *second),
+        "concurrent consumers share the parsed metadata payload"
+    );
     assert_eq!(requests.lock().unwrap().len(), 1);
     server.await.unwrap();
 }

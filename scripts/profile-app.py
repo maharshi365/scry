@@ -34,21 +34,57 @@ def sha256(path):
 
 class RangeServer(http.server.SimpleHTTPRequestHandler):
     allowed_file = None
+    poster_requests = 0
+    metadata_requests = 0
+    counter_lock = threading.Lock()
+
+    @staticmethod
+    @functools.lru_cache(maxsize=1000)
+    def poster(index):
+        def chunk(kind, data):
+            return struct.pack("!I", len(data)) + kind + data + struct.pack("!I", zlib.crc32(kind + data))
+        pixels = b"".join(b"\0" + bytes([(index * 13) % 256, y % 256, (index * 7) % 256]) * 600 for y in range(900))
+        return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack("!2I5B", 600, 900, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(pixels)) + chunk(b"IEND", b""))
 
     def log_message(self, *_):
         pass
 
     def send_head(self):
+        if self.path == "/manifest.json":
+            body = json.dumps(dict(id="profile", name="Profile", resources=["catalog", "meta"],
+                catalogs=[dict(id="profile", type="movie", extra=[dict(name="skip")])])).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return None
+        if self.path.startswith("/catalog/"):
+            with self.counter_lock:
+                type(self).metadata_requests += 1
+            skip = int(self.path.split("skip=")[-1].split(".")[0]) if "skip=" in self.path else 0
+            body = json.dumps({"metas": [dict(id=f"profile-{i}", type="movie", name=f"Benchmark movie {i}",
+                description="Deterministic fetched metadata. " * 16,
+                poster=f"http://127.0.0.1:{self.server.server_port}/poster/{i}.png")
+                for i in range(skip, min(skip + 100, 1000))]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return None
         if self.path.startswith("/poster/"):
             index = int(self.path.rsplit("/", 1)[-1].split(".")[0])
-            def chunk(kind, data):
-                return struct.pack("!I", len(data)) + kind + data + struct.pack("!I", zlib.crc32(kind + data))
-            pixels = b"".join(b"\0" + bytes([(index * 13) % 256, y, (index * 7) % 256]) * 160 for y in range(240))
-            data = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack("!2I5B", 160, 240, 8, 2, 0, 0, 0))
-                    + chunk(b"IDAT", zlib.compress(pixels)) + chunk(b"IEND", b""))
+            with self.counter_lock:
+                type(self).poster_requests += 1
+            data = self.poster(index)
             self.send_response(200)
             self.send_header("Content-Type", "image/png")
             self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "max-age=3600")
             self.end_headers()
             self.wfile.write(data)
             return None
@@ -121,6 +157,8 @@ def main():
     parser.add_argument("--torrent", action="store_true", help="Stream the same fixture through a controlled loopback torrent peer")
     parser.add_argument("--fullscreen", action="store_true", help="Also exercise native fullscreen shortcuts during playback")
     parser.add_argument("--metadata-stress", action="store_true", help="Retain 32 history snapshots of a 10,000-episode series")
+    parser.add_argument("--ui-only", action="store_true", help="Measure fetched catalogs and poster lifetimes without playback")
+    parser.add_argument("--no-scroll", action="store_true", help="Check fetched posters and page-exit cleanup without requiring native mouse focus")
     args = parser.parse_args()
     if not 1 <= args.cycles <= 100 or not 1 <= args.seconds <= 3600:
         parser.error("cycles must be 1–100 and seconds must be 1–3600")
@@ -138,7 +176,7 @@ def main():
     if args.fixture:
         fixture = args.fixture.resolve()
         fixture_dir = fixture.parent
-    elif not fixture.exists():
+    elif not args.ui_only and not fixture.exists():
         subprocess.run([
             "ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=24",
             "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", str(fixture_seconds),
@@ -146,6 +184,9 @@ def main():
             "-c:a", "aac", "-movflags", "+faststart", str(fixture),
         ], check=True)
     RangeServer.allowed_file = fixture.resolve()
+    if not args.skip_ui:
+        for index in range(1000):
+            RangeServer.poster(index)
     server = http.server.ThreadingHTTPServer(
         ("127.0.0.1", 0), functools.partial(RangeServer, directory=str(fixture_dir)))
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -155,6 +196,8 @@ def main():
     data.mkdir(parents=True)
     with sqlite3.connect(data / "scry-v2.sqlite3") as db:
         db.executescript((ROOT / "crates/scry-library/src/schema.sql").read_text())
+        # Version-one startup replaces this view with the current release policy.
+        db.execute("CREATE VIEW effective_watched AS SELECT media_id,0 AS watched FROM media")
         db.execute("PRAGMA user_version=1")
         db.executemany("INSERT INTO media(media_id,namespace,kind,external_id,title) VALUES(?,'profile','movie',?,?)",
                        [(i + 1, f"profile-{i}", f"Benchmark movie {i}") for i in range(1000)])
@@ -192,6 +235,7 @@ def main():
     command_id = 0
     status = {}
     window_size = None
+    artwork_lifecycle = []
     with (report / "app.stdout").open("w") as stdout, (report / "app.stderr").open("w") as stderr:
         process = subprocess.Popen([str(args.exe.resolve())], cwd=ROOT, env=env, stdout=stdout, stderr=stderr)
         handle = kernel.OpenProcess(0x410, False, process.pid)
@@ -340,9 +384,17 @@ def main():
             rest(3)
             if not args.skip_ui:
                 phase = "catalog"
-                command("catalog", count=1000, artwork_base=f"http://127.0.0.1:{server.server_port}/poster")
+                catalog_started = time.perf_counter()
+                command("provider_catalog", manifest_url=f"http://127.0.0.1:{server.server_port}/manifest.json")
+                wait(lambda s: s.get("addon_count", 0) > 0 and not s.get("config_busy"))
+                command("fetch_catalog")
+                wait(lambda s: s.get("catalog_len", 0) >= 100 and not s.get("loading"))
+                wait(lambda s: s.get("artwork", {}).get("visible", 0) > 0 and
+                    s["artwork"]["visible_ready"] == s["artwork"]["visible"])
+                artwork_lifecycle.append(dict(phase=phase, load_s=time.perf_counter() - catalog_started,
+                    artwork=read_status().get("artwork"), requests=RangeServer.poster_requests))
                 rest(2)
-                for index in range(3):
+                for index in range(0 if args.no_scroll else 3):
                     phase = f"scroll-{index}"
                     initial_row = read_status().get("first_visible_row")
                     for _ in range(20):
@@ -351,12 +403,21 @@ def main():
                     final_row = read_status().get("first_visible_row")
                     if initial_row is not None and final_row is not None and final_row <= initial_row:
                         raise RuntimeError("Native wheel input did not scroll the catalog")
+                    wait(lambda s: s.get("artwork", {}).get("visible_ready") == s.get("artwork", {}).get("visible"))
+                    artwork_lifecycle.append(dict(phase=phase, artwork=read_status().get("artwork"),
+                        requests=RangeServer.poster_requests, first_row=final_row))
                     wheel(120000)
                     rest(1)
+                phase = "artwork-offscreen"
+                command("calendar")
+                wait(lambda s: s.get("artwork", {}).get("images") == 0 and s["artwork"]["active"] == 0)
+                rest(2)
+                artwork_lifecycle.append(dict(phase=phase, artwork=read_status().get("artwork"),
+                    requests=RangeServer.poster_requests))
                 phase = "detail"
                 command("detail")
                 rest(2)
-                for page in ("addons", "library", "calendar"):
+                for page in ("library", "calendar"):
                     phase = page
                     command(page)
                     rest(2)
@@ -365,7 +426,7 @@ def main():
                 command("metadata_stress")
                 wait(lambda s: s.get("detail_episodes") == 10_000 and s.get("back_len") == 32)
                 rest(3)
-            for cycle in range(args.cycles):
+            for cycle in range(0 if args.ui_only else args.cycles):
                 prefix = f"cycle-{cycle + 1}"
                 phase = prefix + "/starting"
                 if seed:
@@ -446,12 +507,15 @@ def main():
     if not summaries:
         failures.append("No process-counter samples were collected")
     summary = dict(success=not failures, failures=failures, phases=summaries,
+                   artwork_lifecycle=artwork_lifecycle, metadata_requests=RangeServer.metadata_requests,
+                   poster_requests=RangeServer.poster_requests,
+                   input_mode="none" if args.no_scroll else "foreground-mouse",
                    quality=quality,
                    transport="torrent" if seed else "http", torrent_uploaded_bytes=seed.uploaded if seed else None,
                    client_pixels=window_size, windows_version=sys.getwindowsversion().build,
                    runtime_sha256=sha256(ROOT / "runtime/libmpv-2.dll"),
                    options=options, executable_sha256=sha256(args.exe),
-                   fixture_sha256=sha256(fixture))
+                   fixture_sha256=sha256(fixture) if fixture.exists() else None)
     (report / "summary.json").write_text(json.dumps(summary, indent=2))
     print(json.dumps(dict(success=not failures, failures=failures, phases={
         name: round(values["private_ws"]["peak"] / 1e6, 1) for name, values in summaries.items()}), indent=2))

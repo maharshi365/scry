@@ -23,3 +23,9 @@ uuid.workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "net", "macros", "io-util"] }
 tempfile.workspace = true
+criterion = "0.7"
+allocation-counter = "0.8"
+
+[[bench]]
+name = "metadata"
+harness = false

@@ -58,28 +58,13 @@ pub(super) fn poll(s: &mut State, tx: &mut Tx) -> bool {
             "stop" => s.stop(),
             "back" => s.travel(false),
             "forward" => s.travel(true),
-            "catalog" => {
-                s.navigate(Page::Discover);
-                s.catalog = None;
-                let count = command["count"].as_u64().unwrap_or(1000).min(10_000);
-                s.metas = std::sync::Arc::new(
-                    (0..count)
-                        .filter_map(|index| {
-                            let poster = command["artwork_base"]
-                                .as_str()
-                                .map(|base| format!("{base}/{index}.png"));
-                            serde_json::from_value(json!({
-                                "id": format!("profile-{index}"), "type": "movie",
-                                "name": format!("Benchmark movie {index}"),
-                                "poster": poster,
-                                "description": "Deterministic catalog fixture. ".repeat(16)
-                            }))
-                            .ok()
-                        })
-                        .collect(),
-                );
-                s.loading = false;
+            "catalog" => catalog(s, &command),
+            "provider_catalog" => {
+                if let Some(url) = command["manifest_url"].as_str() {
+                    s.install(url.to_owned());
+                }
             }
+            "fetch_catalog" => s.choose_kind("movie"),
             "detail" => super::scenes::scene_detail(s),
             "metadata_stress" => metadata_stress(s),
             "library" => s.navigate(Page::Library),
@@ -103,6 +88,9 @@ pub(super) fn poll(s: &mut State, tx: &mut Tx) -> bool {
         "guide_resolving": s.guide.resolving,
         "guide_error": s.guide.error,
         "catalog_len": s.metas.len(),
+        "loading": s.loading,
+        "config_busy": s.config_busy,
+        "addon_count": s.addons.len(),
         "detail_episodes": s.detail.as_ref().map_or(0, |meta| meta.videos.len()),
         "visible_rows": s.poster_visible.len(),
         "first_visible_row": s.poster_visible.start,
@@ -118,6 +106,29 @@ pub(super) fn poll(s: &mut State, tx: &mut Tx) -> bool {
     }
     s.profiling = Some(driver);
     changed
+}
+
+fn catalog(s: &mut State, command: &Value) {
+    s.navigate(Page::Discover);
+    s.catalog = None;
+    let count = command["count"].as_u64().unwrap_or(1000).min(10_000);
+    s.metas = std::sync::Arc::new(
+        (0..count)
+            .filter_map(|index| {
+                let poster = command["artwork_base"]
+                    .as_str()
+                    .map(|base| format!("{base}/{index}.png"));
+                serde_json::from_value(json!({
+                    "id": format!("profile-{index}"), "type": "movie",
+                    "name": format!("Benchmark movie {index}"),
+                    "poster": poster,
+                    "description": "Deterministic catalog fixture. ".repeat(16)
+                }))
+                .ok()
+            })
+            .collect(),
+    );
+    s.loading = false;
 }
 
 fn metadata_stress(s: &mut State) {

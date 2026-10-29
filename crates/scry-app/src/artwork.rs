@@ -203,7 +203,8 @@ impl Artwork {
             })
             .sum();
         Some(
-            serde_json::json!({"images": state.ready.0.len(), "pixel_bytes": bytes, "active": state.active.len()}),
+            serde_json::json!({"images": state.ready.0.len(), "pixel_bytes": bytes, "active": state.active.len(),
+                "visible": state.visible.len(), "visible_ready": state.visible.iter().filter(|url| state.ready.get(url).is_some()).count()}),
         )
     }
     /// Two sleeping decode workers share one continuously driven HTTP runtime.

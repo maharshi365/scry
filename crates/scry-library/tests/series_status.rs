@@ -18,6 +18,57 @@ fn episode(parent: &Media, index: usize) -> Media {
 }
 
 #[test]
+fn paginated_library_badges_match_full_status_for_release_and_season_cases() -> anyhow::Result<()> {
+    let mut db = Library::memory()?;
+    let mut expected = [Vec::new(), Vec::new()];
+    for (index, (season, date, watched)) in [Some(0), Some(1), None]
+        .into_iter()
+        .flat_map(|season| {
+            [Some(0), None, Some(i64::MAX)]
+                .into_iter()
+                .map(move |date| (season, date))
+        })
+        .flat_map(|(season, date)| {
+            [false, true]
+                .into_iter()
+                .map(move |watched| (season, date, watched))
+        })
+        .enumerate()
+    {
+        let mut parent = show();
+        parent.key.id = format!("show-{index}");
+        db.upsert_media(&parent)?;
+        db.add_to_watchlist(&parent.key)?;
+        let mut release = EpisodeRelease {
+            media: episode(&parent, index),
+            season,
+            episode: Some(1),
+            released_at: Some(0),
+        };
+        db.sync_episode_releases(&parent.key, &[release.clone()])?;
+        db.set_watched(&release.media.key, watched)?;
+        release.released_at = date;
+        db.sync_episode_releases(&parent.key, &[release])?;
+        let complete = db.series_poster_state(&parent.key, 100)?.0;
+        assert_eq!(db.watched_state(&parent.key)?.watched, complete);
+        expected[usize::from(complete)].push(parent.key);
+    }
+    for (watched, mut keys) in [false, true].into_iter().zip(expected) {
+        keys.reverse();
+        let mut actual = Vec::new();
+        for offset in (0..24).step_by(3) {
+            actual.extend(
+                db.list_library(watched, MediaKind::Series, Page::new(3, offset)?)?
+                    .into_iter()
+                    .map(|item| item.key),
+            );
+        }
+        assert_eq!(actual, keys, "watched={watched}");
+    }
+    Ok(())
+}
+
+#[test]
 fn bulk_watched_counts_exclude_dated_and_undated_specials_for_full_inventories()
 -> anyhow::Result<()> {
     for (total, specials, undated) in [(124, 71, 11), (30, 5, 1), (35, 11, 11)] {

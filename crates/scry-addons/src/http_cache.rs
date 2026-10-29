@@ -6,7 +6,7 @@ mod tests;
 use anyhow::{Result, anyhow, bail};
 use http_cache_semantics::{AfterResponse, BeforeRequest, CacheOptions, CachePolicy};
 use std::{
-    any::TypeId,
+    any::{Any, TypeId},
     collections::{HashMap, VecDeque},
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -36,7 +36,24 @@ struct Entry {
     headers: http::HeaderMap,
 }
 
-type Outcome = std::result::Result<Response, String>;
+type Parsed = Arc<dyn Any + Send + Sync>;
+
+#[derive(Clone)]
+enum Payload {
+    Bytes(Response),
+    Json(Parsed),
+}
+
+impl Payload {
+    fn bytes(self) -> Result<Response> {
+        match self {
+            Self::Bytes(response) => Ok(response),
+            Self::Json(_) => Err(anyhow!("Invalid HTTP response type")),
+        }
+    }
+}
+
+type Outcome = std::result::Result<Payload, String>;
 
 #[derive(Clone, Hash, PartialEq, Eq)]
 struct Flight {
@@ -68,6 +85,40 @@ struct Shared {
 
 #[derive(Clone)]
 pub struct HttpCache(Arc<Shared>, bool);
+
+trait Validation: Send + Sync {
+    fn check(&self, bytes: &[u8]) -> Result<Option<Parsed>>;
+
+    fn cached(&self, entry: Entry, limit: usize) -> Option<(Entry, Option<Parsed>)> {
+        if entry.bytes.len() > limit {
+            return None;
+        }
+        let parsed = self.check(&entry.bytes).ok()?;
+        Some((entry, parsed))
+    }
+}
+
+impl<F: Fn(&[u8]) -> Result<()> + Send + Sync> Validation for F {
+    fn check(&self, bytes: &[u8]) -> Result<Option<Parsed>> {
+        self(bytes)?;
+        Ok(None)
+    }
+}
+
+struct JsonValidation<T, F>(F, std::marker::PhantomData<fn() -> T>);
+
+impl<T, F> Validation for JsonValidation<T, F>
+where
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
+    F: Fn(&T) -> Result<()> + Send + Sync,
+{
+    fn check(&self, bytes: &[u8]) -> Result<Option<Parsed>> {
+        let value =
+            serde_json::from_slice(bytes).map_err(|_| anyhow!("Invalid add-on response"))?;
+        (self.0)(&value)?;
+        Ok(Some(Arc::new(value)))
+    }
+}
 
 impl HttpCache {
     #[must_use]
@@ -113,8 +164,9 @@ impl HttpCache {
     /// # Errors
     /// Returns a private, URL-free error on failed, oversized, or excess requests.
     pub async fn get(&self, url: url::Url, limit: usize, allow_stale: bool) -> Result<Response> {
-        self.get_inner(url, limit, allow_stale, None, |_| Ok(()))
-            .await
+        self.get_inner(url, limit, allow_stale, None, |_: &[u8]| Ok(()))
+            .await?
+            .bytes()
     }
 
     /// # Errors
@@ -145,20 +197,59 @@ impl HttpCache {
             limit,
             allow_stale,
             Some(TypeId::of::<(T, F)>()),
-            move |bytes| {
+            move |bytes: &[u8]| {
                 let value = serde_json::from_slice::<T>(bytes)
                     .map_err(|_| anyhow!("Invalid add-on response"))?;
                 check(&value)
             },
         )
-        .await
+        .await?
+        .bytes()
+    }
+
+    pub(crate) async fn json_checked<T, F>(
+        &self,
+        url: url::Url,
+        limit: usize,
+        allow_stale: bool,
+        check: F,
+    ) -> Result<T>
+    where
+        T: serde::de::DeserializeOwned + Clone + Send + Sync + 'static,
+        F: Fn(&T) -> Result<()> + Send + Sync + 'static,
+    {
+        let check = Arc::new(check);
+        let validator = check.clone();
+        let response = self
+            .get_inner(
+                url,
+                limit,
+                allow_stale,
+                Some(TypeId::of::<JsonValidation<T, F>>()),
+                JsonValidation(move |value: &T| validator(value), std::marker::PhantomData),
+            )
+            .await?;
+        match response {
+            Payload::Json(value) => value
+                .downcast_ref::<T>()
+                .cloned()
+                .ok_or_else(|| anyhow!("Invalid HTTP response type")),
+            Payload::Bytes(response) => {
+                let value = serde_json::from_slice(&response.bytes)
+                    .map_err(|_| anyhow!("Invalid add-on response"))?;
+                check(&value)?;
+                Ok(value)
+            }
+        }
     }
 
     /// Image requests can stop when their last visible consumer goes away.
     /// # Errors
     /// Returns a URL-free error on cancellation or HTTP failure.
     pub async fn get_cancellable(&self, url: url::Url, limit: usize) -> Result<Response> {
-        self.get_inner(url, limit, false, None, |_| Ok(())).await
+        self.get_inner(url, limit, false, None, |_: &[u8]| Ok(()))
+            .await?
+            .bytes()
     }
 
     async fn get_inner(
@@ -167,8 +258,8 @@ impl HttpCache {
         limit: usize,
         allow_stale: bool,
         validation: Option<TypeId>,
-        validate: impl Fn(&[u8]) -> Result<()> + Send + Sync + 'static,
-    ) -> Result<Response> {
+        validate: impl Validation + 'static,
+    ) -> Result<Payload> {
         let limit = limit.min(MAX_BODY);
         if url.as_str().len() > 16 * 1024 {
             bail!("HTTP request URL exceeds size limit");
@@ -269,7 +360,7 @@ impl HttpCache {
                     || state
                         .entries
                         .iter()
-                        .map(|(_, e)| e.bytes.len())
+                        .map(|(_, e)| e.bytes.capacity())
                         .sum::<usize>()
                         > MEMORY_BUDGET
                 {
@@ -296,13 +387,17 @@ impl HttpCache {
         url: url::Url,
         limit: usize,
         allow_stale: bool,
-        validate: impl Fn(&[u8]) -> Result<()> + Send + Sync,
+        validate: impl Validation,
         mut priority: watch::Receiver<bool>,
-    ) -> Result<Response> {
+    ) -> Result<Payload> {
         let cached = self
             .cached(&flight.key)
             .await
-            .filter(|entry| entry.bytes.len() <= limit && validate(&entry.bytes).is_ok());
+            .and_then(|entry| validate.cached(entry, limit));
+        let (cached, mut parsed) = match cached {
+            Some((entry, value)) => (Some(entry), value),
+            None => (None, None),
+        };
         let request = http::Request::get(url.as_str())
             .body(())
             .map_err(|_| anyhow!("Invalid HTTP request"))?;
@@ -319,7 +414,7 @@ impl HttpCache {
         let mut matches = false;
         if let Some(entry) = &cached {
             match entry.policy.before_request(&request, SystemTime::now()) {
-                BeforeRequest::Fresh(_) if !forced => return Ok(entry.response()),
+                BeforeRequest::Fresh(_) if !forced => return Ok(entry.payload(parsed)),
                 BeforeRequest::Fresh(_) => {
                     let mut refresh = request.clone();
                     refresh
@@ -356,9 +451,13 @@ impl HttpCache {
             // Publish the old value now. The same owned task keeps the flight occupied
             // until revalidation ends, so subsequent readers cannot start a refresh storm.
             if let Some(entry) = &cached {
-                self.publish(flight, entry.response());
+                // A revalidation can outlive its readers. Retain only shared wire
+                // bytes here, not a decoded episode inventory for every queued flight.
+                self.publish(flight, entry.payload(None));
             }
         }
+        // Do not retain a parsed stale inventory while waiting for its replacement.
+        drop(parsed.take());
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(25),
             self.network(
@@ -374,8 +473,8 @@ impl HttpCache {
         .unwrap_or_else(|_| Err(Failure::request()));
         match result {
             Ok(entry) => {
-                validate(&entry.bytes)?;
-                let response = entry.response();
+                let parsed = validate.check(&entry.bytes)?;
+                let response = entry.payload(parsed);
                 self.store(&flight.key, entry).await;
                 Ok(response)
             }
@@ -387,14 +486,15 @@ impl HttpCache {
                         cached.filter(|entry| entry.allows_stale(&request, "stale-if-error"))
                     && error.stale_allowed
                 {
-                    return Ok(entry.response());
+                    let parsed = validate.check(&entry.bytes)?;
+                    return Ok(entry.payload(parsed));
                 }
                 Err(anyhow!(error.message))
             }
         }
     }
 
-    fn publish(&self, flight: &Flight, response: Response) {
+    fn publish(&self, flight: &Flight, response: Payload) {
         if let Ok(state) = self.0.state.lock()
             && let Some(active) = state.active.get(flight)
         {
@@ -431,7 +531,7 @@ impl HttpCache {
             .acquire()
             .await
             .map_err(|_| Failure::request())?;
-        let mut response = self
+        let response = self
             .0
             .client
             .get(url)
@@ -494,16 +594,7 @@ impl HttpCache {
                 stale_allowed: false,
             });
         }
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(|_| Failure::request())? {
-            if chunk.len() > limit.saturating_sub(bytes.len()) {
-                return Err(Failure {
-                    message: "HTTP response exceeds size limit".into(),
-                    stale_allowed: false,
-                });
-            }
-            bytes.extend_from_slice(&chunk);
-        }
+        let bytes = read_body(response, limit).await?;
         Ok(Entry {
             policy,
             bytes: Arc::new(bytes),
@@ -513,7 +604,41 @@ impl HttpCache {
     }
 }
 
+async fn read_body(
+    mut response: reqwest::Response,
+    limit: usize,
+) -> std::result::Result<Vec<u8>, Failure> {
+    let capacity = response
+        .content_length()
+        .and_then(|length| usize::try_from(length).ok())
+        .unwrap_or(0);
+    let mut bytes = Vec::with_capacity(capacity);
+    while let Some(chunk) = response.chunk().await.map_err(|_| Failure::request())? {
+        if chunk.len() > limit.saturating_sub(bytes.len()) {
+            return Err(Failure {
+                message: "HTTP response exceeds size limit".into(),
+                stale_allowed: false,
+            });
+        }
+        let required = bytes.len() + chunk.len();
+        if required > bytes.capacity() {
+            // Unknown-length bodies still grow geometrically, but spare capacity
+            // must not exceed the same bound as the received bytes.
+            let capacity = bytes.capacity().saturating_mul(2).max(required).min(limit);
+            bytes.reserve_exact(capacity - bytes.len());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+
 impl Entry {
+    fn payload(&self, parsed: Option<Parsed>) -> Payload {
+        // Typed consumers share the checked value, not a second retained wire body.
+        // Only the bounded HTTP cache keeps encoded bytes for future requests.
+        parsed.map_or_else(|| Payload::Bytes(self.response()), Payload::Json)
+    }
+
     fn response(&self) -> Response {
         Response {
             bytes: self.bytes.clone(),

@@ -136,7 +136,9 @@ impl<'de> Deserialize<'de> for Meta {
             #[serde(default)]
             videos: Vec<Video>,
         }
-        let fields = Fields::deserialize(deserializer)?;
+        let mut fields = Fields::deserialize(deserializer)?;
+        // Episode inventories are retained by details and navigation snapshots.
+        fields.videos.shrink_to_fit();
         Ok(Self(std::sync::Arc::new(MetaData {
             id: fields.id,
             kind: fields.kind,
@@ -500,7 +502,7 @@ impl Client {
         catalog: &Catalog,
         skip: u32,
     ) -> Result<Vec<Meta>> {
-        #[derive(Deserialize)]
+        #[derive(Clone, Deserialize)]
         struct Response {
             metas: Vec<Meta>,
         }
@@ -544,11 +546,14 @@ impl Client {
         Self(self.0.background())
     }
 
-    async fn json<T: serde::de::DeserializeOwned + 'static>(&self, url: Url) -> Result<T> {
+    async fn json<T: serde::de::DeserializeOwned + Clone + Send + Sync + 'static>(
+        &self,
+        url: Url,
+    ) -> Result<T> {
         self.json_mode(url, true).await
     }
 
-    async fn json_mode<T: serde::de::DeserializeOwned + 'static>(
+    async fn json_mode<T: serde::de::DeserializeOwned + Clone + Send + Sync + 'static>(
         &self,
         url: Url,
         allow_stale: bool,
@@ -558,16 +563,12 @@ impl Client {
 
     async fn json_checked<T, F>(&self, url: Url, allow_stale: bool, check: F) -> Result<T>
     where
-        T: serde::de::DeserializeOwned + 'static,
+        T: serde::de::DeserializeOwned + Clone + Send + Sync + 'static,
         F: Fn(&T) -> Result<()> + Send + Sync + 'static,
     {
-        let response = self
-            .0
-            .get_json_checked::<T, _>(url, 4 * 1024 * 1024, allow_stale, check)
-            .await?;
-        // Serde errors can echo an invalid string value, including private URLs.
-        serde_json::from_slice(&response.bytes)
-            .map_err(|_| anyhow::anyhow!("Invalid add-on response"))
+        self.0
+            .json_checked(url, 4 * 1024 * 1024, allow_stale, check)
+            .await
     }
 
     /// # Errors
@@ -597,7 +598,7 @@ impl Client {
         catalog: &Catalog,
         search: Option<&str>,
     ) -> Result<Vec<Meta>> {
-        #[derive(Deserialize)]
+        #[derive(Clone, Deserialize)]
         struct Response {
             metas: Vec<Meta>,
         }
@@ -617,7 +618,7 @@ impl Client {
     /// # Errors
     /// Returns an error for an invalid resource URL, failed request, or invalid metadata.
     pub async fn meta(&self, addon: &Addon, kind: &str, id: &str) -> Result<Meta> {
-        #[derive(Deserialize)]
+        #[derive(Clone, Deserialize)]
         struct Response {
             meta: Meta,
         }
@@ -637,7 +638,7 @@ impl Client {
     /// # Errors
     /// Returns an error for an invalid resource URL, failed request, or invalid stream data.
     pub async fn streams(&self, addon: &Addon, kind: &str, id: &str) -> Result<Vec<Stream>> {
-        #[derive(Deserialize)]
+        #[derive(Clone, Deserialize)]
         struct Response {
             streams: Vec<Stream>,
         }
@@ -662,7 +663,7 @@ impl Client {
         id: &str,
         hints: &serde_json::Value,
     ) -> Result<Vec<Subtitle>> {
-        #[derive(Deserialize)]
+        #[derive(Clone, Deserialize)]
         struct Response {
             subtitles: Vec<Subtitle>,
         }

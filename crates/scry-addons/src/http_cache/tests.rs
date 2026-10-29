@@ -6,6 +6,93 @@
 use super::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+#[tokio::test]
+async fn typed_stale_readers_use_shared_bytes_until_revalidation_finishes() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let (release, released) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        read_request(&mut socket).await;
+        socket.write_all(b"HTTP/1.1 200 OK\r\nCache-Control: max-age=0, stale-while-revalidate=60\r\nContent-Length: 2\r\nConnection: close\r\n\r\n42").await.unwrap();
+        drop(socket);
+        let (mut socket, _) = listener.accept().await.unwrap();
+        read_request(&mut socket).await;
+        released.await.unwrap();
+        socket.write_all(b"HTTP/1.1 200 OK\r\nCache-Control: max-age=60\r\nContent-Length: 2\r\nConnection: close\r\n\r\n43").await.unwrap();
+    });
+    let url = url::Url::parse(&format!("http://{address}/metadata")).unwrap();
+    let cache = HttpCache::new(reqwest::Client::new(), None);
+    for _ in 0..3 {
+        let value = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            cache.json_checked(url.clone(), 100, true, |_: &u32| Ok(())),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(value, 42);
+    }
+    assert_eq!(cache.0.state.lock().unwrap().active.len(), 1);
+    assert!(
+        cache
+            .0
+            .state
+            .lock()
+            .unwrap()
+            .active
+            .values()
+            .all(|active| matches!(&*active.result.borrow(), Some(Ok(Payload::Bytes(_))))),
+        "stalled revalidation must not retain decoded results"
+    );
+    release.send(()).unwrap();
+    server.await.unwrap();
+    until(&cache, |state| state.active.is_empty()).await;
+    assert_eq!(
+        cache
+            .json_checked(url, 100, true, |_: &u32| Ok(()))
+            .await
+            .unwrap(),
+        43
+    );
+}
+
+#[tokio::test]
+async fn chunked_response_allocation_does_not_exceed_the_body_limit() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        read_request(&mut socket).await;
+        socket.write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n").await.unwrap();
+        for size in [60_000, 35_000] {
+            socket
+                .write_all(format!("{size:x}\r\n").as_bytes())
+                .await
+                .unwrap();
+            socket.write_all(&vec![42; size]).await.unwrap();
+            socket.write_all(b"\r\n").await.unwrap();
+        }
+        socket.write_all(b"0\r\n\r\n").await.unwrap();
+    });
+    let cache = HttpCache::new(reqwest::Client::new(), None);
+    let response = cache
+        .get(
+            url::Url::parse(&format!("http://{address}/body")).unwrap(),
+            100_000,
+            false,
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.bytes.len(), 95_000);
+    assert!(response.bytes.iter().all(|byte| *byte == 42));
+    assert!(
+        response.bytes.capacity() <= 100_000,
+        "unused capacity must respect the body budget"
+    );
+    server.await.unwrap();
+}
+
 async fn read_request(socket: &mut tokio::net::TcpStream) -> String {
     let mut request = Vec::new();
     while !request.ends_with(b"\r\n\r\n") {

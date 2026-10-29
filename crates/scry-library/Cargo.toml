@@ -23,3 +23,9 @@ tracing = "0.1"
 
 [dev-dependencies]
 tempfile.workspace = true
+criterion = "0.7"
+allocation-counter = "0.8"
+
+[[bench]]
+name = "library"
+harness = false

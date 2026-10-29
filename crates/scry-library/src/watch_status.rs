@@ -32,6 +32,14 @@ fn summary_sql(now: &str, parent: &str) -> String {
         .replace("{parent}", parent)
 }
 
+pub(crate) fn completion_sql(parent: &str, now: &str) -> String {
+    // A badge needs no progress sums. Stop at the first incomplete regular episode.
+    let retained = RETAINED.replace("{now}", now);
+    format!(
+        "EXISTS(SELECT 1 FROM media e JOIN episode_releases r USING(media_id) WHERE e.parent_id={parent} AND (r.season IS NULL OR r.season!=0)) AND NOT EXISTS(SELECT 1 FROM media e JOIN episode_releases r USING(media_id) LEFT JOIN watched w USING(media_id) WHERE e.parent_id={parent} AND (r.season IS NULL OR r.season!=0) AND NOT (({retained}) AND COALESCE(w.watched,0)=1))"
+    )
+}
+
 pub(crate) fn install_view(connection: &mut SqliteConnection) -> Result<()> {
     connection.batch_execute(
         &include_str!("effective_watched.sql")

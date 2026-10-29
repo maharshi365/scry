@@ -181,3 +181,94 @@ fn next_episodes_require_a_passed_known_date_even_for_specials() -> anyhow::Resu
     }
     Ok(())
 }
+
+#[test]
+fn removing_a_large_inventory_clears_every_release_but_retains_episode_metadata()
+-> anyhow::Result<()> {
+    let mut db = Library::memory()?;
+    let show = item(MediaKind::Series, "large-removal", None);
+    db.upsert_media(&show)?;
+    let releases: Vec<_> = (0..1_101)
+        .map(|index| EpisodeRelease {
+            media: item(
+                MediaKind::Episode,
+                &format!("large-{index}"),
+                Some(show.key.clone()),
+            ),
+            season: Some(1),
+            episode: Some(index),
+            released_at: Some(100),
+        })
+        .collect();
+    db.sync_episode_releases(&show.key, &releases)?;
+    db.record_playback(&releases[1_100].media.key, 25.0, 100.0, 0.0)?;
+    assert!(db.sync_episode_releases(&show.key, &[])?);
+    assert!(!db.sync_episode_releases(&show.key, &[])?);
+    assert_eq!(db.series_progress(&show.key, 150)?.total_episodes, 0);
+    assert!(db.get_media(&releases[1_100].media.key)?.is_some());
+    assert_eq!(
+        db.load_progress(&releases[1_100].media.key)?
+            .map(|p| p.position_seconds),
+        Some(25.0)
+    );
+    Ok(())
+}
+
+#[test]
+fn refresh_applies_mixed_changes_without_losing_identity_or_resume_state() -> anyhow::Result<()> {
+    let mut db = Library::memory()?;
+    let show = item(MediaKind::Series, "refresh", None);
+    db.upsert_media(&show)?;
+    db.add_to_watchlist(&show.key)?;
+    let mut releases: Vec<_> = (0..4)
+        .map(|index| EpisodeRelease {
+            media: item(
+                MediaKind::Episode,
+                &format!("refresh-{index}"),
+                Some(show.key.clone()),
+            ),
+            season: Some(1),
+            episode: Some(index),
+            released_at: Some(100),
+        })
+        .collect();
+    // The same external ID in another namespace is a distinct episode.
+    releases[3].media.key.id = releases[0].media.key.id.clone();
+    releases[3].media.key.namespace = "other".into();
+    db.sync_episode_releases(&show.key, &releases)?;
+    db.record_playback(&releases[0].media.key, 25.0, 100.0, 0.0)?;
+    let removed = releases.remove(1);
+    releases[1].media.title = "Renamed".into();
+    releases[1].released_at = Some(200);
+    let mut added = releases[0].clone();
+    added.media.key.id = "new".into();
+    added.episode = Some(4);
+    releases.push(added.clone());
+    assert!(db.sync_episode_releases(&show.key, &releases)?);
+    assert!(!db.sync_episode_releases(&show.key, &releases)?);
+    assert_eq!(
+        db.get_media(&releases[1].media.key)?,
+        Some(releases[1].media.clone())
+    );
+    assert_eq!(db.get_media(&added.media.key)?, Some(added.media.clone()));
+    assert_eq!(
+        db.load_progress(&releases[0].media.key)?
+            .map(|p| p.position_seconds),
+        Some(25.0)
+    );
+    db.set_watched(&releases[0].media.key, true)?;
+    assert_eq!(
+        db.list_up_next(150, Page::default())?[0].0.key,
+        releases[2].media.key
+    );
+    db.set_watched(&releases[2].media.key, true)?;
+    assert_eq!(
+        db.list_up_next(150, Page::default())?[0].0.key,
+        added.media.key
+    );
+    assert!(
+        db.get_media(&removed.media.key)?.is_some(),
+        "removed inventory retains metadata"
+    );
+    Ok(())
+}
