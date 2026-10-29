@@ -510,13 +510,13 @@ fn button_states_gate_actions_and_share_selection_styling() {
             .any(|e| e.key.as_deref() == Some("enabled") && e.focused)
     );
     rt.key(rune::KeyEvent {
-        key: rune::Key::Enter,
+        key: rune::Key::Text(" ".into()),
         mods: rune::Mods::default(),
     });
     rt.frame(0.0);
     assert_eq!(
         rt.state.count, 1,
-        "keyboard activation must reach the supplied callback"
+        "Space activation must reach the supplied callback"
     );
 }
 
