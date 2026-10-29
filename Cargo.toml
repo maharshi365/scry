@@ -68,6 +68,14 @@ todo = "deny"
 print_stdout = "deny"
 print_stderr = "deny"
 
+[profile.dev]
+debug = 1
+incremental = false
+
+[profile.test]
+debug = 1
+incremental = false
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

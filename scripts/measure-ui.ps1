@@ -2,7 +2,7 @@
 # Does not install add-ons, edit library state, request playback, or use the desktop capture.
 [CmdletBinding()]
 param(
-    [string]$Executable = "$PSScriptRoot/../target/release/scry.exe",
+    [string]$Executable,
     [ValidateRange(1, 60)][int]$StepSeconds = 3,
     [ValidateRange(1, 10)][int]$ScrollPasses = 1,
     [switch]$ScrollOnly,
@@ -10,6 +10,8 @@ param(
     [string]$CaptureDirectory
 )
 $ErrorActionPreference = 'Stop'
+. "$PSScriptRoot/build-paths.ps1"
+if (-not $Executable) { $Executable = Get-ScryExecutable -Release }
 . "$PSScriptRoot/native-ui.ps1"
 if (-not ('ScryProcessCounters' -as [type])) {
     Add-Type @'

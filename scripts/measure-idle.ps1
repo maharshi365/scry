@@ -1,13 +1,15 @@
 # Measure the real native window, not the no-window playback probe.
 [CmdletBinding()]
 param(
-    [string]$Executable = "$PSScriptRoot/../target/release/scry.exe",
+    [string]$Executable,
     [int]$ProcessId = 0,
     [ValidateRange(1, 300)][int]$WarmupSeconds = 15,
     [ValidateRange(1, 300)][int]$Seconds = 15,
     [string]$Report
 )
 $ErrorActionPreference = 'Stop'
+. "$PSScriptRoot/build-paths.ps1"
+if (-not $Executable -and $ProcessId -eq 0) { $Executable = Get-ScryExecutable -Release }
 $owned = $ProcessId -eq 0
 $process = if ($owned) { Start-Process -FilePath (Resolve-Path $Executable) -PassThru } else { Get-Process -Id $ProcessId }
 try {

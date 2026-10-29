@@ -19,6 +19,8 @@ import sys
 import threading
 import time
 import zlib
+from datetime import datetime
+from build_paths import release_executable
 from profile_torrent import Seed
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -145,8 +147,8 @@ class Region(c.Structure):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--report", required=True, type=Path)
-    parser.add_argument("--exe", type=Path, default=ROOT / "target/release/scry.exe")
+    parser.add_argument("--report", type=Path, default=ROOT / "target/perf-reports" / ("app-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f")))
+    parser.add_argument("--exe", type=Path)
     parser.add_argument("--options", default="{}", help="Profiling-only mpv option overrides")
     parser.add_argument("--cycles", type=int, default=3)
     parser.add_argument("--seconds", type=float, default=12)
@@ -164,11 +166,13 @@ def main():
         parser.error("cycles must be 1–100 and seconds must be 1–3600")
     if os.name != "nt":
         parser.error("This runner measures Windows native playback")
+    if args.exe is None:
+        args.exe = release_executable()
     report = args.report.resolve()
     report.mkdir(parents=True, exist_ok=False)
     options = json.loads(args.options)
     if args.build:
-        subprocess.run(["cargo", "build", "--release", "--features", "profiling"], cwd=ROOT, check=True)
+        subprocess.run(["cargo", "build", "--locked", "--release", "--features", "profiling"], cwd=ROOT, check=True)
     fixture_dir = ROOT / "target/perf-fixtures"
     fixture_dir.mkdir(exist_ok=True)
     fixture_seconds = max(120, int(args.seconds) + 90)
@@ -183,6 +187,7 @@ def main():
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "24", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-movflags", "+faststart", str(fixture),
         ], check=True)
+        fixture.with_suffix(fixture.suffix + '.scry-generated').write_text('Scry generated fixture\n')
     RangeServer.allowed_file = fixture.resolve()
     if not args.skip_ui:
         for index in range(1000):

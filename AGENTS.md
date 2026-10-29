@@ -4,6 +4,13 @@
   production app outside the repo. Use `pwsh -File scripts/dev.ps1` for a separate
   development copy with isolated data in `target/dev-data` (`-Release` optional).
   Both close only their own deployed app; use `-Force` only if normal shutdown fails.
+- Prefer these scripts for dev and production; keep Cargo's existing build path.
+  Dev/test builds use reduced symbols and no incremental cache; production keeps
+  the release profile. Do not clean after each build. Preview storage with
+  `pwsh -File scripts/cleanup.ps1`; select `-Builds`, `-Reports`, or `-Fixtures`
+  and add `-Apply` only after review. Never delete all of `target`: it holds dev
+  data. Reports default to `target/perf-reports`; retention keeps the newest five
+  and runs under 30 days old. Add `.keep` inside a report to preserve it.
 
 - New workspace members must inherit `[lints] workspace = true`.
 - Run `pwsh -File scripts/check.ps1` and

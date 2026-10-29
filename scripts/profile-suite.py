@@ -5,17 +5,20 @@ Trials run sequentially; each repeat reverses transport order to reduce warm-up 
 """
 import argparse
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+from datetime import datetime
+from build_paths import release_executable
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--report", required=True, type=Path)
+    parser.add_argument("--report", type=Path, default=ROOT / "target/perf-reports" / ("suite-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f")))
     parser.add_argument("--cycles", type=int, default=3)
     parser.add_argument("--seconds", type=float, default=12)
     parser.add_argument("--repeats", type=int, default=2)
@@ -29,13 +32,13 @@ def main():
             raise RuntimeError(f"Required tool is missing: {tool}")
 
     def run(command):
-        subprocess.run(command, cwd=ROOT, check=True)
+        subprocess.run(command, cwd=ROOT, check=True, env=dict(os.environ, CARGO_BUILD_WARNINGS="deny"))
 
-    run(["cargo", "test", "--workspace", "--all-targets", "--features", "profiling", "-q"])
-    run(["cargo", "clippy", "--workspace", "--all-targets", "--features", "profiling", "--", "-D", "warnings"])
-    run(["cargo", "build", "--release", "--features", "profiling"])
+    run(["cargo", "test", "--locked", "--workspace", "--all-targets", "--all-features", "-q"])
+    run(["cargo", "clippy", "--locked", "--workspace", "--all-targets", "--all-features"])
+    run(["cargo", "build", "--locked", "--release", "--features", "profiling"])
     executable = report / "profiled.exe"
-    shutil.copy2(ROOT / "target/release/scry.exe", executable)
+    shutil.copy2(release_executable(), executable)
 
     results = []
     for repeat in range(args.repeats):
@@ -56,8 +59,8 @@ def main():
                                 peak_streaming_private_bytes=peak, under_150_mb=peak < 150_000_000,
                                 summary=str(destination.relative_to(report) / "summary.json")))
 
-    run(["cargo", "build", "--release"])
-    production = (ROOT / "target/release/scry.exe").read_bytes()
+    run(["cargo", "build", "--locked", "--release"])
+    production = release_executable().read_bytes()
     for hook in (b"SCRY_PROFILE_ROOT", b"SCRY_PROFILE_CONTROL", b"SCRY_PROFILE_MPV_OPTIONS", b"SCRY_PROFILE_TORRENT_PEER"):
         if hook in production:
             raise RuntimeError(f"Profiling hook leaked into production: {hook.decode()}")

@@ -66,7 +66,8 @@ try {
     Assert-True $running.CloseRequested 'Publishing an update must close the deployed app.'
     Assert-True ((Get-Content -LiteralPath (Join-Path $destination 'scry.exe') -Raw).Trim() -eq 'new') 'Publishing must replace the deployed executable.'
     Assert-True ((Get-Content -LiteralPath (Join-Path $destination 'libmpv-2.dll') -Raw).Trim() -eq 'verified-runtime') 'Publishing must deploy the prepared runtime beside the executable.'
-    Assert-True (@(Get-ChildItem -LiteralPath $destination -Force).Count -eq 2) 'Successful deployment must clean its staging files.'
+    Assert-True (Test-Path -LiteralPath (Join-Path $destination 'FONT-LICENSE.txt')) 'Publishing must include the font license.'
+    Assert-True (@(Get-ChildItem -LiteralPath $destination -Force).Count -eq 3) 'Successful deployment must clean its staging files.'
 } finally { Remove-Item -LiteralPath $temporary -Recurse -Force }
 
 Write-Host 'Deployment tests passed.'
