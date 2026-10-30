@@ -180,16 +180,13 @@ pub(in crate::ui) mod border {
 
 pub(in crate::ui) mod radius {
     pub const NONE: f32 = 0.0;
-    pub const XS: f32 = 2.0;
     pub const SM: f32 = 2.0;
-    pub const MD: f32 = 2.0;
     pub const LG: f32 = 3.0;
-    pub const XL: f32 = 3.0;
-    pub const CHIP: f32 = 2.0;
-    pub const SEGMENTED: f32 = 2.0;
-    pub const PROVIDER: f32 = 3.0;
-    pub const CALENDAR: f32 = 2.0;
-    pub const EPISODE: f32 = 2.0;
+    pub const CHIP: f32 = SM;
+    pub const SEGMENTED: f32 = SM;
+    pub const PROVIDER: f32 = LG;
+    pub const CALENDAR: f32 = SM;
+    pub const EPISODE: f32 = SM;
 }
 
 pub(in crate::ui) mod opacity {
@@ -280,7 +277,7 @@ pub(in crate::ui) mod poster {
     pub const CARD_HEIGHT: f32 = 242.0;
     pub const GAP: f32 = 12.0;
     pub const MIN_WIDTH: f32 = 124.0;
-    pub const RADIUS: f32 = super::radius::XS;
+    pub const RADIUS: f32 = super::radius::SM;
     pub const THUMBNAIL_WIDTH: f32 = 32.0;
     pub const THUMBNAIL_HEIGHT: f32 = 48.0;
     pub const EPISODE_WIDTH: f32 = 96.0;
@@ -312,11 +309,13 @@ pub(in crate::ui) mod calendar {
 
 pub(in crate::ui) mod control {
     pub const HEIGHT: f32 = 32.0;
+    pub const PADDING_X: f32 = 10.0;
+    pub const COMPACT_PADDING_X: f32 = 6.0;
     pub const ICON_SIZE: f32 = 16.0;
     pub const ICON_TARGET: f32 = HEIGHT;
     pub const COMPACT_HEIGHT: f32 = 24.0;
     pub const COMPACT_ICON_SIZE: f32 = super::type_::SMALL.size * 1.2;
-    pub const RADIUS: f32 = super::radius::XS;
+    pub const RADIUS: f32 = super::radius::SM;
     pub const INPUT_HEIGHT: f32 = HEIGHT;
     pub const DIALOG_HEIGHT: f32 = 36.0;
     pub const DIALOG_ACTION_WIDTH: f32 = 128.0;
@@ -339,7 +338,6 @@ pub(in crate::ui) mod type_ {
     pub const EMPTY_TITLE: TextStyle = TextStyle::new(17.0, 600.0);
     pub const BADGE: TextStyle = TextStyle::new(10.0, 500.0).mono();
     pub const ITEM: TextStyle = TextStyle::new(12.0, 500.0);
-    pub const ITEM_TITLE: TextStyle = TextStyle::new(12.0, 600.0);
     pub const POSTER_TITLE: TextStyle = TextStyle::new(12.0, 550.0);
     pub const SECTION_TITLE: TextStyle = TextStyle::new(12.0, 600.0).mono();
     pub const EMPHASIS: TextStyle = TextStyle::new(11.0, 500.0).mono();
@@ -353,7 +351,6 @@ pub(in crate::ui) mod type_ {
     pub const THUMBNAIL_FALLBACK: TextStyle = TextStyle::new(16.0, 500.0);
     pub const STATS_HERO: TextStyle = TextStyle::new(36.0, 500.0).mono();
     pub const STATS_NUMBER: TextStyle = TextStyle::new(22.0, 500.0).mono();
-    pub const STATS_KICKER: TextStyle = TextStyle::new(10.0, 500.0).mono();
 }
 
 #[cfg(test)]

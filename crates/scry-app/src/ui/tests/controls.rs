@@ -36,7 +36,7 @@ fn dropdown_variants_compose_with_sizes_and_gate_disabled_actions() {
             (
                 Size::Setting,
                 tokens::control::SETTING_HEIGHT,
-                tokens::radius::MD,
+                tokens::control::RADIUS,
             ),
             (
                 Size::Pill,

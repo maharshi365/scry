@@ -75,7 +75,7 @@ pub(super) fn view(s: &State) -> El {
                 .child(icon(&icons::TROPHY, 16.0).color(tokens::stats_gold()))
                 .child(
                     text("Questionable accomplishments")
-                        .font(type_::ITEM_TITLE)
+                        .font(type_::TITLE)
                         .color(tokens::theme().text),
                 )
                 .child(small(format!(
@@ -119,7 +119,7 @@ fn achievement_row(entry: &AchievementEntry) -> El {
             .flex_wrap()
             .child(
                 text(name)
-                    .font(type_::ITEM_TITLE)
+                    .font(type_::TITLE)
                     .color(if entry.unlocked {
                         tokens::theme().text
                     } else {

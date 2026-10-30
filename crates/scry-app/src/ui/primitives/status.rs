@@ -106,5 +106,5 @@ pub(in crate::ui) fn watched(key: impl Into<String>, size: f32) -> El {
         .w(size)
         .h(size)
         .center()
-        .child(icon(&icons::CHECK, 16.0).color(tokens::success()))
+        .child(icon(&icons::CHECK, tokens::control::ICON_SIZE).color(tokens::success()))
 }

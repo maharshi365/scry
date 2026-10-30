@@ -367,7 +367,7 @@ fn provider_card(
                 .gap(7.0)
                 .child(
                     text(name)
-                        .font(tokens::type_::ITEM_TITLE)
+                        .font(tokens::type_::TITLE)
                         .color(tokens::theme().text)
                         .truncate(),
                 )

@@ -27,7 +27,7 @@ pub(in crate::ui) fn option_row(key: &str, title: &str, description: &str, optio
                     text(title)
                         .key(format!("{key}-label"))
                         .wrap()
-                        .font(type_::ITEM_TITLE)
+                        .font(type_::TITLE)
                         .color(tokens::theme().text),
                 )
                 .child(label(description).key(format!("{key}-description"))),

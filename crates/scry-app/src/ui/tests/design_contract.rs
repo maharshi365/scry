@@ -10,6 +10,30 @@ fn raw_visual_value(text: &str) -> bool {
 }
 
 #[test]
+fn component_corner_roles_reuse_the_base_scale() {
+    let source = include_str!("../design/tokens.rs");
+    let radius = source
+        .split_once("mod radius {")
+        .unwrap()
+        .1
+        .split_once("\n}")
+        .unwrap()
+        .0;
+    for line in radius.lines().map(str::trim) {
+        let Some(definition) = line.strip_prefix("pub const ") else {
+            continue;
+        };
+        let (name, value) = definition.split_once(": f32 = ").unwrap();
+        if !matches!(name, "NONE" | "SM" | "LG") {
+            assert!(
+                matches!(value, "NONE;" | "SM;" | "LG;"),
+                "Corner role {name} must use the base scale, not {value}"
+            );
+        }
+    }
+}
+
+#[test]
 fn addon_installation_uses_shared_loading_actions_and_feedback() {
     let source = include_str!("../addons.rs");
     assert!(source.contains(".busy(s.addons.busy)"));

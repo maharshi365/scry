@@ -102,7 +102,7 @@ pub(in crate::ui) fn message(
                 .key(format!("{key}-title"))
                 .role("status")
                 .wrap()
-                .font(type_::ITEM_TITLE)
+                .font(type_::TITLE)
                 .color(tone.color()),
         )
         .child(label(description).key(format!("{key}-description")))

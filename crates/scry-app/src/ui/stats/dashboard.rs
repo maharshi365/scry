@@ -111,7 +111,7 @@ pub(super) fn panel(key: &str, title: &str, glyph: &'static rune::Icon) -> El {
                 .child(icon(glyph, 16.0).color(tokens::accent()))
                 .child(
                     text(title)
-                        .font(type_::ITEM_TITLE)
+                        .font(type_::TITLE)
                         .color(tokens::theme().text)
                         .truncate()
                         .w(0.0)
@@ -130,7 +130,7 @@ fn hero(s: &State, stats: &NerdStats) -> El {
         .gap(6.0)
         .child(
             text("TOTAL WATCH TIME")
-                .font(type_::STATS_KICKER)
+                .font(type_::SECTION)
                 .color(tokens::accent()),
         )
         .child(
@@ -339,7 +339,7 @@ fn rankings(stats: &NerdStats) -> El {
                                 .gap(8.0)
                                 .child(
                                     text(title.title.clone())
-                                        .font(type_::ITEM_TITLE)
+                                        .font(type_::TITLE)
                                         .color(tokens::theme().text)
                                         .truncate()
                                         .w(0.0)
@@ -428,7 +428,7 @@ fn records(stats: &NerdStats) -> El {
                             } else {
                                 "—".into()
                             })
-                            .font(type_::ITEM_TITLE)
+                            .font(type_::TITLE)
                             .color(tokens::theme().text),
                         ),
                 )
@@ -449,7 +449,7 @@ fn records(stats: &NerdStats) -> El {
                             } else {
                                 "—".into()
                             })
-                            .font(type_::ITEM_TITLE)
+                            .font(type_::TITLE)
                             .color(tokens::theme().text),
                         ),
                 ),

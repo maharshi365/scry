@@ -187,7 +187,7 @@ pub(super) fn toast(s: &State) -> Option<El> {
                     .child(rune::icon(glyph, 22.0).color(tokens::stats_gold()))
                     .child(
                         text(notice.title.clone())
-                            .font(type_::ITEM_TITLE)
+                            .font(type_::TITLE)
                             .color(tokens::theme().text)
                             .wrap(),
                     ),

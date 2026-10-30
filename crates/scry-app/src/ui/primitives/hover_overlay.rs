@@ -155,7 +155,7 @@ pub(in crate::ui) fn panel<S: 'static>(
         .radius(super::super::design::tokens::overlay::RADIUS)
         .role("group")
         .w(width)
-        .padding(16.0)
+        .padding(super::super::design::tokens::layout::PANEL_INSET)
         .anchored(anchor, Side::Top, Align::End, 12.0)
         .hit()
         .on_press(|_: &mut S| {})

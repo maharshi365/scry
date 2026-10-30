@@ -454,12 +454,12 @@ fn source_card(s: &State, index: usize, addon: &str, stream: &Stream) -> El {
                 .min_w(0.0)
                 .gap(10.0)
                 .child(
-                    col().w(86.0).min_w(86.0).clip_rounded(0.0).gap(6.0).child(
-                        text(name.clone())
-                            .wrap()
-                            .font(type_::ITEM_TITLE)
-                            .color(t.text),
-                    ),
+                    col()
+                        .w(86.0)
+                        .min_w(86.0)
+                        .clip_rounded(0.0)
+                        .gap(6.0)
+                        .child(text(name.clone()).wrap().font(type_::TITLE).color(t.text)),
                 )
                 .child(details.w(0.0).grow(1.0))
                 .child(super::primitives::status::play(

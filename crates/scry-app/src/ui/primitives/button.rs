@@ -13,7 +13,7 @@ pub(in crate::ui) fn navigation_item<S: 'static>(
         .selected(selected)
         .frame()
         .h(tokens::shell::NAV_HEIGHT)
-        .px(10.0)
+        .px(control::PADDING_X)
         .gap(10.0)
         .justify_start()
         .radius(tokens::radius::NONE)
@@ -263,7 +263,7 @@ impl Button {
             .role("button")
             .label(label)
             .h(control::HEIGHT)
-            .px(10.0)
+            .px(control::PADDING_X)
             .center()
             .radius(control::RADIUS)
             .fill(fill)
@@ -272,12 +272,14 @@ impl Button {
             .focus_selected(self.selected);
         frame = match self.size {
             Size::Default => frame,
-            Size::Compact => frame.h(control::COMPACT_HEIGHT).px(6.0),
+            Size::Compact => frame
+                .h(control::COMPACT_HEIGHT)
+                .px(control::COMPACT_PADDING_X),
             Size::Pill => frame.h(control::PILL_HEIGHT).radius(control::PILL_RADIUS),
             Size::Setting => frame
                 .h(control::SETTING_HEIGHT)
                 .min_w(control::SETTING_MIN_WIDTH)
-                .radius(tokens::radius::MD),
+                .radius(control::RADIUS),
             Size::DialogAction => frame
                 .h(control::DIALOG_HEIGHT)
                 .w(control::DIALOG_ACTION_WIDTH),

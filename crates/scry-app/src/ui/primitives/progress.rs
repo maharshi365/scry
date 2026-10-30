@@ -125,7 +125,7 @@ pub(in crate::ui) fn buffered_slider(
         .child(
             el().w(progress::THUMB_SIZE)
                 .h(progress::THUMB_SIZE)
-                .radius(tokens::radius::XS)
+                .radius(tokens::radius::SM)
                 .fill(tokens::theme().text),
         )
         .child(

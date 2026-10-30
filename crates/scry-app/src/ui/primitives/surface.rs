@@ -33,10 +33,10 @@ impl Variant {
     pub fn apply_selected(self, content: El, selected: bool) -> El {
         let (radius, fill, border) = match self {
             Self::Card => (tokens::radius::LG, panel(), edge()),
-            Self::Menu => (tokens::radius::MD, panel(), edge()),
-            Self::Plain => (tokens::radius::MD, panel(), tokens::transparent_edge()),
+            Self::Menu => (tokens::radius::SM, panel(), edge()),
+            Self::Plain => (tokens::radius::SM, panel(), tokens::transparent_edge()),
             Self::Source => (
-                tokens::radius::MD,
+                tokens::radius::SM,
                 tokens::source_fill(),
                 tokens::source_edge(),
             ),
@@ -108,7 +108,7 @@ pub(in crate::ui) fn empty_state(
             .padding(tokens::layout::PANEL_INSET)
             .gap(tokens::layout::PAGE_GAP)
             .center()
-            .radius(tokens::radius::XL)
+            .radius(tokens::radius::LG)
             .child(
                 el().w(tokens::badge::MEDALLION_SIZE)
                     .h(tokens::badge::MEDALLION_SIZE)

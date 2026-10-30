@@ -7,6 +7,9 @@
 - Define visual tokens in `src/ui/design/tokens.rs`. Reuse existing colors,
   typography, corner, border, opacity, and control-size tokens. Do not invent
   local alternatives. Keep shared icons in `src/ui/design/icons.rs`.
+- Check for an existing token with the same purpose before adding one. Reuse
+  tokens where their meaning fits, not just because their values match. Always
+  ask for approval before adding a new token.
 - Use shared dropdown triggers with explicit transparent or framed variants.
   Use the shared dropdown surface and flat menu rows for the open menu.
 - Use typed, CVA-style variant axes for primitive appearance, size, and state.
