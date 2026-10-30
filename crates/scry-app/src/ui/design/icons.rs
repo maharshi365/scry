@@ -1,5 +1,12 @@
 use rune::Icon;
 
+// ASS vector paths use a shared 100 × 100 view box for native video feedback.
+pub(in crate::ui) const OSD_DISC: &str =
+    "m 50 0 b 78 0 100 22 100 50 b 100 78 78 100 50 100 b 22 100 0 78 0 50 b 0 22 22 0 50 0";
+pub(in crate::ui) const OSD_PLAY: &str = "m 40 30 l 72 50 40 70";
+pub(in crate::ui) const OSD_PAUSE: &str = "m 34 30 l 46 30 46 70 34 70 m 54 30 l 66 30 66 70 54 70";
+pub(in crate::ui) const OSD_SPINNER: &str = "m 50 22 b 65 22 78 35 78 50 l 72 50 b 72 38 62 28 50 28 b 38 28 28 38 28 50 b 28 62 38 72 50 72 l 50 78 b 35 78 22 65 22 50 b 22 35 35 22 50 22";
+
 pub(in crate::ui) static TRAILER: Icon = Icon {
     name: "trailer",
     view: 24.0,

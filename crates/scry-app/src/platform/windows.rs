@@ -200,15 +200,17 @@ impl VideoHost for Host {
         }
     }
 
-    fn cover(&self, bottom: f32, overlay: Option<super::VideoOverlay>, scale: f32) {
-        video_input::cover(
-            self,
-            bottom * scale,
-            overlay.map(|overlay| super::VideoOverlay {
-                rect: overlay.rect.map(|v| v * scale),
-                radius: overlay.radius * scale,
-            }),
-        );
+    fn cover(
+        &self,
+        controls: Option<super::VideoOverlay>,
+        overlay: Option<super::VideoOverlay>,
+        scale: f32,
+    ) {
+        let scaled = |overlay: super::VideoOverlay| super::VideoOverlay {
+            rect: overlay.rect.map(|v| v * scale),
+            radius: overlay.radius * scale,
+        };
+        video_input::cover(self, controls.map(scaled), overlay.map(scaled));
     }
 
     fn pick_subtitle(&self) -> Result<Option<std::path::PathBuf>> {

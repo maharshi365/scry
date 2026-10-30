@@ -200,10 +200,25 @@ pub(in crate::ui) mod opacity {
 }
 
 pub(in crate::ui) mod motion {
+    pub const PLAYBACK_FEEDBACK: std::time::Duration = std::time::Duration::from_millis(500);
+    pub const PLAYBACK_FRAME: std::time::Duration = std::time::Duration::from_millis(16);
+    pub const PLAYBACK_GROWTH: f32 = 0.25;
     pub const SPINNER_PERIOD: f64 = 0.8;
     pub const SURFACE_SCALE: f32 = 0.99;
     pub const NOTIFICATION_OFFSET: f32 = -24.0;
     pub const HOVER: rune::Anim = rune::Anim::INSTANT;
+}
+
+pub(in crate::ui) mod player {
+    pub const CONTROLS_INSET: f32 = 24.0;
+    pub const CONTROLS_MAX_WIDTH: f32 = 1200.0;
+    pub const FEEDBACK_SIZE: f32 = 88.0;
+    pub const OSD_HEIGHT: f32 = 720.0;
+    // ASS uses BGR colors and inverted alpha (00 is opaque).
+    pub const OSD_FOREGROUND: &str = "FFFFFF";
+    pub const OSD_BACKGROUND: &str = "000000";
+    pub const OSD_FOREGROUND_ALPHA: f32 = 32.0;
+    pub const OSD_BACKGROUND_ALPHA: f32 = 144.0;
 }
 
 /// Shared composition measurements; feature-specific geometry stays in features.

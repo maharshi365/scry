@@ -1,6 +1,7 @@
 //! Native video surface and playback controls.
 pub(crate) mod actions;
 pub(super) mod audio;
+mod feedback;
 mod interaction;
 mod session;
 pub(super) mod shortcuts;
@@ -129,7 +130,12 @@ pub(super) fn player(s: &State, scale: f32) -> El {
                 );
             });
         if s.player.interaction.visible {
-            page = page.child(controls(s).pin(Some(0.0), None, Some(0.0), Some(0.0)));
+            let inset = super::design::tokens::player::CONTROLS_INSET;
+            page = page.child(
+                el().pin(Some(inset), None, Some(inset), Some(inset))
+                    .center()
+                    .child(controls(s).max_w(super::design::tokens::player::CONTROLS_MAX_WIDTH)),
+            );
         }
         return page;
     }
@@ -197,6 +203,10 @@ fn loading(s: &State) -> El {
             .gap(24.0)
             .padding(24.0)
             .child(title)
+            .child(super::primitives::status::spinner(
+                "player-loading-spinner",
+                super::design::tokens::badge::MEDALLION_SIZE,
+            ))
             .child(
                 label(if s.player.sample.buffering {
                     "Buffering…"

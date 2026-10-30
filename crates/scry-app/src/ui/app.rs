@@ -6,7 +6,8 @@ use super::{
     scenes::{
         scene_calendar, scene_calendar_day, scene_calendar_month, scene_calendar_refresh,
         scene_detail, scene_detail_watched, scene_discover, scene_episodes, scene_library,
-        scene_library_empty, scene_movie, scene_preview, scene_source_wrap, scene_watching,
+        scene_library_empty, scene_movie, scene_player_fullscreen, scene_preview,
+        scene_source_wrap, scene_watching,
     },
     shell::view,
     shortcuts::{Focus, Registration, Scope, dispatch},
@@ -248,26 +249,7 @@ fn run_app() -> anyhow::Result<()> {
         setup: Some(setup),
         poll: Some(poll),
         on_key: Some(on_key),
-        scenes: &[
-            ("settings", super::scenes::scene_settings),
-            ("addons", super::scenes::scene_addons),
-            ("subtitles", super::player::subtitles::scene),
-            ("stats", super::stats::scene),
-            ("discover", scene_discover),
-            ("detail", scene_detail),
-            ("detail-watched", scene_detail_watched),
-            ("episodes", scene_episodes),
-            ("movie", scene_movie),
-            ("preview", scene_preview),
-            ("source-wrap", scene_source_wrap),
-            ("library", scene_library),
-            ("library-empty", scene_library_empty),
-            ("watching", scene_watching),
-            ("calendar", scene_calendar),
-            ("calendar-month", scene_calendar_month),
-            ("calendar-day", scene_calendar_day),
-            ("calendar-refresh", scene_calendar_refresh),
-        ],
+        scenes: SCENES,
         min_size: Some((880.0, 600.0)),
         ..AppSpec::new("Scry", (1280.0, 820.0), init, view)
     })
@@ -323,3 +305,26 @@ fn run_app() -> anyhow::Result<()> {
         .run();
     Ok(())
 }
+
+type Scene = (&'static str, fn(&mut State));
+const SCENES: &[Scene] = &[
+    ("player-fullscreen", scene_player_fullscreen),
+    ("settings", super::scenes::scene_settings),
+    ("addons", super::scenes::scene_addons),
+    ("subtitles", super::player::subtitles::scene),
+    ("stats", super::stats::scene),
+    ("discover", scene_discover),
+    ("detail", scene_detail),
+    ("detail-watched", scene_detail_watched),
+    ("episodes", scene_episodes),
+    ("movie", scene_movie),
+    ("preview", scene_preview),
+    ("source-wrap", scene_source_wrap),
+    ("library", scene_library),
+    ("library-empty", scene_library_empty),
+    ("watching", scene_watching),
+    ("calendar", scene_calendar),
+    ("calendar-month", scene_calendar_month),
+    ("calendar-day", scene_calendar_day),
+    ("calendar-refresh", scene_calendar_refresh),
+];

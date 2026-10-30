@@ -410,6 +410,24 @@ fn hiding_fullscreen_controls_does_not_resize_video_and_movement_restores_them()
 }
 
 #[test]
+fn fullscreen_controls_float_centered_above_the_bottom_at_multiple_sizes() {
+    for (width, height) in [(880.0, 600.0), (1920.0, 1080.0), (3440.0, 1440.0)] {
+        let mut state = init();
+        crate::ui::scenes::scene_player_fullscreen(&mut state);
+        let mut rt = rune::Runtime::new(state, view, (width, height), rune::Env::default());
+        rt.frame(0.0);
+        let [x, y, w, h] = rect(&rt, "player-controls");
+        assert!(x > 0.0 && w < width, "Controls must have side margins");
+        assert!((x + w / 2.0 - width / 2.0).abs() < 1.0);
+        assert!(
+            y + h < height - 10.0,
+            "Controls must float above the bottom"
+        );
+        assert_eq!(rect(&rt, "video"), [0.0, 0.0, width, height]);
+    }
+}
+
+#[test]
 fn replacing_playback_keeps_pointer_geometry_when_fullscreen_layout_does_not_change() {
     let mut rt = player_runtime();
     key(&mut rt, rune::Key::Text("f".into()));
@@ -639,6 +657,7 @@ fn opening_player_shows_loading_instead_of_an_empty_video_surface() {
     let rt = player_runtime();
     assert!(rt.find("player-loading").is_some());
     assert!(rt.find("player-loading-title").is_some());
+    assert!(rt.find("player-loading-spinner").is_some());
     assert!(rt.find("player-back").is_some());
     assert_eq!(rect(&rt, "player-loading"), rect(&rt, "video"));
 }

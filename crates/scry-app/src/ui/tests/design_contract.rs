@@ -122,6 +122,7 @@ fn motion_policy_rejects_local_tuning_but_allows_shared_intent() {
     for source in [
         ".transition(primitives::motion::fade())",
         "motion::surface(panel)",
+        "motion::playback_feedback(elapsed)",
     ] {
         assert!(!local_motion(source), "{source}");
     }

@@ -25,6 +25,10 @@ impl State {
         match action {
             PlayerAction::TogglePause => {
                 self.player.sample.paused = !self.player.sample.paused;
+                self.player
+                    .interaction
+                    .feedback
+                    .toggle(self.player.sample.paused, std::time::Instant::now());
                 self.command(&[
                     "set",
                     "pause",
@@ -84,8 +88,9 @@ impl State {
         }
         match self.host.set_fullscreen(fullscreen || self.app_fullscreen) {
             Ok(()) => {
+                self.clear_player_feedback();
                 self.player.fullscreen = fullscreen;
-                self.host.cover(0.0, None, self.player.interaction.scale);
+                self.host.cover(None, None, self.player.interaction.scale);
                 self.player.stats_overlay.dismiss();
                 self.player.interaction.reset();
             }

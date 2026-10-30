@@ -49,7 +49,7 @@ pub trait VideoHost: Clone + Default {
         anyhow::bail!("Subtitle file selection is not supported on this platform")
     }
     /// Exclude controls and a rounded video-local overlay from native video and input.
-    fn cover(&self, _bottom: f32, _overlay: Option<VideoOverlay>, _scale: f32) {}
+    fn cover(&self, _controls: Option<VideoOverlay>, _overlay: Option<VideoOverlay>, _scale: f32) {}
     fn video_clicks(&self) -> Vec<VideoClick> {
         Vec::new()
     }

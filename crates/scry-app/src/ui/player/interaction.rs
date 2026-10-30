@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 const IDLE: Duration = Duration::from_secs(3);
 
 pub(crate) struct Interaction {
+    pub feedback: super::feedback::Feedback,
     pub visible: bool,
     pub dragging: bool,
     pub keyboard: bool,
@@ -21,6 +22,7 @@ pub(crate) struct Interaction {
 impl Default for Interaction {
     fn default() -> Self {
         Self {
+            feedback: super::feedback::Feedback::default(),
             visible: true,
             dragging: false,
             keyboard: false,
@@ -112,11 +114,18 @@ fn contains([x, y, w, h]: [f32; 4], [px, py]: [f64; 2]) -> bool {
 impl State {
     pub(in crate::ui) fn cover_player(&self) {
         let interaction = &self.player.interaction;
-        let bottom = if self.player.fullscreen && interaction.visible {
-            interaction.controls_rect.map_or(100.0, |r| r[3])
-        } else {
-            0.0
+        let local_overlay = |rect: [f32; 4]| {
+            interaction
+                .video_rect
+                .map(|video| scry_app::platform::VideoOverlay {
+                    rect: [rect[0] - video[0], rect[1] - video[1], rect[2], rect[3]],
+                    radius: super::super::design::tokens::overlay::RADIUS,
+                })
         };
+        let controls = (self.player.fullscreen && interaction.visible)
+            .then_some(interaction.controls_rect)
+            .flatten()
+            .and_then(local_overlay);
         let open = if self.player.subtitles.overlay.is_open() {
             &self.player.subtitles.overlay
         } else if self.player.audio.overlay.is_open() {
@@ -134,7 +143,7 @@ impl State {
         } else {
             None
         };
-        self.host.cover(bottom, overlay, interaction.scale);
+        self.host.cover(controls, overlay, interaction.scale);
     }
 
     fn poll_player_overlays(&mut self, active: bool, tx: &mut rune::Tx) -> bool {
@@ -193,6 +202,7 @@ impl State {
             && (self.navigation.page == super::Page::Player
                 || self.navigation.page == super::Page::Guide && self.player.fullscreen);
         let overlay_changed = self.poll_player_overlays(active, tx);
+        self.poll_player_feedback(tx);
         if !self.player.playing
             || !matches!(
                 self.navigation.page,

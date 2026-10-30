@@ -11,6 +11,17 @@ pub(super) fn scene_settings(s: &mut State) {
     s.subtitle_settings.busy = false;
 }
 
+pub(super) fn scene_player_fullscreen(s: &mut State) {
+    s.config_busy = false;
+    s.navigation.page = Page::Player;
+    s.player.playing = true;
+    s.player.ready = true;
+    s.player.fullscreen = true;
+    s.player.sample.duration_s = Some(7200.0);
+    s.player.sample.position_s = Some(1800.0);
+    s.player.sample.cache_s = Some(120.0);
+}
+
 pub(super) fn scene_addons(s: &mut State) {
     s.navigation.page = Page::Addons;
     s.config_busy = false;

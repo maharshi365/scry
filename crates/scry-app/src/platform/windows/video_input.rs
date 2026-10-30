@@ -185,7 +185,7 @@ pub(super) fn pointer_position(host: &Host, scale: f32) -> VideoPointer {
 pub(super) struct Clip {
     width: i32,
     height: i32,
-    bottom: i32,
+    controls: Option<[i32; 5]>,
     overlay: Option<[i32; 5]>,
 }
 
@@ -193,7 +193,11 @@ pub(super) struct Clip {
     clippy::cast_possible_truncation,
     reason = "Rounded native pixel height intentionally saturates to i32"
 )]
-pub(super) fn cover(host: &Host, bottom: f32, overlay: Option<crate::platform::VideoOverlay>) {
+pub(super) fn cover(
+    host: &Host,
+    controls: Option<crate::platform::VideoOverlay>,
+    overlay: Option<crate::platform::VideoOverlay>,
+) {
     let child = host.0.child.load(Ordering::Acquire) as HWND;
     if child.is_null() {
         return;
@@ -210,8 +214,7 @@ pub(super) fn cover(host: &Host, bottom: f32, overlay: Option<crate::platform::V
         if GetClientRect(child, &raw mut rect) == 0 {
             return;
         }
-        let bottom = bottom.round().max(0.0) as i32;
-        let overlay = overlay.map(|overlay| {
+        let pixels = |overlay: crate::platform::VideoOverlay| {
             let [x, y, w, h] = overlay.rect;
             [
                 x.round() as i32,
@@ -220,11 +223,13 @@ pub(super) fn cover(host: &Host, bottom: f32, overlay: Option<crate::platform::V
                 (y + h).round() as i32,
                 (overlay.radius * 2.0).round().max(0.0) as i32,
             ]
-        });
+        };
+        let controls = controls.map(pixels);
+        let overlay = overlay.map(pixels);
         let next = Clip {
             width: rect.right,
             height: rect.bottom,
-            bottom,
+            controls,
             overlay,
         };
         if *clip == Some(next) {
@@ -235,29 +240,33 @@ pub(super) fn cover(host: &Host, bottom: f32, overlay: Option<crate::platform::V
             if window.is_null() {
                 continue;
             }
-            if bottom == 0 && overlay.is_none() {
+            if controls.is_none() && overlay.is_none() {
                 success &= SetWindowRgn(window, ptr::null_mut(), 1) != 0;
                 continue;
             }
-            let region = CreateRectRgn(0, 0, rect.right, rect.bottom.saturating_sub(bottom).max(0));
+            let region = CreateRectRgn(0, 0, rect.right, rect.bottom);
             if region.is_null() {
                 success = false;
                 continue;
             }
-            if let Some([left, top, right, bottom, diameter]) = overlay {
+            let mut combined_ok = true;
+            for [left, top, right, bottom, diameter] in [controls, overlay].into_iter().flatten() {
                 let hole = CreateRoundRectRgn(left, top, right, bottom, diameter, diameter);
                 if hole.is_null() {
-                    DeleteObject(region);
-                    success = false;
-                    continue;
+                    combined_ok = false;
+                    break;
                 }
                 let combined = CombineRgn(region, region, hole, RGN_DIFF);
                 DeleteObject(hole);
                 if combined == 0 {
-                    DeleteObject(region);
-                    success = false;
-                    continue;
+                    combined_ok = false;
+                    break;
                 }
+            }
+            if !combined_ok {
+                DeleteObject(region);
+                success = false;
+                continue;
             }
             if SetWindowRgn(window, region, 1) == 0 {
                 DeleteObject(region);
@@ -275,13 +284,14 @@ mod tests {
     use super::*;
     use crate::platform::VideoHost;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, SendMessageW,
+        CreateWindowExW, DestroyWindow, SendMessageW, WS_POPUP,
     };
 
     #[test]
     fn overlay_preserves_video_at_rounded_corners_and_restores_video_on_dismiss() -> Result<()> {
         use windows_sys::Win32::Graphics::Gdi::{GetWindowRgn, PtInRegion};
         let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
+        // Match the embedded host's borderless client area, including its bottom edge.
         // SAFETY: built-in class and NUL-terminated string, no borrowed creation data.
         // The windows are owned and destroyed by this test thread below.
         let child = unsafe {
@@ -289,7 +299,7 @@ mod tests {
                 0,
                 class.as_ptr(),
                 ptr::null(),
-                0,
+                WS_POPUP,
                 0,
                 0,
                 200,
@@ -306,8 +316,12 @@ mod tests {
         let input = create(child, host.clone())?;
         host.0.input.store(input as isize, Ordering::Release);
         host.place([0.0, 0.0, 200.0, 200.0], 1.0);
+        let controls = Some(crate::platform::VideoOverlay {
+            rect: [20.0, 170.0, 160.0, 20.0],
+            radius: 3.0,
+        });
         host.cover(
-            20.0,
+            controls,
             Some(crate::platform::VideoOverlay {
                 rect: [100.0, 60.0, 80.0, 100.0],
                 radius: 12.0,
@@ -325,13 +339,19 @@ mod tests {
                 checks.push(PtInRegion(region, 120, 100) == 0);
                 checks.push(PtInRegion(region, 100, 60) != 0);
                 checks.push(PtInRegion(region, 112, 62) == 0);
-                checks.push(PtInRegion(region, 50, 190) == 0);
+                checks.push(PtInRegion(region, 50, 180) == 0);
+                checks.push(PtInRegion(region, 50, 195) != 0);
+                checks.push(PtInRegion(region, 10, 180) != 0);
             }
-            host.cover(20.0, None, 1.0);
+            host.cover(controls, None, 1.0);
             for window in [child, input] {
                 checks.push(GetWindowRgn(window, region) != 0);
                 checks.push(PtInRegion(region, 120, 100) != 0);
-                checks.push(PtInRegion(region, 50, 190) == 0);
+                checks.push(PtInRegion(region, 50, 180) == 0);
+            }
+            host.cover(None, None, 1.0);
+            for window in [child, input] {
+                checks.push(GetWindowRgn(window, region) == 0);
             }
             DeleteObject(region);
             DestroyWindow(child);

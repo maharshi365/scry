@@ -7,6 +7,7 @@ use scry_playback::telemetry::Sample;
 
 impl State {
     pub(in crate::ui) fn stop(&mut self) {
+        self.clear_player_feedback();
         self.set_fullscreen(false);
         self.finish_library_progress(false);
         self.library.playing = None;
@@ -87,6 +88,7 @@ impl State {
         }
         match self.host.target() {
             Ok(target) => {
+                self.clear_player_feedback();
                 self.host.hide();
                 if self.navigation.page != Page::Guide {
                     self.remember();
