@@ -140,19 +140,27 @@ fn on_close(s: &mut State, _: &mut Tx) {
     clippy::disallowed_methods,
     reason = "Standalone native playback probe does not use the app UI"
 )]
+fn background() -> rune::Color {
+    rune::oklch(0.08, 0.0, 0.0)
+}
+
 fn view(s: &State, cx: &mut Cx<State>) -> El {
     let scale = cx.env().scale;
     let video = el()
         .key("native-video")
         .w_full()
         .grow(1.0)
-        .fill(rune::oklch(0.08, 0.0, 0.0))
+        .fill(background())
         .on_layout(move |s: &mut State, rect| {
             s.host.place(rect, scale);
             s.host.show();
         });
-    #[cfg(target_os = "macos")]
-    let video = video.pixels_fit(s.host.pixels(), rune::SurfaceFit::Fit);
+    let video = match s.host.presentation() {
+        scry_app::platform::VideoPresentation::Native => video,
+        scry_app::platform::VideoPresentation::Pixels(pixels) => {
+            video.pixels_fit(pixels, rune::SurfaceFit::Fit)
+        }
+    };
     col()
         .w_full()
         .h_full()
@@ -262,15 +270,9 @@ fn probe(
         let target = target
             .recv()
             .map_err(|_| anyhow::anyhow!("Native host disconnected"))??;
-        #[cfg(not(target_os = "macos"))]
         ensure!(
-            matches!(target, PlaybackTarget::NativeWindow(_)),
-            "Expected a native video target"
-        );
-        #[cfg(target_os = "macos")]
-        ensure!(
-            matches!(target, PlaybackTarget::Macos(_)),
-            "Expected a macOS video target"
+            !matches!(target, PlaybackTarget::DecodeOnly),
+            "Expected a visible video target"
         );
         ensure!(
             commands.try_recv().is_err(),
@@ -354,6 +356,8 @@ fn main() -> Result<()> {
     let options = Options::parse(std::env::args().skip(1).collect())?;
     let host = Host::default();
     let window_host = host.clone();
+    let window_integration = scry_app::platform::Window::default();
+    let navigation = scry_app::platform::NavigationInput::default();
     #[cfg(target_os = "macos")]
     let surface_window = Arc::new(Mutex::new(None::<rune::WindowHandle>));
     #[cfg(target_os = "macos")]
@@ -391,6 +395,7 @@ fn main() -> Result<()> {
             let target = (|| {
                 #[cfg(windows)]
                 close_gate::install(window, native_stop.clone())?;
+                window_integration.attach(window, background(), &navigation)?;
                 window_host.attach(window)?;
                 window_host.target()
             })()

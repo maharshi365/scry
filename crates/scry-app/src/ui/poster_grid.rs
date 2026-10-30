@@ -253,7 +253,7 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> El {
             move |_: &State, index| rows.key(index).into(),
             move |s: &State, index| rows.build(s, index),
         )
-        .virtual_rows_version((rows.main, rows.next, rows.watching, rows.loading))
+        .virtual_rows_version((rows.main, rows.next, rows.loading))
         .on_visible_rows(move |s: &mut State, range| {
             let pending = s.discover.paging.pending;
             s.posters.route = route_key;
@@ -313,7 +313,6 @@ struct Rows {
     columns: usize,
     main: usize,
     next: usize,
-    watching: bool,
     loading: bool,
     prefix: &'static str,
 }
@@ -332,7 +331,6 @@ impl Rows {
             } else {
                 0
             },
-            watching: s.navigation.page == Page::Watching,
             loading: s.navigation.page == Page::Discover
                 && s.discover.paging.pending.is_some_and(|offset| offset > 0),
             prefix: prefix(s),
@@ -340,21 +338,15 @@ impl Rows {
     }
 
     fn len(self) -> usize {
-        if self.watching && self.main == 0 && self.next == 0 {
-            1
-        } else {
-            self.main.div_ceil(self.columns)
-                + self.next.div_ceil(self.columns)
-                + if self.next > 0 { 2 } else { 0 }
-                + usize::from(self.loading)
-        }
+        self.main.div_ceil(self.columns)
+            + self.next.div_ceil(self.columns)
+            + if self.next > 0 { 2 } else { 0 }
+            + usize::from(self.loading)
     }
 
     fn key(self, index: usize) -> String {
         let main_rows = self.main.div_ceil(self.columns);
-        if self.watching && self.main == 0 && self.next == 0 {
-            "watching-empty".into()
-        } else if index < main_rows {
+        if index < main_rows {
             format!("{}-row-{index}", self.prefix)
         } else if self.next > 0 {
             if index == main_rows {
@@ -371,9 +363,6 @@ impl Rows {
 
     fn build(self, s: &State, index: usize) -> El {
         let main_rows = self.main.div_ceil(self.columns);
-        if self.watching && self.main == 0 && self.next == 0 {
-            return super::library_view::watching_empty();
-        }
         let (start, count, row_index, prefix) = if index < main_rows {
             (0, self.main, index, self.prefix)
         } else if self.next > 0 {

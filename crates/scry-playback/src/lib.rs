@@ -1,8 +1,9 @@
 //! Small dynamic binding to libmpv's stable C client API. No mpv subprocess or webview.
 pub mod audio;
 mod cache_budget;
-#[cfg(target_os = "macos")]
-pub mod macos;
+mod output;
+mod platform;
+pub use output::{FrameSurface, PlaybackTarget};
 mod process;
 pub mod subtitles;
 pub mod telemetry;
@@ -62,8 +63,7 @@ struct NodeList {
 }
 
 pub struct Player {
-    #[cfg(target_os = "macos")]
-    renderer: Option<macos::Renderer>,
+    output: Option<output::Output>,
     handle: *mut c_void,
     _library: Library,
     destroy: Destroy,
@@ -85,47 +85,6 @@ pub enum PlaybackEvent {
     Shutdown,
 }
 
-#[derive(Clone)]
-#[cfg_attr(not(target_os = "macos"), derive(Copy))]
-pub enum PlaybackTarget {
-    NativeWindow(u64),
-    DecodeOnly,
-    #[cfg(target_os = "macos")]
-    Macos(macos::Surface),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum VideoRenderer {
-    Gpu,
-    GpuNext,
-}
-
-impl VideoRenderer {
-    fn parse(value: &str) -> Result<Self> {
-        match value {
-            "gpu" => Ok(Self::Gpu),
-            "gpu-next" => Ok(Self::GpuNext),
-            _ => bail!("Scry_VIDEO_RENDERER must be gpu or gpu-next"),
-        }
-    }
-
-    fn from_env() -> Result<Self> {
-        match std::env::var("Scry_VIDEO_RENDERER") {
-            Ok(value) => Self::parse(&value),
-            // gpu saved working set but increased private commit in matched probes.
-            Err(std::env::VarError::NotPresent) => Ok(Self::GpuNext),
-            Err(_) => bail!("Scry_VIDEO_RENDERER must be gpu or gpu-next"),
-        }
-    }
-
-    fn name(self) -> &'static str {
-        match self {
-            Self::Gpu => "gpu",
-            Self::GpuNext => "gpu-next",
-        }
-    }
-}
-
 pub trait PlaybackEngine {
     fn property(&self, name: &str) -> Option<String>;
     /// # Errors
@@ -138,17 +97,29 @@ pub trait PlaybackEngine {
     fn sample(&self, elapsed_s: f64) -> Sample;
 }
 
+/// Opens an engine on the worker that will own and destroy it.
+pub trait PlaybackFactory: Send {
+    /// # Errors
+    /// Returns an error if the target or playback runtime cannot be initialized.
+    fn open(&self, target: PlaybackTarget) -> Result<Box<dyn PlaybackEngine>>;
+}
+
+/// The built-in dynamically loaded mpv engine.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Mpv;
+
+impl PlaybackFactory for Mpv {
+    fn open(&self, target: PlaybackTarget) -> Result<Box<dyn PlaybackEngine>> {
+        Ok(Box::new(Player::open(target)?))
+    }
+}
+
 impl Player {
     /// # Errors
     /// Returns an error if the runtime is missing, its API cannot be loaded,
     /// renderer settings are invalid, or player initialization fails.
     pub fn open(target: PlaybackTarget) -> Result<Self> {
-        let renderer = match &target {
-            PlaybackTarget::NativeWindow(_) => Some(VideoRenderer::from_env()?),
-            PlaybackTarget::DecodeOnly => None,
-            #[cfg(target_os = "macos")]
-            PlaybackTarget::Macos(_) => None,
-        };
+        let output_options = target.options()?;
         let path = library_path()?;
         // SAFETY: the library remains alive for all resolved functions and the mpv handle.
         unsafe {
@@ -169,9 +140,8 @@ impl Player {
             if handle.is_null() {
                 bail!("libmpv could not allocate a player");
             }
-            let player = Self {
-                #[cfg(target_os = "macos")]
-                renderer: None,
+            let mut player = Self {
+                output: None,
                 handle,
                 _library: library,
                 destroy,
@@ -181,35 +151,10 @@ impl Player {
                 free_node,
                 free,
                 wait,
-                cache_budget: Cell::new(renderer.map(|_| cache_budget::CacheBudget::default())),
+                cache_budget: Cell::new(target.cache_budget()),
             };
             let mut options = common_options();
-            if let PlaybackTarget::NativeWindow(hwnd) = target {
-                options.extend([
-                    ("wid", hwnd.to_string()),
-                    (
-                        "vo",
-                        renderer
-                            .context("Native renderer was not selected")?
-                            .name()
-                            .into(),
-                    ),
-                    ("hwdec", "auto-safe".into()),
-                ]);
-                // Keep both renderers on the same native API with D3D11 decode interop.
-                #[cfg(windows)]
-                options.extend([("gpu-api", "d3d11".into()), ("gpu-context", "d3d11".into())]);
-            } else if matches!(target, PlaybackTarget::DecodeOnly) {
-                options.extend([
-                    ("vo", "null".into()),
-                    ("ao", "null".into()),
-                    ("hwdec", "no".into()),
-                ]);
-            }
-            #[cfg(target_os = "macos")]
-            if matches!(target, PlaybackTarget::Macos(_)) {
-                options.extend([("vo", "libmpv".into()), ("hwdec", "auto-safe".into())]);
-            }
+            options.extend(output_options);
             for (key, value) in options {
                 let key_c = CString::new(key)?;
                 let value_c = CString::new(value)?;
@@ -235,12 +180,7 @@ impl Player {
             if initialize(handle) < 0 {
                 bail!("libmpv initialization failed");
             }
-            #[cfg(target_os = "macos")]
-            let mut player = player;
-            #[cfg(target_os = "macos")]
-            if let PlaybackTarget::Macos(surface) = target {
-                player.renderer = Some(macos::Renderer::start(handle, &path, surface)?);
-            }
+            player.output = Some(output::Output::start(target, handle, &path)?);
             Ok(player)
         }
     }
@@ -319,11 +259,10 @@ impl Player {
     }
     #[must_use]
     pub fn event(&self, timeout: f64) -> Option<PlaybackEvent> {
-        #[cfg(target_os = "macos")]
         if self
-            .renderer
+            .output
             .as_ref()
-            .is_some_and(macos::Renderer::is_finished)
+            .is_some_and(output::Output::is_finished)
         {
             return Some(PlaybackEvent::Failed);
         }
@@ -434,8 +373,8 @@ impl PlaybackEngine for Player {
 
 impl Drop for Player {
     fn drop(&mut self) {
-        #[cfg(target_os = "macos")]
-        drop(self.renderer.take());
+        // Render contexts must be released before the mpv client they borrow.
+        drop(self.output.take());
         // SAFETY: handle was created by this library and is destroyed exactly once,
         // before the library field is dropped and its function pointers become invalid.
         unsafe {
@@ -470,13 +409,7 @@ fn library_path() -> Result<PathBuf> {
     if let Some(path) = std::env::var_os("Scry_MPV_LIBRARY") {
         return Ok(path.into());
     }
-    let name = if cfg!(windows) {
-        "libmpv-2.dll"
-    } else if cfg!(target_os = "macos") {
-        "libmpv.2.dylib"
-    } else {
-        "libmpv.so.2"
-    };
+    let name = platform::LIBRARY_NAME;
     let beside_exe = std::env::current_exe()?.with_file_name(name);
     if beside_exe.exists() {
         return Ok(beside_exe);
@@ -487,18 +420,13 @@ fn library_path() -> Result<PathBuf> {
     if local.exists() {
         return Ok(local);
     }
-    #[cfg(target_os = "macos")]
-    if let Some(path) = macos::library_path() {
+    if let Some(path) = platform::library_path() {
         return Ok(path);
     }
     bail!("libmpv is missing. Put {name} in runtime/ or set Scry_MPV_LIBRARY. See README.md")
 }
 
 #[cfg(test)]
-#[expect(
-    clippy::unwrap_used,
-    reason = "Tests assert successful parses and inspect the expected parse errors"
-)]
 mod tests {
     use super::*;
     #[test]
@@ -511,22 +439,6 @@ mod tests {
                 event_timeout(timeout).to_bits(),
                 timeout.to_bits(),
                 "timeout={timeout}"
-            );
-        }
-    }
-
-    #[test]
-    fn renderer_setting_accepts_only_supported_names() {
-        assert_eq!(VideoRenderer::parse("gpu").unwrap(), VideoRenderer::Gpu);
-        assert_eq!(
-            VideoRenderer::parse("gpu-next").unwrap(),
-            VideoRenderer::GpuNext
-        );
-        for value in ["", "GPU", "gpu ", "auto", "private-input"] {
-            let error = VideoRenderer::parse(value).unwrap_err();
-            assert_eq!(
-                error.to_string(),
-                "Scry_VIDEO_RENDERER must be gpu or gpu-next"
             );
         }
     }

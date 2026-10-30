@@ -18,6 +18,15 @@ fn native_drag_regions_stay_in_the_shared_titlebar() {
     assert!(primitive.contains(".window_drag()"));
 }
 
+#[test]
+fn full_page_empty_states_are_not_constrained_by_virtual_poster_rows() {
+    let grid = include_str!("../poster_grid.rs");
+    assert!(
+        !grid.contains("watching_empty("),
+        "The page owns its empty state; virtual poster rows must not size it"
+    );
+}
+
 fn local_motion(text: &str) -> bool {
     ["Transition::", "Spring::", "Anim::", ".hover_motion("]
         .iter()

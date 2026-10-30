@@ -88,9 +88,12 @@ impl State {
         }
         match self
             .shell
-            .host
-            .set_fullscreen(fullscreen || self.shell.fullscreen)
-        {
+            .window
+            .set_fullscreen(if fullscreen || self.shell.fullscreen {
+                scry_app::platform::Fullscreen::Fullscreen
+            } else {
+                scry_app::platform::Fullscreen::Windowed
+            }) {
             Ok(()) => {
                 self.clear_player_feedback();
                 self.player.fullscreen = fullscreen;
@@ -108,9 +111,12 @@ impl State {
         let fullscreen = !self.shell.fullscreen;
         match self
             .shell
-            .host
-            .set_fullscreen(fullscreen || self.player.fullscreen)
-        {
+            .window
+            .set_fullscreen(if fullscreen || self.player.fullscreen {
+                scry_app::platform::Fullscreen::Fullscreen
+            } else {
+                scry_app::platform::Fullscreen::Windowed
+            }) {
             Ok(()) => self.shell.fullscreen = fullscreen,
             Err(error) => self.player.error = Some(error.to_string()),
         }

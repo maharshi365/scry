@@ -9,7 +9,6 @@ use super::super::{
     },
 };
 use rune::{El, col, row};
-use scry_app::platform::VideoHost;
 use scry_playback::subtitles::{
     Preferences, SIZES, Snapshot, Track, language_code, language_label,
 };
@@ -362,7 +361,7 @@ impl State {
         if !self.player.playing {
             return;
         }
-        let path = match self.shell.host.pick_subtitle() {
+        let path = match self.shell.window.pick_subtitle() {
             Ok(Some(path)) => path,
             Ok(None) => return,
             Err(_) => {

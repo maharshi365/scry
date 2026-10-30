@@ -42,10 +42,7 @@ fn library_empty_states_keep_filters_and_browse_the_selected_type() {
             "empty content must stay below the filters"
         );
         assert!(empty[1] < filters[1] + filters[3] + 40.0);
-        assert!(
-            empty[3] < 350.0,
-            "empty state should not stretch across the screen"
-        );
+        assert_empty_panel_centered(&rt, "library-empty");
         assert!(rt.elements().iter().any(|e| e.text.as_deref()
             == Some(if watched {
                 "No watched TV series"
@@ -56,6 +53,87 @@ fn library_empty_states_keep_filters_and_browse_the_selected_type() {
         assert_eq!(rt.state.navigation.page, Page::Discover);
         assert_eq!(rt.state.discover.kind, "series");
     }
+}
+
+fn assert_empty_panel_centered(rt: &rune::Runtime<State>, key: &str) {
+    let area = rect(rt, key);
+    let panel = rect(rt, &format!("{key}-panel"));
+    let content = rect(rt, "content");
+    let bottom = content[1] + content[3] - super::super::design::tokens::layout::PANEL_INSET;
+    assert!(
+        (area[1] + area[3] - bottom).abs() < 1.0,
+        "{key} must fill the space below its header"
+    );
+    for axis in [0, 1] {
+        assert!(
+            (panel[axis] + panel[axis + 2] / 2.0 - area[axis] - area[axis + 2] / 2.0).abs() < 1.0,
+            "{key} panel must be centered on axis {axis}"
+        );
+    }
+    assert!(
+        panel[1] >= area[1] && panel[1] + panel[3] <= bottom,
+        "{key} panel must fit without scrolling"
+    );
+}
+
+#[test]
+fn empty_pages_center_their_panels_below_the_header_at_small_and_large_sizes() {
+    for viewport in [(880.0, 600.0), (1280.0, 820.0)] {
+        for page in [Page::Library, Page::Watching] {
+            let mut s = init();
+            s.navigation.page = page;
+            s.library.entries = Some(vec![]);
+            let mut rt = rune::Runtime::new(s, view, viewport, rune::Env::default());
+            rt.frame(0.0);
+            assert_empty_panel_centered(
+                &rt,
+                if page == Page::Library {
+                    "library-empty"
+                } else {
+                    "watching-empty"
+                },
+            );
+        }
+        for kind in ["movie", "series", "anime"] {
+            for installed in [false, true] {
+                let mut s = init();
+                scene_discover(&mut s);
+                s.discover.kind = kind.into();
+                s.discover.results = super::super::catalog::CatalogResults::default();
+                s.discover.request.loading = false;
+                if !installed {
+                    s.addons.installed.clear();
+                }
+                let mut rt = rune::Runtime::new(s, view, viewport, rune::Env::default());
+                rt.frame(0.0);
+                assert_empty_panel_centered(&rt, "catalog-empty");
+            }
+        }
+    }
+}
+
+#[test]
+fn centered_catalog_empty_states_keep_setup_and_retry_actions() {
+    let mut s = init();
+    s.navigation.page = Page::Discover;
+    let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
+    rt.frame(0.0);
+    tap(&mut rt, "setup-cinemeta");
+    assert_eq!(rt.state.navigation.page, Page::Addons);
+
+    let mut s = init();
+    scene_discover(&mut s);
+    s.discover.results = super::super::catalog::CatalogResults::default();
+    s.discover.request.loading = false;
+    s.discover.paging.failed = true;
+    let generation = s.discover.generation;
+    let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
+    rt.frame(0.0);
+    tap(&mut rt, "catalog-retry");
+    assert_eq!(rt.state.discover.generation, generation + 1);
+    assert!(rt.state.discover.request.loading);
+    assert_eq!(rt.state.discover.paging.pending, Some(0));
+    assert!(!rt.state.discover.paging.failed);
 }
 
 #[test]

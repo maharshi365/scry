@@ -68,6 +68,22 @@ impl Default for GuideUi {
     }
 }
 
+pub(super) fn scene_empty(s: &mut State) {
+    let now = chrono::Utc::now().timestamp();
+    s.navigation.page = Page::Guide;
+    s.addons.busy = false;
+    s.guide = GuideUi {
+        refreshed: now,
+        tick: now,
+        ..GuideUi::default()
+    };
+}
+
+pub(super) fn scene_empty_movies(s: &mut State) {
+    scene_empty(s);
+    s.guide.kind = MediaKind::Movie;
+}
+
 impl State {
     pub(in crate::ui) fn register_guide_metadata(&mut self, key: &MediaKey, meta: &Meta) {
         if !matches!(key.kind, MediaKind::Series | MediaKind::Movie)

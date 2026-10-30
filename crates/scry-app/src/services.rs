@@ -1,6 +1,12 @@
 //! Background work and the narrow, bounded boundary to the native UI.
 mod addon_storage;
 mod metadata;
+#[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    reason = "Playback fixture setup and bounded worker events must succeed"
+)]
+mod playback_tests;
 pub(crate) mod streaming_settings;
 mod subtitle_settings;
 mod subtitle_sources;
@@ -10,7 +16,7 @@ use addon_storage::save;
 use anyhow::{Context, Result, bail};
 use scry_addons::{Addon, Catalog, Client, Meta, Stream};
 use scry_playback::{
-    PlaybackEngine, PlaybackEvent, PlaybackTarget, Player,
+    Mpv, PlaybackEngine, PlaybackEvent, PlaybackFactory, PlaybackTarget,
     telemetry::{Report, Sample},
 };
 use scry_torrents::Torrents;
@@ -249,6 +255,13 @@ impl Services {
         &self.data
     }
     pub fn start(wake: rune::Waker) -> Result<(Self, mpsc::Receiver<Event>)> {
+        Self::start_with_playback(wake, Mpv)
+    }
+
+    pub fn start_with_playback(
+        wake: rune::Waker,
+        playback: impl PlaybackFactory + 'static,
+    ) -> Result<(Self, mpsc::Receiver<Event>)> {
         let data = scry_app::project_dir(false)
             .context("Cannot locate the private application data folder")?;
         let runtime = Arc::new(
@@ -271,7 +284,9 @@ impl Services {
         let player = std::thread::Builder::new()
             .name("scry-player".into())
             .spawn(move || {
-                rt.block_on(player_loop(lifecycle, command_rx, stats_rx, output, folder));
+                rt.block_on(player_loop(
+                    lifecycle, command_rx, stats_rx, output, folder, &playback,
+                ));
             })?;
         let services = Self {
             streaming_settings,
@@ -1067,6 +1082,7 @@ async fn player_loop(
     stream_stats: watch::Receiver<Option<u64>>,
     inbox: Inbox,
     data: PathBuf,
+    playback: &dyn PlaybackFactory,
 ) {
     let mut player: Option<Box<dyn PlaybackEngine>> = None;
     let mut torrents: Option<Torrents> = None;
@@ -1255,7 +1271,7 @@ async fn player_loop(
                                 }
                             }
                         };
-                        let engine: Box<dyn PlaybackEngine> = Box::new(Player::open(target)?);
+                        let engine = playback.open(target)?;
                         engine.command(&["set", "sid", "no"])?;
                         engine.command(&["set", "secondary-sid", "no"])?;
                         engine.command(&["set", "sub-auto", "no"])?;
@@ -1470,7 +1486,7 @@ mod tests {
         let (_commands, commands) = mpsc::channel(1);
         let (_stats, stats) = watch::channel(None);
         control.send(Some(Control::Stop(1))).unwrap();
-        let task = player_loop(lifecycle, commands, stats, inbox, PathBuf::new());
+        let task = player_loop(lifecycle, commands, stats, inbox, PathBuf::new(), &Mpv);
         tokio::pin!(task);
         assert!(
             tokio::time::timeout(Duration::from_millis(10), &mut task)

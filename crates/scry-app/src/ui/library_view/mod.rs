@@ -680,10 +680,6 @@ fn library_empty(s: &State) -> El {
             }),
         ),
     )
-    .grow(0.0)
-    .h(240.0)
-    .min_h(240.0)
-    .py(16.0)
 }
 
 pub(super) fn watching(s: &State, cx: &rune::Cx<State>) -> El {
@@ -703,6 +699,14 @@ pub(super) fn watching(s: &State, cx: &rune::Cx<State>) -> El {
             s.library.watching_offset = s.library.watching_offset.saturating_add(200);
             s.refresh_library();
         }));
+    }
+    if s.library.watching.is_empty() && s.library.up_next.is_empty() {
+        let empty = body.grow(1.0).min_h(0.0).child(watching_empty());
+        return if s.library.watching_offset > 0 {
+            empty.child(pages)
+        } else {
+            empty
+        };
     }
     body.grow(1.0)
         .min_h(0.0)
@@ -727,10 +731,15 @@ pub(super) fn watching_empty() -> El {
                 s.choose_kind("series");
             })),
     )
-    .grow(0.0)
-    .h(240.0)
-    .min_h(240.0)
-    .py(16.0)
+}
+
+pub(super) fn scene_watching_empty(s: &mut State) {
+    s.navigation.page = super::Page::Watching;
+    s.addons.busy = false;
+    s.library.watching.clear();
+    s.library.up_next.clear();
+    s.library.watching_offset = 0;
+    s.library.up_next_offset = 0;
 }
 
 pub(super) fn up_next_pages(s: &State) -> El {

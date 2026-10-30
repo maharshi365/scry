@@ -20,21 +20,7 @@ fn browser_url(value: &str) -> Result<Url> {
 /// Returns an error for an unsafe URL or if the browser cannot be launched.
 pub fn open_browser(value: &str) -> Result<()> {
     let url = browser_url(value)?;
-    #[cfg(windows)]
-    {
-        super::windows::open_browser(url.as_str())
-    }
-    #[cfg(not(windows))]
-    {
-        std::process::Command::new(if cfg!(target_os = "macos") {
-            "open"
-        } else {
-            "xdg-open"
-        })
-        .arg(url.as_str())
-        .spawn()?;
-        Ok(())
-    }
+    super::native::open_browser(url.as_str())
 }
 
 #[cfg(test)]

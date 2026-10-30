@@ -1,10 +1,10 @@
-//! macOS software render-API bridge. No native window pointer crosses threads.
+//! Software render-API bridge. No native window pointer crosses threads.
 
 use anyhow::{Context, Result, bail};
 use libloading::Library;
 use std::{
     ffi::{c_int, c_void},
-    path::{Path, PathBuf},
+    path::Path,
     ptr,
     sync::{
         Arc, Mutex,
@@ -14,7 +14,7 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-/// A bounded, replaceable video surface delivered to the macOS UI.
+/// A bounded, replaceable video surface delivered to a compositor.
 #[derive(Clone)]
 pub struct Surface {
     size: Arc<Mutex<[u32; 2]>>,
@@ -65,17 +65,6 @@ fn bounded_size(width: u32, height: u32) -> [u32; 2] {
         u32::try_from(width).unwrap_or(1).max(1),
         u32::try_from(height).unwrap_or(1).max(1),
     ]
-}
-
-pub(super) fn library_path() -> Option<PathBuf> {
-    // Stable Homebrew opt symlinks work across upgrades on Apple Silicon and Intel.
-    [
-        "/opt/homebrew/opt/mpv/lib/libmpv.2.dylib",
-        "/usr/local/opt/mpv/lib/libmpv.2.dylib",
-    ]
-    .into_iter()
-    .map(PathBuf::from)
-    .find(|path| path.is_file())
 }
 
 #[repr(C)]
@@ -130,7 +119,7 @@ impl Renderer {
         let path = path.to_owned();
         let address = handle as usize;
         let thread = thread::Builder::new()
-            .name("scry-macos-video".into())
+            .name("scry-software-video".into())
             .spawn(move || {
                 let context = ContextState::open(address as *mut c_void, &path, frame_wake);
                 match context {
@@ -151,7 +140,7 @@ impl Renderer {
         };
         initialized
             .recv()
-            .context("macOS renderer stopped during initialization")??;
+            .context("Software renderer stopped during initialization")??;
         Ok(renderer)
     }
 }
@@ -183,7 +172,7 @@ impl ContextState {
         // Function signatures and parameter tags match mpv/render.h. The library is
         // retained until the context is freed; creation retains no parameter pointers.
         unsafe {
-            let library = Library::new(path).context("Cannot load macOS render API")?;
+            let library = Library::new(path).context("Cannot load software render API")?;
             let create: Create = *library.get(b"mpv_render_context_create\0")?;
             let update = *library.get(b"mpv_render_context_update\0")?;
             let render = *library.get(b"mpv_render_context_render\0")?;
@@ -199,7 +188,7 @@ impl ContextState {
                 Param::end(),
             ];
             if create(&raw mut context, handle, params.as_mut_ptr()) < 0 {
-                bail!("Cannot initialize macOS software video renderer");
+                bail!("Cannot initialize software video renderer");
             }
             let mut wake = Box::new(wake);
             set_update(

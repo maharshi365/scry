@@ -104,6 +104,7 @@ impl State {
             runtime: AppRuntime::default(),
             shell: super::shell::ShellState {
                 host,
+                window: scry_app::platform::Window::default(),
                 host_error,
                 native_navigation: scry_app::platform::NavigationInput::default(),
                 logo,
@@ -207,6 +208,8 @@ fn run_app() -> anyhow::Result<()> {
     }
     let host = Host::default();
     let window_host = host.clone();
+    let native_window = scry_app::platform::Window::default();
+    let attached_window = native_window.clone();
     let error = Arc::new(Mutex::new(None));
     let window_error = error.clone();
     let native_navigation = scry_app::platform::NavigationInput::default();
@@ -227,14 +230,15 @@ fn run_app() -> anyhow::Result<()> {
     app.args(rune_args)
         .init(move || {
             let mut state = State::new(host, error);
+            state.shell.window = native_window;
             state.shell.native_navigation = native_navigation;
             state.runtime.startup_play = startup_play;
             state.runtime.quit = Some(quit);
             state
         })
         .on_window(move |window| {
-            scry_app::platform::match_title_bar(window, super::design::tokens::topbar());
-            if let Err(error) = window_navigation.attach(window)
+            if let Err(error) =
+                attached_window.attach(window, super::design::tokens::topbar(), &window_navigation)
                 && let Ok(mut current) = window_error.lock()
             {
                 *current = Some(error.to_string());
@@ -278,6 +282,12 @@ fn run_app() -> anyhow::Result<()> {
 
 type Scene = (&'static str, fn(&mut State));
 const SCENES: &[Scene] = &[
+    ("guide-empty", super::guide::scene_empty),
+    ("guide-empty-movies", super::guide::scene_empty_movies),
+    ("movies-empty", super::scenes::scene_movies_empty),
+    ("series-empty", super::scenes::scene_series_empty),
+    ("anime-empty", super::scenes::scene_anime_empty),
+    ("watching-empty", super::library_view::scene_watching_empty),
     ("player-fullscreen", scene_player_fullscreen),
     ("settings", super::scenes::scene_settings),
     ("addons", super::scenes::scene_addons),

@@ -10,6 +10,25 @@ pub(super) fn scene_settings(s: &mut State) {
     s.settings.subtitles.busy = false;
 }
 
+pub(super) fn scene_movies_empty(s: &mut State) {
+    s.navigation.page = Page::Discover;
+    s.addons.busy = false;
+    s.addons.installed.clear();
+    s.discover.kind = "movie".into();
+    s.discover.results = super::catalog::CatalogResults::default();
+    s.discover.request.loading = false;
+}
+
+pub(super) fn scene_series_empty(s: &mut State) {
+    scene_movies_empty(s);
+    s.discover.kind = "series".into();
+}
+
+pub(super) fn scene_anime_empty(s: &mut State) {
+    scene_movies_empty(s);
+    s.discover.kind = "anime".into();
+}
+
 pub(super) fn scene_player_fullscreen(s: &mut State) {
     s.addons.busy = false;
     s.navigation.page = Page::Player;

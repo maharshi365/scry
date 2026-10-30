@@ -42,6 +42,115 @@ fn stream(value: serde_json::Value) -> Stream {
 }
 
 #[test]
+fn empty_guide_has_one_heading_and_no_inactive_player_or_timeline() {
+    for viewport in [(880.0, 600.0), (1280.0, 820.0)] {
+        let mut state = state();
+        state.guide.data.channels.clear();
+        state.guide.selected = None;
+        let mut runtime = rune::Runtime::new(
+            state,
+            |s, cx| super::view(s, cx),
+            viewport,
+            rune::Env::default(),
+        );
+        runtime.frame(0.0);
+        assert!(runtime.find("guide-empty").is_some());
+        for key in [
+            "guide-video",
+            "guide-grid",
+            "guide-now-marker",
+            "guide-channel-down",
+            "guide-channel-up",
+            "guide-fullscreen",
+        ] {
+            assert!(
+                runtime.find(key).is_none(),
+                "Empty guide still renders {key}"
+            );
+        }
+        assert_eq!(
+            runtime
+                .elements()
+                .iter()
+                .filter(|element| element.text.as_deref() == Some("Guide"))
+                .count(),
+            1
+        );
+        let bounds = runtime
+            .elements()
+            .into_iter()
+            .find(|element| element.key.as_deref() == Some("guide-empty"))
+            .unwrap()
+            .rect;
+        for key in ["guide-empty-browse", "guide-empty-collections"] {
+            let action = runtime
+                .elements()
+                .into_iter()
+                .find(|element| element.key.as_deref() == Some(key))
+                .unwrap()
+                .rect;
+            assert!(action[0] >= bounds[0] && action[0] + action[2] <= bounds[0] + bounds[2]);
+            assert!(action[1] >= bounds[1] && action[1] + action[3] <= bounds[1] + bounds[3]);
+        }
+        let (x, y) = runtime.find("guide-empty-collections").unwrap();
+        runtime.pointer_down(x, y);
+        runtime.pointer_up(x, y);
+        runtime.frame(0.0);
+        assert!(runtime.state.guide.collections_open);
+    }
+}
+
+#[test]
+fn empty_guide_is_scoped_to_the_selected_kind_and_browse_opens_that_catalog() {
+    let mut state = state();
+    state.guide.kind = MediaKind::Movie;
+    let mut runtime = rune::Runtime::new(
+        state,
+        super::super::shell::view,
+        (880.0, 600.0),
+        rune::Env::default(),
+    );
+    runtime.frame(0.0);
+    assert!(
+        runtime.find("guide-empty").is_some(),
+        "TV channels must not hide the empty movie state"
+    );
+    assert!(
+        runtime
+            .elements()
+            .iter()
+            .any(|element| element.text.as_deref() == Some("No movie channels yet"))
+    );
+    let (x, y) = runtime.find("guide-empty-browse").unwrap();
+    runtime.pointer_down(x, y);
+    runtime.pointer_up(x, y);
+    runtime.frame(0.0);
+    assert_eq!(runtime.state.navigation.page, Page::Discover);
+    assert_eq!(runtime.state.discover.kind, "movie");
+}
+
+#[test]
+fn guide_waits_for_channels_before_showing_the_empty_state() {
+    let mut state = state();
+    state.guide.data.channels.clear();
+    state.guide.busy = true;
+    let mut runtime = rune::Runtime::new(
+        state,
+        |s, cx| super::view(s, cx),
+        (880.0, 600.0),
+        rune::Env::default(),
+    );
+    runtime.frame(0.0);
+    assert!(runtime.find("guide-loading").is_some());
+    assert!(runtime.find("guide-empty").is_none());
+    assert!(runtime.find("guide-video").is_none());
+    runtime.update(|s, _| s.guide.busy = false);
+    runtime.frame(0.0);
+    assert!(runtime.find("guide-loading").is_none());
+    assert!(runtime.find("guide-empty").is_some());
+}
+
+#[test]
 fn detail_owned_stream_results_cannot_complete_an_active_guide_tune() {
     let mut state = state();
     let slot = state.guide.data.channels[0].slots[0].clone();
@@ -68,6 +177,18 @@ fn detail_owned_stream_results_cannot_complete_an_active_guide_tune() {
     assert!(state.guide.alternatives.is_empty());
     assert!(!state.player.playing);
     assert_eq!(state.guide.tuned.as_ref().unwrap().0, "office");
+}
+
+#[test]
+fn empty_guide_fixtures_do_not_request_a_missing_library_worker() {
+    let mut state = state();
+    for scene in [scene_empty, scene_empty_movies] {
+        scene(&mut state);
+        state.poll_guide(&mut Tx::default());
+        assert!(state.guide.error.is_none());
+        assert!(!state.guide.busy);
+        assert!(state.guide.data.channels.is_empty());
+    }
 }
 
 #[test]

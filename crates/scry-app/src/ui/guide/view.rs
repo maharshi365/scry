@@ -1,11 +1,15 @@
 use super::super::player::keyboard_control;
 use super::super::{
     Page, State,
-    design::tokens::{self, type_},
+    design::{
+        icons,
+        tokens::{self, type_},
+    },
     primitives::{
-        button::Button,
+        button::{Button, Variant},
+        feedback::{self, Tone},
         progress::bar,
-        surface::scroll,
+        surface::{empty_state, scroll},
         text::{heading, label},
     },
 };
@@ -45,7 +49,32 @@ pub(in crate::ui) fn view(s: &State, cx: &Cx<State>) -> El {
         return super::collections::view(s);
     }
     let now = chrono::Utc::now().timestamp();
-    let mut content = col().grow(1.0).min_h(0.0).gap(12.0).child(header(s)).child(
+    let mut content = col()
+        .grow(1.0)
+        .min_h(0.0)
+        .gap(tokens::layout::PAGE_GAP)
+        .child(header(s));
+    if let Some(error) = &s.guide.error {
+        content = content.child(feedback::status("guide-error", error, Tone::Danger));
+    }
+    if !s
+        .guide
+        .data
+        .channels
+        .iter()
+        .any(|channel| channel.kind == s.guide.kind)
+    {
+        return content.child(if s.guide.busy {
+            col().grow(1.0).center().child(feedback::status(
+                "guide-loading",
+                "Loading channels…",
+                Tone::Neutral,
+            ))
+        } else {
+            empty(s)
+        });
+    }
+    content = content.child(
         row()
             .h(tokens::guide::PREVIEW_HEIGHT)
             .min_h(tokens::guide::PREVIEW_HEIGHT)
@@ -53,10 +82,46 @@ pub(in crate::ui) fn view(s: &State, cx: &Cx<State>) -> El {
             .child(details(s, now))
             .child(super::super::player::player(s, cx.env().scale).w(tokens::guide::PLAYER_WIDTH)),
     );
-    if let Some(error) = &s.guide.error {
-        content = content.child(label(error.clone()).color(tokens::danger()));
-    }
     content.child(grid(s,cx,now)).child(label("↑ / ↓ browse · Enter tune · F fullscreen · M mute · schedules continue while Scry is closed"))
+}
+
+fn empty(s: &State) -> El {
+    let movie = s.guide.kind == MediaKind::Movie;
+    empty_state(
+        "guide-empty",
+        if movie {
+            "No movie channels yet"
+        } else {
+            "No TV channels yet"
+        },
+        "Save titles to your library or group them into collections to build your own lineup.",
+        &icons::TV,
+        row()
+            .gap(tokens::layout::ACTION_GAP)
+            .flex_wrap()
+            .child(
+                Button::new(
+                    "guide-empty-browse",
+                    if movie {
+                        "Browse movies"
+                    } else {
+                        "Browse TV series"
+                    },
+                )
+                .variant(Variant::Primary)
+                .on_press(move |s: &mut State| {
+                    s.choose_kind(if movie { "movie" } else { "series" });
+                }),
+            )
+            .child(
+                Button::new("guide-empty-collections", "Create a collection").on_press(
+                    |s: &mut State| {
+                        s.guide.collections_open = true;
+                        s.shell.host.hide();
+                    },
+                ),
+            ),
+    )
 }
 
 fn details(s: &State, now: i64) -> El {
@@ -67,7 +132,7 @@ fn details(s: &State, now: i64) -> El {
         .iter()
         .find(|channel| Some(&channel.id) == s.guide.selected.as_ref());
     let mut details = col().grow(1.0).w(0.0).min_w(0.0).gap(8.0).child(heading(
-        selected.map_or("Guide", |channel| channel.name.as_str()),
+        selected.map_or("Choose a channel", |channel| channel.name.as_str()),
     ));
     if let Some(slot) = selected.and_then(|channel| channel.current(now)) {
         details = details
@@ -114,9 +179,11 @@ fn details(s: &State, now: i64) -> El {
                 ),
         );
     } else {
-        details = details.child(label(
-            "Add shows to a collection or save titles in your library to build channels.",
-        ));
+        details = details.child(label(if selected.is_some() {
+            "No program is scheduled right now."
+        } else {
+            "Select a channel below to see its schedule."
+        }));
     }
     details
 }
@@ -155,7 +222,6 @@ fn grid(s: &State, cx: &Cx<State>, now: i64) -> El {
     });
     let start = now - now.rem_euclid(1800);
     let mut rows = col().w_full().gap(4.0).child(time_header(start, width));
-    let mut count = 0;
     for channel in s
         .guide
         .data
@@ -163,7 +229,6 @@ fn grid(s: &State, cx: &Cx<State>, now: i64) -> El {
         .iter()
         .filter(|c| c.kind == s.guide.kind)
     {
-        count += 1;
         let id = channel.id.clone();
         let channel_name = channel.name.clone();
         let mut programs = row()
@@ -211,11 +276,6 @@ fn grid(s: &State, cx: &Cx<State>, now: i64) -> El {
                 )
                 .child(programs),
         );
-    }
-    if count == 0 {
-        rows = rows.child(label(
-            "No channels yet. Open Channels & collections to create your lineup.",
-        ));
     }
     let marker = tokens::guide::CHANNEL_WIDTH + cell_width(now - start, width);
     scroll(

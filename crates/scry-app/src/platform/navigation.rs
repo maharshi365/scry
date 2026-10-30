@@ -48,16 +48,4 @@ impl NavigationInput {
             wake();
         }
     }
-
-    /// # Errors
-    /// Returns an error if native mouse history input cannot be attached.
-    pub fn attach(&self, window: &rune::WindowHandle) -> anyhow::Result<()> {
-        #[cfg(windows)]
-        return super::windows::navigation::attach(window, self.clone());
-        #[cfg(not(windows))]
-        {
-            let _ = window;
-            Ok(())
-        }
-    }
 }

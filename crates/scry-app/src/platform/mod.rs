@@ -20,24 +20,31 @@ pub struct VideoOverlay {
     pub radius: f32,
 }
 mod browser;
-mod titlebar;
-pub use titlebar::match_title_bar;
 mod navigation;
+mod window;
 pub use browser::open_browser;
 pub use navigation::{HistoryDirection, NavigationInput};
+pub use window::{Fullscreen, Window};
 
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
-pub use macos::Host;
+use macos as native;
 #[cfg(not(any(windows, target_os = "macos")))]
 mod unsupported;
 #[cfg(windows)]
 mod windows;
+pub use native::Host;
 #[cfg(not(any(windows, target_os = "macos")))]
-pub use unsupported::Host;
+use unsupported as native;
 #[cfg(windows)]
-pub use windows::Host;
+use windows as native;
+
+/// The way a video host presents its output in the shared scene.
+pub enum VideoPresentation<'a> {
+    Native,
+    Pixels(&'a rune::Pixels),
+}
 
 pub trait VideoHost: Clone + Default {
     /// # Errors
@@ -46,14 +53,12 @@ pub trait VideoHost: Clone + Default {
     /// # Errors
     /// Returns an error if no video window has been attached.
     fn target(&self) -> Result<PlaybackTarget>;
+    fn presentation(&self) -> VideoPresentation<'_> {
+        VideoPresentation::Native
+    }
     fn place(&self, rect: [f32; 4], scale: f32);
     fn show(&self);
     fn hide(&self);
-    /// # Errors
-    /// Returns an error when the native subtitle file picker fails or is unavailable.
-    fn pick_subtitle(&self) -> Result<Option<std::path::PathBuf>> {
-        anyhow::bail!("Subtitle file selection is not supported on this platform")
-    }
     /// Exclude controls and a rounded video-local overlay from native video and input.
     fn cover(&self, _controls: Option<VideoOverlay>, _overlay: Option<VideoOverlay>, _scale: f32) {}
     fn video_clicks(&self) -> Vec<VideoClick> {
@@ -65,7 +70,4 @@ pub trait VideoHost: Clone + Default {
     fn double_click_interval(&self) -> std::time::Duration {
         std::time::Duration::from_millis(500)
     }
-    /// # Errors
-    /// Returns an error if the native window cannot enter or leave full screen.
-    fn set_fullscreen(&self, fullscreen: bool) -> Result<()>;
 }

@@ -22,6 +22,7 @@ use rune::{Cx, El, col, el, row, text};
 
 pub(super) struct ShellState {
     pub host: scry_app::platform::Host,
+    pub window: scry_app::platform::Window,
     pub host_error: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     pub native_navigation: scry_app::platform::NavigationInput,
     pub logo: rune::Pixels,

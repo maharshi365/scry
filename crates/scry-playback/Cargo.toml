@@ -16,10 +16,13 @@ anyhow.workspace = true
 libloading = "0.8"
 serde.workspace = true
 serde_json.workspace = true
+bytemuck = "1"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_ProcessStatus"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-bytemuck = "1"
 libc = "0.2"
+
+[dev-dependencies]
+tempfile.workspace = true

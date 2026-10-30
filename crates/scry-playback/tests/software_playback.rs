@@ -1,8 +1,7 @@
-#![cfg(target_os = "macos")]
-//! Opt-in smoke test requiring the macOS libmpv runtime, but no display or network.
+//! Opt-in software-output smoke test requiring libmpv, but no display or network.
 
 use anyhow::Result;
-use scry_playback::{PlaybackTarget, Player, macos::Surface};
+use scry_playback::{FrameSurface, PlaybackTarget, Player};
 use std::{
     io::Write,
     sync::mpsc,
@@ -20,8 +19,8 @@ fn colored_frame(rx: &mpsc::Receiver<(u32, u32, Vec<u8>)>, size: (u32, u32)) -> 
 }
 
 #[test]
-#[ignore = "requires Homebrew mpv; run explicitly on macOS"]
-fn macos_renders_and_reopens_without_a_native_window() -> Result<()> {
+#[ignore = "requires a libmpv runtime; run explicitly"]
+fn software_output_renders_and_reopens_without_a_native_window() -> Result<()> {
     let mut media = tempfile::Builder::new().suffix(".y4m").tempfile()?;
     media.write_all(b"YUV4MPEG2 W16 H16 F24:1 Ip A1:1 C420jpeg\n")?;
     for _ in 0..48 {
@@ -31,14 +30,14 @@ fn macos_renders_and_reopens_without_a_native_window() -> Result<()> {
     }
     media.flush()?;
     let (tx, rx) = mpsc::sync_channel(1);
-    let surface = Surface::new(move |w, h, rgba| {
+    let surface = FrameSurface::new(move |w, h, rgba| {
         let _ = tx.try_send((w, h, rgba));
     });
     // Closing before load must wake an otherwise idle render thread too.
-    drop(Player::open(PlaybackTarget::Macos(surface.clone()))?);
+    drop(Player::open(PlaybackTarget::Software(surface.clone()))?);
     for _ in 0..2 {
         surface.resize(32, 32);
-        let player = Player::open(PlaybackTarget::Macos(surface.clone()))?;
+        let player = Player::open(PlaybackTarget::Software(surface.clone()))?;
         player.load(
             media
                 .path()

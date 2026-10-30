@@ -2,13 +2,12 @@
 use super::{
     State,
     controls::action,
-    design::tokens,
+    design::{icons, tokens},
     poster_grid,
     primitives::{
-        button::{DropdownVariant, dropdown_trigger, menu_choice},
+        button::{Button, DropdownVariant, Variant, dropdown_trigger, menu_choice},
         pattern::detail_header,
-        surface::dropdown,
-        text::{heading, label},
+        surface::{dropdown, empty_state},
     },
 };
 use rune::{Cx, El, col, row};
@@ -38,21 +37,33 @@ pub(super) fn discover(s: &State, cx: &Cx<State>) -> El {
             ),
             catalog_selector(s),
         ));
-    if s.addons.installed.is_empty() {
-        body = body.child(
-            super::primitives::surface::Variant::Setup
-                .apply(col())
-                .padding(tokens::layout::PANEL_INSET)
-                .gap(tokens::layout::PAGE_GAP)
-                .child(heading("No catalogs installed"))
-                .child(label("Add a catalog provider to browse titles."))
-                .child(action("setup-cinemeta", "Open add-ons", |s| {
-                    s.navigate(super::Page::Addons);
-                })),
-        );
+    if s.addons.installed.is_empty() && s.discover.results.is_empty() {
+        return body.child(empty_state(
+            "catalog-empty",
+            "No catalogs installed",
+            "Add a catalog provider to browse titles.",
+            &icons::ADD,
+            row().child(
+                Button::new("setup-cinemeta", "Open add-ons")
+                    .variant(Variant::Primary)
+                    .on_press(|s: &mut State| s.navigate(super::Page::Addons)),
+            ),
+        ));
     } else if s.discover.results.is_empty() && !s.discover.request.loading {
-        body = body.child(label(
-            "No supported titles found. Try searching for a movie or TV show.",
+        let mut actions = row();
+        if s.discover.paging.failed {
+            actions = actions.child(
+                Button::new("catalog-retry", "Retry loading titles")
+                    .variant(Variant::Primary)
+                    .on_press(State::fetch_catalog),
+            );
+        }
+        return body.child(empty_state(
+            "catalog-empty",
+            "No titles found",
+            "Try another search or choose a different catalog.",
+            &icons::LIBRARY,
+            actions,
         ));
     }
     if s.discover.paging.failed {

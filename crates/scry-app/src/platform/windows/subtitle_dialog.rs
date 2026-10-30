@@ -1,4 +1,3 @@
-use super::Host;
 use anyhow::{Result, bail};
 use rune::raw_window_handle::RawWindowHandle;
 use std::path::PathBuf;
@@ -7,11 +6,7 @@ use windows_sys::Win32::UI::Controls::Dialogs::{
     OFN_NOCHANGEDIR, OFN_PATHMUSTEXIST, OPENFILENAMEW,
 };
 
-pub(super) fn pick(host: &Host) -> Result<Option<PathBuf>> {
-    let window = host.0.window.lock().ok().and_then(|window| window.clone());
-    let Some(window) = window else {
-        bail!("The subtitle file picker needs an app window");
-    };
+pub(super) fn pick(window: &rune::WindowHandle) -> Result<Option<PathBuf>> {
     window
         .with_raw_handle(|handle| {
             let RawWindowHandle::Win32(raw) = handle.as_raw() else {

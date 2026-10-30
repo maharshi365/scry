@@ -7,7 +7,7 @@
 )]
 fn main() -> anyhow::Result<()> {
     use anyhow::{Context, ensure};
-    use scry_playback::{PlaybackEvent, PlaybackTarget, Player, macos::Surface};
+    use scry_playback::{FrameSurface, PlaybackEvent, PlaybackTarget, Player};
     use std::{
         sync::{Arc, Mutex},
         time::{Duration, Instant},
@@ -23,7 +23,7 @@ fn main() -> anyhow::Result<()> {
     let timestamps = Arc::new(Mutex::new(Vec::with_capacity(2048)));
     let output = timestamps.clone();
     let started = Instant::now();
-    let surface = Surface::new(move |_, _, _| {
+    let surface = FrameSurface::new(move |_, _, _| {
         if let Ok(mut timestamps) = output.lock()
             && timestamps.len() < 4096
             && started.elapsed() >= Duration::from_secs(1)
@@ -32,7 +32,7 @@ fn main() -> anyhow::Result<()> {
         }
     });
     surface.resize(1280, 720);
-    let player = Player::open(PlaybackTarget::Macos(surface))?;
+    let player = Player::open(PlaybackTarget::Software(surface))?;
     let before = player.sample(0.0);
     player.command(&["set", "volume", "0"])?;
     player.load(path.to_str().context("Fixture path must be UTF-8")?)?;

@@ -22,7 +22,6 @@ pub(in crate::ui) enum Variant {
     Poster,
     Hero,
     Notification,
-    Setup,
     Chrome,
 }
 
@@ -71,11 +70,10 @@ impl Variant {
             ),
             Self::Hero => (tokens::radius::LG, tokens::stats_hero(), edge()),
             Self::Notification => (tokens::radius::LG, panel(), tokens::stats_gold()),
-            Self::Setup => (tokens::radius::XL, theme().card, tokens::transparent_edge()),
             Self::Chrome => (tokens::radius::NONE, tokens::topbar(), edge()),
         };
         content.radius(radius).fill(fill).border(
-            if matches!(self, Self::Plain | Self::Poster | Self::Setup) {
+            if matches!(self, Self::Plain | Self::Poster) {
                 tokens::border::NONE
             } else {
                 tokens::border::WIDTH
@@ -105,6 +103,7 @@ pub(in crate::ui) fn empty_state(
 ) -> El {
     col().key(key).w_full().grow(1.0).min_h(0.0).center().child(
         card()
+            .key(format!("{key}-panel"))
             .w(400.0)
             .padding(tokens::layout::PANEL_INSET)
             .gap(tokens::layout::PAGE_GAP)
