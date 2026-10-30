@@ -21,10 +21,11 @@ fn windows_caption(window: &rune::WindowHandle, background: rune::Color) {
     let dark = 1_i32;
     // Cosmetic attributes are unsupported on older Windows versions. Keep their
     // native caption rather than failing window startup.
-    let _ = window.on_raw_handle(|handle| {
+    let _ = window.with_raw_handle(|handle| {
         if let RawWindowHandle::Win32(raw) = handle.as_raw() {
             let hwnd = raw.hwnd.get() as windows_sys::Win32::Foundation::HWND;
-            // SAFETY: Rune calls this on the owning UI thread with a live HWND.
+            // SAFETY: The on_window callback runs on the owning UI thread, and
+            // with_raw_handle borrows a live HWND for the duration of this call.
             // Both attributes receive valid, correctly sized values, copied by DWM.
             unsafe {
                 DwmSetWindowAttribute(
@@ -41,7 +42,6 @@ fn windows_caption(window: &rune::WindowHandle, background: rune::Color) {
                 );
             }
         }
-        Ok(())
     });
 }
 
