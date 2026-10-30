@@ -4,6 +4,38 @@ use crate::library_worker::Snapshot;
 use scry_addons::Stream;
 use scry_library::{Media, MediaKey, MediaKind};
 
+pub(super) fn scene_addons(s: &mut State) {
+    s.navigation.page = Page::Addons;
+    s.addons.busy = false;
+    s.addons.pending = None;
+    s.addons.installed = vec![scry_addons::Addon {
+        manifest_url: "https://example.com/manifest.json".into(),
+        manifest: scry_addons::Manifest {
+            id: "example.provider".into(),
+            name: "Community provider".into(),
+            logo: None,
+            resources: Vec::new(),
+            types: None,
+            id_prefixes: None,
+            catalogs: Vec::new(),
+        },
+        disabled: false,
+    }];
+}
+
+pub(super) fn scene_addon_dialog(s: &mut State) {
+    scene_addons(s);
+    s.addons.install_open = true;
+}
+
+pub(super) fn scene_addon_installing(s: &mut State) {
+    scene_addon_dialog(s);
+    s.addons.busy = true;
+    s.addons.pending = Some(super::addons::AddonAction::Install(
+        "https://example.com/manifest.json".into(),
+    ));
+}
+
 pub(super) fn scene_settings(s: &mut State) {
     s.navigation.page = Page::Settings;
     s.addons.busy = false;
@@ -63,11 +95,6 @@ pub(super) fn scene_player_intro_fullscreen(s: &mut State) {
 pub(super) fn scene_player_intro_upcoming(s: &mut State) {
     scene_player_intro_fullscreen(s);
     s.player.sample.position_s = Some(52.5);
-}
-
-pub(super) fn scene_addons(s: &mut State) {
-    s.navigation.page = Page::Addons;
-    s.addons.busy = false;
 }
 
 pub(super) fn scene_discover(s: &mut State) {

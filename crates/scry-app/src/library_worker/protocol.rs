@@ -1,5 +1,5 @@
 //! Messages shared by the UI handle and the database thread.
-use scry_library::{Media, MediaKey, MediaKind, Progress, WatchedState};
+use scry_library::{Media, MediaKey, Progress, WatchedState};
 
 #[derive(Clone, Debug)]
 pub enum Command {
@@ -49,7 +49,6 @@ pub enum Command {
     Browse {
         generation: u64,
         watched: bool,
-        kind: MediaKind,
         offset: u32,
     },
     Overview {

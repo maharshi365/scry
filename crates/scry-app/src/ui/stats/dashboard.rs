@@ -309,7 +309,7 @@ fn mastery(seconds: f64) -> El {
 }
 
 fn rankings(stats: &NerdStats) -> El {
-    let mut content = panel("stats-top-titles", "Your usual suspects", &icons::CHART).min_h(270.0);
+    let mut content = panel("stats-top-titles", "Your usual suspects", &icons::CHART);
     let largest = stats.top_titles.first().map_or(0.0, |title| title.seconds);
     if largest <= 0.0 {
         return content.child(small("Watch something. We’ll establish a pattern."));
@@ -370,7 +370,6 @@ fn library_health(stats: &NerdStats) -> El {
         &icons::LIBRARY,
     )
     .w_full()
-    .grow(1.0)
     .child(
         row()
             .w_full()
@@ -405,7 +404,6 @@ fn records(stats: &NerdStats) -> El {
     card()
         .key("stats-records")
         .w_full()
-        .grow(1.0)
         .padding(14.0)
         .gap(8.0)
         .child(

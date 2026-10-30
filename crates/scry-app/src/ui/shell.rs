@@ -198,7 +198,7 @@ fn sidebar(s: &State) -> El {
     let mut links = col()
         .w_full()
         .gap(tokens::shell::NAV_GAP)
-        .child(eyebrow("01 / COLLECTION").px(10.0).py(6.0));
+        .child(eyebrow("COLLECTION").px(10.0).py(6.0));
     for (key, title, page, glyph) in [
         (
             "nav-watching",
@@ -242,7 +242,7 @@ fn sidebar(s: &State) -> El {
         .w_full()
         .gap(tokens::shell::NAV_GAP)
         .child(divider())
-        .child(eyebrow("02 / SYSTEM").px(10.0).py(6.0));
+        .child(eyebrow("SYSTEM").px(10.0).py(6.0));
     for (key, title, page, glyph) in [
         ("nav-stats", "Stats for Nerds", Page::Stats, &icons::CHART),
         ("nav-addons", "Add-ons", Page::Addons, &icons::ADDONS),

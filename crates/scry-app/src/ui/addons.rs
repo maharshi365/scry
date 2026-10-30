@@ -6,11 +6,12 @@ use super::{
     primitives::{
         button::{Button, Size, Variant},
         dialog,
+        feedback::{self, Tone},
         input::dialog_input,
         pattern::detail_header,
-        status::spinner,
+        status::chip,
         surface::scroll,
-        text::{heading, label},
+        text::label,
     },
 };
 use crate::services::{CINEMETA, KITSU};
@@ -21,6 +22,7 @@ pub(super) struct AddonsState {
     pub status: String,
     pub installed: Vec<scry_addons::Addon>,
     pub busy: bool,
+    pub pending: Option<AddonAction>,
     pub install: rune::TextEdit,
     pub direct: rune::TextEdit,
     pub install_open: bool,
@@ -35,6 +37,7 @@ impl Default for AddonsState {
             status: String::new(),
             installed: Vec::new(),
             busy: true,
+            pending: None,
             install: rune::TextEdit::new(""),
             direct: rune::TextEdit::new(""),
             install_open: false,
@@ -42,6 +45,12 @@ impl Default for AddonsState {
             layout: AddonLayout::default(),
         }
     }
+}
+
+pub(super) enum AddonAction {
+    Install(String),
+    Toggle(String),
+    Remove(String),
 }
 
 struct Supported {
@@ -57,21 +66,21 @@ const SUPPORTED: [Supported; 3] = [
         id: "com.linvo.cinemeta",
         name: "Cinemeta",
         url: CINEMETA,
-        description: "Movie and TV series catalogs, metadata, and episode release dates.",
+        description: "Movie and TV catalogs, details, and release dates.",
         logo: None,
     },
     Supported {
         id: "community.anime.kitsu",
         name: "Anime Kitsu",
         url: KITSU,
-        description: "Anime catalogs, search, metadata, and episodes using Kitsu IDs.",
+        description: "Anime catalogs, search, and episode details.",
         logo: Some("https://i.imgur.com/7N6XGoO.png"),
     },
     Supported {
         id: "com.stremio.torrentio.addon",
         name: "Torrentio",
         url: "https://torrentio.strem.fun/manifest.json",
-        description: "Streams from direct torrents or a configured debrid provider.",
+        description: "Torrent streams and configured debrid providers.",
         logo: Some("https://torrentio.strem.fun/images/logo_v1.png"),
     },
 ];
@@ -141,40 +150,145 @@ impl State {
         };
         self.addons.error = None;
         self.addons.busy = true;
+        self.addons.pending = Some(AddonAction::Install(input.clone()));
+        self.addons.install_complete = false;
         services.install(input);
     }
 }
 
 pub(super) fn addons(s: &State) -> El {
-    let mut list = col().w_full().gap(16.0);
-    for (index, addon) in s.addons.installed.iter().enumerate() {
-        let id = addon.manifest.id.clone();
-        let remove_id = id.clone();
-        let disabled = addon.disabled;
-        list = list.child(
+    let mut list = el()
+        .key("addons-grid")
+        .equal_columns(4)
+        .w_full()
+        .gap(tokens::layout::PAGE_GAP);
+    for (slot, provider) in SUPPORTED.iter().enumerate() {
+        let card = if let Some((index, addon)) = s
+            .addons
+            .installed
+            .iter()
+            .enumerate()
+            .find(|(_, addon)| addon.manifest.id == provider.id)
+        {
+            installed_card(s, index, addon, provider.description)
+        } else {
+            let url = provider.url;
             provider_card(
                 s,
-                index,
-                &addon.manifest.name,
-                &format!(
-                    "{} catalogs · Manifest URL hidden",
-                    addon.manifest.catalogs.len()
-                ),
-                if disabled { "Disabled" } else { "Enabled" },
-                addon.manifest.logo.as_deref(),
+                s.addons.installed.len() + slot,
+                provider.name,
+                provider.description,
+                "Available",
+                provider.logo,
             )
-            .key(format!("installed-addon-{index}"))
+            .key(format!("available-addon-{slot}"))
+            .child(
+                Button::new(format!("supported-addon-{slot}"), "Install")
+                    .enabled(!s.addons.busy)
+                    .busy(matches!(s.addons.pending.as_ref(), Some(AddonAction::Install(input)) if input == url))
+                    .on_press(move |s: &mut State| s.install(url.to_owned()))
+                    .w_full(),
+            )
+        };
+        list = list.child(
+            col()
+                .key(format!("addon-slot-{slot}"))
+                .min_w(0.0)
+                .child(card),
+        );
+    }
+    for (index, addon) in s.addons.installed.iter().enumerate().filter(|(_, addon)| {
+        !SUPPORTED
+            .iter()
+            .any(|provider| provider.id == addon.manifest.id)
+    }) {
+        list = list.child(installed_card(
+            s,
+            index,
+            addon,
+            &format!(
+                "{} catalogs · Custom provider",
+                addon.manifest.catalogs.len()
+            ),
+        ));
+    }
+    col()
+        .key("addons-page")
+        .gap(tokens::layout::PAGE_GAP)
+        .grow(1.0)
+        .min_h(0.0)
+        .w_full()
+        .child(detail_header(
+            "addons-header",
+            "Add-ons",
+            &format!(
+                "{} installed · {} enabled",
+                s.addons.installed.len(),
+                s.addons.installed.iter().filter(|a| !a.disabled).count()
+            ),
+            row().child(
+                Button::new("add-addon", "Add by URL")
+                    .variant(Variant::Primary)
+                    .enabled(!s.addons.busy)
+                    .on_press(|s| open_install(s, "")),
+            ),
+        ))
+        .child(
+            col().h(tokens::addon::NOTICE_HEIGHT).child(
+                if let Some(error) = &s.addons.error {
+                    feedback::status("addons-error", error, Tone::Danger)
+                } else {
+                    label("Your providers, all in one place. Install a provider or add your own manifest URL.")
+                },
+            ),
+        )
+        .child(
+            scroll("addons-scroll", list).on_layout(|s: &mut State, rect| {
+                s.addons.layout.viewport = Some(rect);
+                s.refresh_artwork();
+            }),
+        )
+}
+
+fn installed_card(s: &State, index: usize, addon: &scry_addons::Addon, description: &str) -> El {
+    let id = addon.manifest.id.clone();
+    let remove_id = id.clone();
+    let disabled = addon.disabled;
+    let toggling =
+        matches!(s.addons.pending.as_ref(), Some(AddonAction::Toggle(pending)) if pending == &id);
+    let removing = matches!(s.addons.pending.as_ref(), Some(AddonAction::Remove(pending)) if pending == &remove_id);
+    provider_card(
+        s,
+        index,
+        &addon.manifest.name,
+        description,
+        if disabled { "Disabled" } else { "Enabled" },
+        addon.manifest.logo.as_deref(),
+    )
+    .key(format!("installed-addon-{index}"))
+    .child(
+        row()
+            .w_full()
+            .gap(tokens::layout::ACTION_GAP)
+            .child(el().grow(1.0))
             .child(
                 Button::new(
                     format!("toggle-addon-{index}"),
                     if disabled { "Enable" } else { "Disable" },
                 )
+                .icon(if disabled {
+                    &icons::PLAY
+                } else {
+                    &icons::PAUSE
+                })
                 .enabled(!s.addons.busy)
+                .busy(toggling)
                 .on_press(move |s: &mut State| {
                     if !s.addons.busy
                         && let Some(services) = &s.runtime.services
                     {
                         s.addons.error = None;
+                        s.addons.pending = Some(AddonAction::Toggle(id.clone()));
                         services.set_addon_disabled(id.clone(), !disabled);
                         s.addons.busy = true;
                     }
@@ -185,55 +299,19 @@ pub(super) fn addons(s: &State) -> El {
                     .icon(&icons::TRASH)
                     .variant(Variant::Danger)
                     .enabled(!s.addons.busy)
+                    .busy(removing)
                     .on_press(move |s: &mut State| {
                         if !s.addons.busy
                             && let Some(services) = &s.runtime.services
                         {
                             s.addons.error = None;
+                            s.addons.pending = Some(AddonAction::Remove(remove_id.clone()));
                             services.remove(remove_id.clone());
                             s.addons.busy = true;
                         }
                     }),
             ),
-        );
-    }
-    for (index, provider) in available(s) {
-        let url = provider.url;
-        list = list.child(
-            provider_card(
-                s,
-                s.addons.installed.len() + index,
-                provider.name,
-                provider.description,
-                "Available",
-                provider.logo,
-            )
-            .child(
-                Button::new(format!("supported-addon-{index}"), "Install")
-                    .enabled(!s.addons.busy)
-                    .on_press(move |s: &mut State| s.install(url.to_owned())),
-            ),
-        );
-    }
-    col()
-        .key("addons-page")
-        .gap(tokens::layout::PAGE_GAP)
-        .grow(1.0)
-        .min_h(0.0)
-        .w_full()
-        .child(
-            detail_header("addons-header", "Add-ons",
-                &format!("{} installed · {} enabled", s.addons.installed.len(), s.addons.installed.iter().filter(|a| !a.disabled).count()),
-                row().child(Button::new("add-addon", "Add by URL")
-                    .variant(Variant::Primary)
-                    .enabled(!s.addons.busy)
-                    .on_press(|s| open_install(s, "")))),
-        )
-        .child(label("Browse available providers and manage installed add-ons in one place. Disable an add-on to keep its configuration without using it."))
-        .child(scroll("addons-scroll", list).on_layout(|s: &mut State, rect| {
-            s.addons.layout.viewport = Some(rect);
-            s.refresh_artwork();
-        }))
+    )
 }
 
 fn provider_card(
@@ -262,96 +340,149 @@ fn provider_card(
         )
     };
     super::primitives::surface::Variant::Provider
-        .apply(row())
+        .apply(col())
         .w_full()
+        .min_w(0.0)
+        .h(tokens::addon::TILE_HEIGHT)
+        .min_h(tokens::addon::TILE_HEIGHT)
         .padding(tokens::layout::PANEL_INSET)
         .gap(tokens::layout::PAGE_GAP)
-        .center_y()
         .on_layout(move |s: &mut State, rect| {
             s.addons.layout.rects.insert(index, rect);
             s.refresh_artwork();
         })
-        .child(tile)
+        .child(
+            row()
+                .w_full()
+                .center_y()
+                .gap(tokens::layout::COPY_GAP)
+                .child(tile)
+                .child(el().grow(1.0))
+                .child(chip(status)),
+        )
         .child(
             col()
                 .grow(1.0)
                 .min_w(0.0)
                 .gap(7.0)
-                .child(heading(name.to_owned()))
-                .child(label(description.to_owned()))
-                .child(label(status.to_owned())),
+                .child(
+                    text(name)
+                        .font(tokens::type_::ITEM_TITLE)
+                        .color(tokens::theme().text)
+                        .truncate(),
+                )
+                .child(label(description.to_owned())),
         )
 }
 
-pub(super) fn install_dialog(s: &State) -> El {
-    let mut feedback = col().w_full().gap(10.0);
+fn install_feedback(s: &State) -> El {
     if let Some(error) = &s.addons.error {
-        feedback = feedback.child(label(error.clone()));
-    }
-    let mut submit = Button::new("install-addon", "Install")
-        .variant(Variant::Primary)
-        .size(Size::Dialog)
-        .busy(s.addons.busy)
-        .frame();
-    if s.addons.install_complete {
-        feedback = feedback.child(label("Add-on installed successfully."));
-        submit = Button::new("addon-install-done", "Done")
-            .on_press(|s: &mut State| s.addons.install_open = false);
-    } else if s.addons.busy {
-        submit = submit.child(spinner("addon-install-spinner", 24.0));
+        feedback::status("addon-install-error", error, Tone::Danger)
+    } else if s.addons.install_complete {
+        row()
+            .gap(tokens::layout::ACTION_GAP)
+            .center_y()
+            .child(
+                icon(&icons::CHECK, tokens::control::ICON_SIZE)
+                    .key("addon-install-success")
+                    .color(tokens::success()),
+            )
+            .child(feedback::status(
+                "addon-installed",
+                "Add-on installed successfully.",
+                Tone::Success,
+            ))
     } else {
-        submit = submit
-            .child(icon(&icons::DOWNLOAD, 24.0).color(tokens::accent()))
-            .on_press(|s: &mut State| s.install(s.addons.install.text.clone()));
+        label("Only install add-ons from providers you trust. Your manifest URL is kept private.")
     }
-    if s.addons.install_complete {
-        feedback = feedback.child(
-            icon(&icons::CHECK, 28.0)
-                .key("addon-install-success")
-                .color(tokens::accent()),
-        );
-    }
+}
+
+pub(super) fn install_dialog(s: &State) -> El {
+    let submit = if s.addons.install_complete {
+        Button::new("addon-install-done", "Done")
+            .variant(Variant::Primary)
+            .size(Size::DialogAction)
+            .on_press(|s: &mut State| s.addons.install_open = false)
+    } else {
+        Button::new("install-addon", "Install")
+            .variant(Variant::Primary)
+            .size(Size::DialogAction)
+            .busy(s.addons.busy)
+            .on_press(|s: &mut State| s.install(s.addons.install.text.clone()))
+    };
     dialog::layer(
         "addon-dialog-layer",
         dialog::panel("addon-install-dialog", |s: &mut State| {
             s.addons.install_open = false;
         })
-        .w(640.0)
+        .w(tokens::addon::DIALOG_WIDTH)
         .padding(tokens::layout::PANEL_INSET)
-        .gap(tokens::layout::PAGE_GAP)
-        .child(dialog::header("Install add-on").child(dialog::close(
-            "addon-dialog-close",
-            "Close install dialog",
-            |s: &mut State| s.addons.install_open = false,
-        )))
-        .child(label("Manifest URL"))
+        .gap(tokens::layout::SECTION_GAP)
         .child(
-            dialog_input(
-                "manifest",
-                &s.addons.install,
-                "http://…/manifest.json or https://…/manifest.json",
-                |s| &mut s.addons.install,
-                on_input_key,
-                |s| {
-                    if !s.addons.install_complete {
-                        s.install(s.addons.install.text.clone());
-                    }
-                },
-            )
-            .grow(0.0)
-            .w_full(),
+            row()
+                .w_full()
+                .center_y()
+                .gap(tokens::layout::PAGE_GAP)
+                .child(super::primitives::status::provider_tile().child(
+                    icon(&icons::DOWNLOAD, tokens::badge::MEDALLION_ICON).color(tokens::accent()),
+                ))
+                .child(
+                    dialog::header("Add by URL")
+                        .w(0.0)
+                        .min_w(0.0)
+                        .grow(1.0)
+                        .child(dialog::close(
+                            "addon-dialog-close",
+                            "Close install dialog",
+                            |s: &mut State| s.addons.install_open = false,
+                        )),
+                ),
         )
-        .child(feedback)
+        .child(label(
+            "Connect a custom provider using its Stremio-compatible manifest URL.",
+        ))
         .child(
-            row().gap(12.0).center_y().child(submit).child(
-                text(if s.addons.error.is_some() {
-                    "Check the URL and try again."
-                } else {
-                    ""
-                })
-                .font(tokens::type_::LABEL)
-                .color(tokens::theme().text),
-            ),
+            col()
+                .w_full()
+                .gap(tokens::layout::ACTION_GAP)
+                .child(label("Manifest URL"))
+                .child(
+                    dialog_input(
+                        "manifest",
+                        &s.addons.install,
+                        "https://provider.example/manifest.json",
+                        |s| &mut s.addons.install,
+                        on_input_key,
+                        |s| {
+                            if !s.addons.install_complete {
+                                s.install(s.addons.install.text.clone());
+                            }
+                        },
+                    )
+                    .grow(0.0)
+                    .w_full(),
+                ),
+        )
+        .child(
+            col()
+                .key("addon-install-feedback")
+                .w_full()
+                .h(tokens::addon::FEEDBACK_HEIGHT)
+                .child(install_feedback(s)),
+        )
+        .child(super::primitives::surface::divider())
+        .child(
+            row()
+                .w_full()
+                .gap(tokens::layout::ACTION_GAP)
+                .center_y()
+                .child(el().grow(1.0))
+                .child(
+                    Button::new("addon-install-cancel", "Close")
+                        .size(Size::DialogAction)
+                        .on_press(|s: &mut State| s.addons.install_open = false),
+                )
+                .child(submit),
         ),
     )
 }

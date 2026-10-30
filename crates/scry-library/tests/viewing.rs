@@ -9,6 +9,57 @@ fn movie(id: &str) -> Media {
 }
 
 #[test]
+fn mixed_library_filters_watch_state_before_pagination() -> anyhow::Result<()> {
+    let mut db = Library::memory()?;
+    let mut items = Vec::new();
+    for (index, kind) in [
+        MediaKind::Movie,
+        MediaKind::Series,
+        MediaKind::Movie,
+        MediaKind::Series,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut item = movie(&format!("saved-{index}"));
+        item.key.kind = kind;
+        db.upsert_media(&item)?;
+        db.add_to_watchlist(&item.key)?;
+        if kind == MediaKind::Series {
+            db.sync_episode_releases(
+                &item.key,
+                &[scry_library::EpisodeRelease {
+                    media: Media {
+                        key: MediaKey::new("test", MediaKind::Episode, format!("pilot-{index}")),
+                        title: "Pilot".into(),
+                        parent: Some(item.key.clone()),
+                    },
+                    released_at: Some(0),
+                    season: Some(1),
+                    episode: Some(1),
+                }],
+            )?;
+        }
+        db.set_watched(&item.key, index < 2)?;
+        items.push(item);
+    }
+    assert_eq!(
+        db.list_library(false, None, Page::default())?,
+        vec![items[3].clone(), items[2].clone()]
+    );
+    assert_eq!(
+        db.list_library(true, None, Page::new(1, 0)?)?,
+        vec![items[1].clone()]
+    );
+    assert_eq!(
+        db.list_library(true, None, Page::new(1, 1)?)?,
+        vec![items[0].clone()]
+    );
+    assert!(db.list_library(true, None, Page::new(1, 2)?)?.is_empty());
+    Ok(())
+}
+
+#[test]
 fn watched_titles_leave_to_watch_and_unwatched_saved_titles_return() -> anyhow::Result<()> {
     let mut db = Library::memory()?;
     for kind in [MediaKind::Movie, MediaKind::Series] {
@@ -35,14 +86,23 @@ fn watched_titles_leave_to_watch_and_unwatched_saved_titles_return() -> anyhow::
             )?;
         }
         db.set_watched(&item.key, true)?;
-        assert!(db.list_library(false, kind, Page::default())?.is_empty());
+        assert!(
+            db.list_library(false, Some(kind), Page::default())?
+                .is_empty()
+        );
         assert_eq!(
-            db.list_library(true, kind, Page::default())?,
+            db.list_library(true, Some(kind), Page::default())?,
             vec![item.clone()]
         );
         db.set_watched(&item.key, false)?;
-        assert_eq!(db.list_library(false, kind, Page::default())?, vec![item]);
-        assert!(db.list_library(true, kind, Page::default())?.is_empty());
+        assert_eq!(
+            db.list_library(false, Some(kind), Page::default())?,
+            vec![item]
+        );
+        assert!(
+            db.list_library(true, Some(kind), Page::default())?
+                .is_empty()
+        );
     }
     Ok(())
 }
@@ -58,11 +118,11 @@ fn automatically_watched_titles_are_excluded_before_to_watch_pagination() -> any
     }
     db.record_playback(&finished.key, 80.0, 100.0, 80.0)?;
     assert_eq!(
-        db.list_library(false, MediaKind::Movie, Page::new(1, 0)?)?,
+        db.list_library(false, Some(MediaKind::Movie), Page::new(1, 0)?)?,
         vec![remaining]
     );
     assert_eq!(
-        db.list_library(true, MediaKind::Movie, Page::default())?,
+        db.list_library(true, Some(MediaKind::Movie), Page::default())?,
         vec![finished]
     );
     Ok(())
@@ -183,11 +243,11 @@ fn type_filter_is_applied_before_pagination() -> anyhow::Result<()> {
     db.upsert_media(&show)?;
     db.add_to_watchlist(&show.key)?;
     assert_eq!(
-        db.list_library(false, MediaKind::Movie, Page::new(1, 0)?)?,
+        db.list_library(false, Some(MediaKind::Movie), Page::new(1, 0)?)?,
         vec![film]
     );
     assert_eq!(
-        db.list_library(false, MediaKind::Series, Page::new(1, 0)?)?,
+        db.list_library(false, Some(MediaKind::Series), Page::new(1, 0)?)?,
         vec![show]
     );
     Ok(())
@@ -293,7 +353,7 @@ fn calendar_excludes_unsaved_shows_with_episode_watch_or_playback_state() -> any
     db.set_watched(&episode.key, true)?;
     assert!(db.list_calendar_titles()?.is_empty());
     assert!(
-        db.list_library(true, MediaKind::Series, Page::default())?
+        db.list_library(true, Some(MediaKind::Series), Page::default())?
             .is_empty()
     );
     assert!(!db.is_in_watchlist(&show.key)?);
@@ -475,21 +535,21 @@ fn watching_unsaved_titles_does_not_add_them_to_library() -> anyhow::Result<()> 
         assert!(!db.is_in_watchlist(&item.key)?);
     }
     assert_eq!(
-        db.list_library(true, MediaKind::Movie, Page::new(1, 0)?)?,
+        db.list_library(true, Some(MediaKind::Movie), Page::new(1, 0)?)?,
         vec![saved.clone()]
     );
     assert!(
-        db.list_library(true, MediaKind::Movie, Page::new(1, 1)?)?
+        db.list_library(true, Some(MediaKind::Movie), Page::new(1, 1)?)?
             .is_empty()
     );
     assert!(
-        db.list_library(false, MediaKind::Movie, Page::default())?
+        db.list_library(false, Some(MediaKind::Movie), Page::default())?
             .is_empty()
     );
     db.remove_from_watchlist(&saved.key)?;
     assert!(db.watched_state(&saved.key)?.watched);
     assert!(
-        db.list_library(true, MediaKind::Movie, Page::default())?
+        db.list_library(true, Some(MediaKind::Movie), Page::default())?
             .is_empty()
     );
     Ok(())

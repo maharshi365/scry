@@ -5,6 +5,14 @@ fn compact_shell_gives_space_to_content_and_keeps_navigation_usable() {
     for width in [880.0, 1280.0] {
         let mut rt = rune::Runtime::new(init(), view, (width, 600.0), rune::Env::default());
         rt.frame(0.0);
+        for title in ["COLLECTION", "SYSTEM"] {
+            assert!(
+                rt.elements()
+                    .iter()
+                    .any(|element| element.text.as_deref() == Some(title)),
+                "Sidebar heading {title} must not have a number prefix"
+            );
+        }
         assert!(rect(&rt, "topbar")[3] <= 52.0);
         assert!(rect(&rt, "sidebar")[2] <= 200.0);
         let nav = rect(&rt, "nav-settings");
@@ -12,7 +20,7 @@ fn compact_shell_gives_space_to_content_and_keeps_navigation_usable() {
         assert!(nav[1] + nav[3] <= 600.0);
         tap(&mut rt, "nav-settings");
         assert_eq!(rt.state.navigation.page, Page::Settings);
-        assert!(rt.find("subtitle-primary-language").is_some());
+        assert!(rt.find("streaming-settings").is_some());
     }
 }
 

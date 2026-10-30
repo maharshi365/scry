@@ -37,7 +37,6 @@ pub(super) struct LibraryUi {
     list: u8,
     offset: u32,
     watching_offset: u32,
-    kind: MediaKind,
     pub(in crate::ui) entries: Option<Vec<Media>>,
     pub(in crate::ui) posters: posters::PosterUi,
     pub watching: Vec<(Media, scry_library::Progress)>,
@@ -76,7 +75,6 @@ impl Default for LibraryUi {
             list: 0,
             offset: 0,
             watching_offset: 0,
-            kind: MediaKind::Movie,
             entries: None,
             posters: posters::PosterUi::default(),
             watching: Vec::new(),
@@ -212,7 +210,6 @@ impl State {
                 .send(Command::Browse {
                     generation,
                     watched: self.library.list == 1,
-                    kind: self.library.kind,
                     offset: self.library.offset,
                 })
                 .and_then(|()| {
@@ -548,59 +545,31 @@ pub(super) fn detail_actions(s: &State) -> El {
 }
 
 pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
-    let filters = row()
-        .center_y()
-        .gap(12.0)
-        .child(
-            segmented_group()
-                .child(segment(
-                    "library-watchlist-tab",
-                    "To watch",
-                    s.library.list == 0,
-                    |s: &mut State| {
-                        s.library.list = 0;
-                        s.library.offset = 0;
-                        s.library.entries = None;
-                        s.refresh_library();
-                    },
-                ))
-                .child(segment(
-                    "library-watched-tab",
-                    "Watched",
-                    s.library.list == 1,
-                    |s: &mut State| {
-                        s.library.list = 1;
-                        s.library.offset = 0;
-                        s.library.entries = None;
-                        s.refresh_library();
-                    },
-                )),
-        )
-        .child(
-            segmented_group()
-                .child(segment(
-                    "library-movies",
-                    "Movies",
-                    s.library.kind == MediaKind::Movie,
-                    |s: &mut State| {
-                        s.library.kind = MediaKind::Movie;
-                        s.library.offset = 0;
-                        s.library.entries = None;
-                        s.refresh_library();
-                    },
-                ))
-                .child(segment(
-                    "library-series-filter",
-                    "TV series",
-                    s.library.kind == MediaKind::Series,
-                    |s: &mut State| {
-                        s.library.kind = MediaKind::Series;
-                        s.library.offset = 0;
-                        s.library.entries = None;
-                        s.refresh_library();
-                    },
-                )),
-        );
+    let filters = row().center_y().gap(12.0).child(
+        segmented_group()
+            .child(segment(
+                "library-watchlist-tab",
+                "To watch",
+                s.library.list == 0,
+                |s: &mut State| {
+                    s.library.list = 0;
+                    s.library.offset = 0;
+                    s.library.entries = None;
+                    s.refresh_library();
+                },
+            ))
+            .child(segment(
+                "library-watched-tab",
+                "Watched",
+                s.library.list == 1,
+                |s: &mut State| {
+                    s.library.list = 1;
+                    s.library.offset = 0;
+                    s.library.entries = None;
+                    s.refresh_library();
+                },
+            )),
+    );
     let mut body =
         col()
             .w_full()
@@ -640,20 +609,15 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
 }
 
 pub(super) fn grid_key(s: &State) -> String {
-    format!(
-        "library-scroll-{}-{}-{:?}",
-        s.library.list, s.library.offset, s.library.kind
-    )
+    format!("library-scroll-{}-{}", s.library.list, s.library.offset)
 }
 
 fn library_empty(s: &State) -> El {
-    let series = s.library.kind == MediaKind::Series;
     let watched = s.library.list == 1;
-    let title = match (watched, series) {
-        (false, false) => "No movies saved",
-        (false, true) => "No TV series saved",
-        (true, false) => "No watched movies",
-        (true, true) => "No watched TV series",
+    let title = if watched {
+        "No watched titles"
+    } else {
+        "No titles saved"
     };
     let description = if watched {
         "Titles marked as watched will appear here."
@@ -666,18 +630,11 @@ fn library_empty(s: &State) -> El {
         description,
         if watched { &icons::CHECK } else { &icons::ADD },
         row().child(
-            Button::new(
-                "library-browse",
-                if series {
-                    "Browse TV series"
-                } else {
-                    "Browse movies"
-                },
-            )
-            .variant(Variant::Primary)
-            .on_press(move |s: &mut State| {
-                s.choose_kind(if series { "series" } else { "movie" });
-            }),
+            Button::new("library-browse", "Browse titles")
+                .variant(Variant::Primary)
+                .on_press(|s: &mut State| {
+                    s.choose_kind("movie");
+                }),
         ),
     )
 }

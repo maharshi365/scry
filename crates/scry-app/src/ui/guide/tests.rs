@@ -331,6 +331,19 @@ fn entering_guide_automatically_tunes_an_available_program() {
 }
 
 #[test]
+fn disabling_autoplay_keeps_preview_idle_but_allows_manual_tuning() {
+    let mut state = state();
+    state.guide.data.policy.autoplay_disabled = true;
+    let data = state.guide.data.clone();
+    state.apply_guide(0, data);
+    state.autoplay_guide();
+    assert!(state.guide.tuned.is_none());
+    assert!(!state.guide.resolving);
+    state.tune_guide("office".into());
+    assert_eq!(state.guide.tuned.as_ref().unwrap().0, "office");
+}
+
+#[test]
 fn clicking_the_current_program_tunes_the_channel_without_opening_settings() {
     let state = state();
     let key = format!(
@@ -366,6 +379,7 @@ fn settings_use_aligned_horizontal_choices_without_repeated_channel_controls() {
     for viewport in [(1280.0, 820.0), (880.0, 600.0)] {
         let mut state = state();
         state.navigation.page = Page::Settings;
+        state.settings.tab = super::super::settings::SettingsTab::Guide;
         state.addons.installed = vec![serde_json::from_value(serde_json::json!({"manifest_url":"https://example.com/manifest.json","manifest":{"id":"streams","name":"Streams","resources":["stream"]}})).unwrap()];
         let mut runtime = rune::Runtime::new(
             state,

@@ -130,12 +130,11 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
         Command::Browse {
             generation,
             watched,
-            kind,
             offset,
         } => {
             return Ok(Event::Browse {
                 generation,
-                items: library.list_library(watched, kind, Page::new(MAX_PAGE_SIZE, offset)?)?,
+                items: library.list_library(watched, None, Page::new(MAX_PAGE_SIZE, offset)?)?,
             });
         }
         Command::Overview {

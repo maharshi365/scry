@@ -156,7 +156,7 @@ fn setup(s: &mut State, wake: rune::Waker) {
     }
     s.shell.native_navigation.connect(wake.clone());
     if headless() {
-        s.addons.busy = false;
+        s.addons.busy = s.addons.pending.is_some();
         return;
     }
     s.artwork.posters = crate::artwork::Artwork::start(&wake).ok();
@@ -299,6 +299,8 @@ const SCENES: &[Scene] = &[
         super::scenes::scene_player_intro_upcoming,
     ),
     ("settings", super::scenes::scene_settings),
+    ("addon-dialog", super::scenes::scene_addon_dialog),
+    ("addon-installing", super::scenes::scene_addon_installing),
     ("addons", super::scenes::scene_addons),
     ("subtitles", super::player::subtitles::scene),
     ("stats", super::stats::scene),

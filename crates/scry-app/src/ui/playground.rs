@@ -2,7 +2,7 @@
 use super::{
     design::tokens,
     primitives::{
-        button::{Button, Variant, menu_choice, segment, segmented_group},
+        button::{Button, Size, Variant, menu_choice, segment, segmented_group},
         dialog,
         feedback::{self, Tone},
         form::{choices, option_row},
@@ -53,6 +53,14 @@ struct State {
     dialog_open: bool,
     notice: bool,
     expanded: bool,
+    loading: Loading,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum Loading {
+    #[default]
+    Idle,
+    Busy,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -83,6 +91,7 @@ fn init() -> State {
         dialog_open: false,
         notice: true,
         expanded: false,
+        loading: Loading::Idle,
     }
 }
 
@@ -140,6 +149,21 @@ fn controls(s: &State) -> El {
                     ),
             )
             .child(label(format!("Actions taken: {}", s.presses)).key("playground-count"))
+            .child(
+                row()
+                    .gap(tokens::layout::ACTION_GAP)
+                    .child(
+                        Button::new("playground-loading-action", "Install")
+                            .variant(Variant::Primary)
+                            .size(Size::DialogAction)
+                            .busy(s.loading == Loading::Busy)
+                            .on_press(|s: &mut State| s.loading = Loading::Busy),
+                    )
+                    .child(
+                        Button::new("playground-loading-finish", "Finish local operation")
+                            .on_press(|s: &mut State| s.loading = Loading::Idle),
+                    ),
+            )
             .child(option_row(
                 "playground-name",
                 "Example name",
@@ -411,6 +435,10 @@ fn scene_settings(s: &mut State) {
     *s = init();
     s.show(Category::Settings);
 }
+fn scene_loading(s: &mut State) {
+    scene_controls(s);
+    s.loading = Loading::Busy;
+}
 fn scene_list_detail(s: &mut State) {
     *s = init();
     s.show(Category::ListDetail);
@@ -441,6 +469,7 @@ fn app() -> App<State> {
         on_key: Some(on_key),
         scenes: &[
             ("Examples/Controls", scene_controls),
+            ("Controls/Loading action", scene_loading),
             ("Examples/Settings", scene_settings),
             ("Examples/List detail", scene_list_detail),
             ("Feedback/Notice", scene_feedback),

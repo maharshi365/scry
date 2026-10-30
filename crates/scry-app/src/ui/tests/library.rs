@@ -525,7 +525,7 @@ fn library_grid_scrolls_and_history_restores_the_opened_poster_card() {
         rt.frame(1.0 / 60.0);
     }
     let filters = rect(&rt, "library-watchlist-tab");
-    let viewport = rect(&rt, "library-scroll-0-0-Movie");
+    let viewport = rect(&rt, "library-scroll-0-0");
     assert!(!visible_artwork(&rt.state).contains(&"https://example.com/199.jpg".into()));
     rt.wheel(viewport[0] + 30.0, viewport[1] + 30.0, -1_000_000.0);
     for _ in 0..30 {

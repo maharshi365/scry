@@ -168,6 +168,7 @@ impl State {
 
     pub(in crate::ui) fn autoplay_guide(&mut self) {
         if self.navigation.page != Page::Guide
+            || self.guide.data.policy.autoplay_disabled
             || self.addons.busy
             || self.guide.collections_open
             || self.guide.busy

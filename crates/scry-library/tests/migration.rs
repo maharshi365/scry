@@ -59,7 +59,7 @@ fn upgrade_saved_watch_history(version: i64) -> anyhow::Result<()> {
         assert!(db.watched_state(&show)?.watched);
         assert!(db.series_poster_state(&show, 100)?.0);
         assert_eq!(
-            db.list_library(true, MediaKind::Series, Page::default())?
+            db.list_library(true, Some(MediaKind::Series), Page::default())?
                 .len(),
             1
         );
@@ -141,11 +141,11 @@ fn version_one_upgrade_corrects_completion_and_preserves_watch_history() -> anyh
         );
         assert_eq!(db.series_progress(&show, 100)?.fraction(), Some(0.5));
         assert_eq!(
-            db.list_library(false, MediaKind::Series, Page::default())?[0].key,
+            db.list_library(false, Some(MediaKind::Series), Page::default())?[0].key,
             show
         );
         assert!(
-            db.list_library(true, MediaKind::Series, Page::default())?
+            db.list_library(true, Some(MediaKind::Series), Page::default())?
                 .is_empty()
         );
         // The upgraded table must also accept undated inventory.

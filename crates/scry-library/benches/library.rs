@@ -25,10 +25,10 @@ fn main() -> anyhow::Result<()> {
                         black_box(db.list_up_next(black_box(support::NOW), page)?);
                     }
                     "movies" => {
-                        black_box(db.list_library(false, MediaKind::Movie, page)?);
+                        black_box(db.list_library(false, Some(MediaKind::Movie), page)?);
                     }
                     "series" => {
-                        black_box(db.list_library(false, MediaKind::Series, page)?);
+                        black_box(db.list_library(false, Some(MediaKind::Series), page)?);
                     }
                     "episodes" => {
                         black_box(db.list_episodes(black_box(&key), page)?);

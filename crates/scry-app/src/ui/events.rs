@@ -160,6 +160,7 @@ fn apply(s: &mut State, event: Event) {
         Event::Calendar(generation, found, failed) => s.apply_calendar(generation, found, failed),
         Event::Addons(result) => {
             s.addons.busy = false;
+            s.addons.pending = None;
             match result {
                 Ok(addons) => {
                     if s.addons.install_open {

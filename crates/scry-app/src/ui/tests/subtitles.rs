@@ -332,6 +332,7 @@ fn off_is_not_overridden_by_late_tracks_and_stale_snapshots_are_ignored() {
 fn subtitle_defaults_are_english_and_settings_edits_do_not_change_current_tracks() {
     let mut state = init();
     state.navigation.page = Page::Settings;
+    state.settings.tab = super::super::settings::SettingsTab::Subtitles;
     assert_eq!(
         state.settings.subtitle_preferences.primary.as_deref(),
         Some("eng")
@@ -360,7 +361,7 @@ fn subtitle_defaults_are_english_and_settings_edits_do_not_change_current_tracks
         Some("spa")
     );
     assert_eq!(rt.state.player.subtitles.selected, [None, None]);
-    assert!(rt.find("guide-quality-1080").is_some());
+    assert!(rt.find("guide-quality-1080").is_none());
 }
 
 #[test]

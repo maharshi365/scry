@@ -1,6 +1,43 @@
 use super::*;
 
 #[test]
+fn loading_action_reserves_its_label_space_and_restores_the_same_button() {
+    let mut rt = runtime(scene_controls, (1280.0, 820.0));
+    let before = rect(&rt, "playground-loading-action");
+    let neighbor = rect(&rt, "playground-loading-finish");
+    tap(&mut rt, "playground-loading-action");
+    assert_eq!(stage(&rt).loading, Loading::Busy);
+    assert!(
+        rt.playground_element("playground-loading-action-spinner")
+            .is_some()
+    );
+    assert!(
+        rect(&rt, "playground-loading-action")
+            .into_iter()
+            .zip(before)
+            .all(|(actual, expected)| (actual - expected).abs() < 0.01)
+    );
+    assert!(
+        rect(&rt, "playground-loading-finish")
+            .into_iter()
+            .zip(neighbor)
+            .all(|(actual, expected)| (actual - expected).abs() < 0.01)
+    );
+    tap(&mut rt, "playground-loading-finish");
+    assert_eq!(stage(&rt).loading, Loading::Idle);
+    assert!(
+        rt.playground_element("playground-loading-action-spinner")
+            .is_none()
+    );
+    assert!(
+        rect(&rt, "playground-loading-action")
+            .into_iter()
+            .zip(before)
+            .all(|(actual, expected)| (actual - expected).abs() < 0.01)
+    );
+}
+
+#[test]
 fn titlebar_fixture_keeps_actions_interactive() {
     let mut rt = runtime(scene_titlebar, (1280.0, 820.0));
     tap(&mut rt, "playground-titlebar-back");

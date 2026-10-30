@@ -136,7 +136,6 @@ fn background_tracking_finds_completed_shows_hidden_by_the_library_filter() {
     s.library.worker = Some(crate::library_worker::Worker::start(path, Arc::new(|| {})).unwrap());
     let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);
-    tap(&mut rt, "library-series-filter");
     tap(&mut rt, "library-watched-tab");
     rt.poll = Some(poll);
     settle_library(&mut rt, |s| {
@@ -290,9 +289,6 @@ fn tv_posters_share_episode_progress_and_require_the_full_inventory_across_route
         let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
         rt.poll = Some(poll);
         rt.frame(0.0);
-        if page == Page::Library {
-            tap(&mut rt, "library-series-filter");
-        }
         settle_library(&mut rt, |s| {
             s.library.series.states.iter().any(|state| {
                 state.key == parent.key

@@ -58,7 +58,7 @@ fn paginated_library_badges_match_full_status_for_release_and_season_cases() -> 
         let mut actual = Vec::new();
         for offset in (0..24).step_by(3) {
             actual.extend(
-                db.list_library(watched, MediaKind::Series, Page::new(3, offset)?)?
+                db.list_library(watched, Some(MediaKind::Series), Page::new(3, offset)?)?
                     .into_iter()
                     .map(|item| item.key),
             );
@@ -169,11 +169,11 @@ fn shared_status_excludes_special_progress_and_blocks_future_regular_releases() 
     assert!(!db.series_poster_state(&parent.key, 100)?.0);
     assert!(!db.watched_state(&future.key)?.watched);
     assert!(
-        db.list_library(true, MediaKind::Series, Page::default())?
+        db.list_library(true, Some(MediaKind::Series), Page::default())?
             .is_empty()
     );
     assert_eq!(
-        db.list_library(false, MediaKind::Series, Page::default())?,
+        db.list_library(false, Some(MediaKind::Series), Page::default())?,
         vec![parent]
     );
     assert!(db.list_up_next(100, Page::default())?.is_empty());
@@ -222,11 +222,11 @@ fn caught_up_is_not_complete_until_all_known_episodes_are_released_and_watched()
     assert!(!db.series_poster_state(&parent.key, 100)?.0);
     assert!(!db.watched_state(&parent.key)?.watched);
     assert!(
-        db.list_library(true, MediaKind::Series, Page::default())?
+        db.list_library(true, Some(MediaKind::Series), Page::default())?
             .is_empty()
     );
     assert_eq!(
-        db.list_library(false, MediaKind::Series, Page::default())?,
+        db.list_library(false, Some(MediaKind::Series), Page::default())?,
         vec![parent.clone()]
     );
     assert!(db.list_up_next(100, Page::default())?.is_empty());
@@ -247,7 +247,7 @@ fn caught_up_is_not_complete_until_all_known_episodes_are_released_and_watched()
     assert!(db.series_poster_state(&parent.key, 100)?.0);
     assert!(db.watched_state(&parent.key)?.watched);
     assert_eq!(
-        db.list_library(true, MediaKind::Series, Page::default())?,
+        db.list_library(true, Some(MediaKind::Series), Page::default())?,
         vec![parent]
     );
     Ok(())
@@ -288,7 +288,7 @@ fn undated_regular_episodes_are_not_marked_or_offered_until_released() -> anyhow
     assert!(!db.watched_state(&parent.key)?.watched);
     assert!(!db.series_poster_state(&parent.key, 100)?.0);
     assert_eq!(
-        db.list_library(false, MediaKind::Series, Page::default())?,
+        db.list_library(false, Some(MediaKind::Series), Page::default())?,
         vec![parent.clone()]
     );
     assert!(
@@ -386,22 +386,22 @@ fn episode_completion_moves_a_series_between_library_lists_without_creating_an_o
     db.set_watched(&first.key, true)?;
     assert!(sync(&mut db, &parent, std::slice::from_ref(&first.key))?);
     assert_eq!(
-        db.list_library(true, MediaKind::Series, Page::default())?,
+        db.list_library(true, Some(MediaKind::Series), Page::default())?,
         vec![parent.clone()]
     );
     assert!(
-        db.list_library(false, MediaKind::Series, Page::default())?
+        db.list_library(false, Some(MediaKind::Series), Page::default())?
             .is_empty()
     );
     assert!(!sync(&mut db, &parent, std::slice::from_ref(&first.key))?);
     let new_release = episode(&parent, 2).key;
     assert!(sync(&mut db, &parent, &[first.key.clone(), new_release])?);
     assert!(
-        db.list_library(true, MediaKind::Series, Page::default())?
+        db.list_library(true, Some(MediaKind::Series), Page::default())?
             .is_empty()
     );
     assert_eq!(
-        db.list_library(false, MediaKind::Series, Page::default())?,
+        db.list_library(false, Some(MediaKind::Series), Page::default())?,
         vec![parent.clone()]
     );
     db.set_watched(&parent.key, false)?;
@@ -504,14 +504,14 @@ fn stored_inventory_and_episode_actions_update_all_library_views_without_reconci
     db.set_watched(&first.key, true)?;
     assert!(db.watched_state(&parent.key)?.watched);
     assert_eq!(
-        db.list_library(true, MediaKind::Series, Page::default())?,
+        db.list_library(true, Some(MediaKind::Series), Page::default())?,
         vec![parent.clone()]
     );
     assert!(db.list_up_next(100, Page::default())?.is_empty());
     db.set_watched(&first.key, false)?;
     assert!(!db.watched_state(&parent.key)?.watched);
     assert_eq!(
-        db.list_library(false, MediaKind::Series, Page::default())?,
+        db.list_library(false, Some(MediaKind::Series), Page::default())?,
         vec![parent.clone()]
     );
     assert_eq!(db.list_up_next(100, Page::default())?[0].0.key, first.key);

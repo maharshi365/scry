@@ -10,6 +10,18 @@ fn raw_visual_value(text: &str) -> bool {
 }
 
 #[test]
+fn addon_installation_uses_shared_loading_actions_and_feedback() {
+    let source = include_str!("../addons.rs");
+    assert!(source.contains(".busy(s.addons.busy)"));
+    assert!(source.contains("Size::DialogAction"));
+    assert!(source.contains("feedback::status("));
+    assert!(
+        !source.contains("spinner("),
+        "Buttons own their loading indicators"
+    );
+}
+
+#[test]
 fn native_drag_regions_stay_in_the_shared_titlebar() {
     let shell = include_str!("../shell.rs");
     assert!(!shell.contains(".window_drag()"));

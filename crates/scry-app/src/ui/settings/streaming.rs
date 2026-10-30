@@ -5,10 +5,10 @@ use crate::ui::{
         button::{Button, Size},
         feedback::{self, Tone},
         form::{choices, option_row},
-        pattern::{section, settings_group},
+        pattern::settings_group,
     },
 };
-use rune::{El, row};
+use rune::{El, col, row};
 
 #[derive(Default)]
 pub(in crate::ui) struct SettingsUi {
@@ -64,12 +64,7 @@ pub(super) fn view(s: &State) -> El {
             ),
         ));
     }
-    section(
-        "streaming-preferences",
-        "Streaming",
-        "Cache size changes apply to the next playback. Older inactive data is removed first.",
-        panel,
-    )
+    col().key("streaming-preferences").w_full().child(panel)
 }
 
 impl State {

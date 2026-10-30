@@ -262,15 +262,16 @@ impl Library {
     pub fn list_library(
         &self,
         is_watched: bool,
-        kind: MediaKind,
+        kind: Option<MediaKind>,
         page: Page,
     ) -> Result<Vec<Media>> {
         let connection = &mut *self.connection.borrow_mut();
         let complete = crate::watch_status::completion_sql("m.media_id", "unixepoch()");
         let records = diesel::sql_query(format!(
-            "SELECT m.* FROM media m JOIN watchlist s ON s.media_id=m.media_id LEFT JOIN watched v ON v.media_id=m.media_id WHERE m.kind=? AND (CASE WHEN m.kind='series' THEN ({complete}) ELSE COALESCE(v.watched,0) END)=? ORDER BY m.media_id DESC LIMIT ? OFFSET ?"
+            "SELECT m.* FROM media m JOIN watchlist s ON s.media_id=m.media_id LEFT JOIN watched v ON v.media_id=m.media_id WHERE m.kind IN ('movie','series') AND (? IS NULL OR m.kind=?) AND (CASE WHEN m.kind='series' THEN ({complete}) ELSE COALESCE(v.watched,0) END)=? ORDER BY m.media_id DESC LIMIT ? OFFSET ?"
         ))
-            .bind::<diesel::sql_types::Text, _>(kind.as_str())
+            .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(kind.map(MediaKind::as_str))
+            .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(kind.map(MediaKind::as_str))
             .bind::<diesel::sql_types::Bool, _>(is_watched)
             .bind::<diesel::sql_types::BigInt, _>(i64::from(page.limit))
             .bind::<diesel::sql_types::BigInt, _>(i64::from(page.offset))

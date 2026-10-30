@@ -69,7 +69,7 @@ pub fn library() -> anyhow::Result<Library> {
 
 pub fn home(db: &Library) -> anyhow::Result<()> {
     std::hint::black_box(db.list_up_next(NOW, Page::new(200, 0)?)?);
-    std::hint::black_box(db.list_library(false, MediaKind::Movie, Page::new(200, 0)?)?);
-    std::hint::black_box(db.list_library(false, MediaKind::Series, Page::new(200, 0)?)?);
+    std::hint::black_box(db.list_library(false, Some(MediaKind::Movie), Page::new(200, 0)?)?);
+    std::hint::black_box(db.list_library(false, Some(MediaKind::Series), Page::new(200, 0)?)?);
     Ok(())
 }

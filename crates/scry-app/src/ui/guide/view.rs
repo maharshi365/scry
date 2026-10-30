@@ -210,8 +210,10 @@ fn header(s: &State) -> El {
         }),
     );
     header = header.child(
-        Button::new("guide-settings", "Settings")
-            .on_press(|s: &mut State| s.navigate(Page::Settings)),
+        Button::new("guide-settings", "Settings").on_press(|s: &mut State| {
+            s.settings.tab = super::super::settings::SettingsTab::Guide;
+            s.navigate(Page::Settings);
+        }),
     );
     header
 }

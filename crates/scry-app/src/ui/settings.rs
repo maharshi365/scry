@@ -5,38 +5,83 @@ use super::{
     State,
     design::tokens,
     primitives::{
-        button::{Button, DropdownVariant, Size, dropdown_trigger, menu_choice},
+        button::{Button, DropdownVariant, Size, dropdown_trigger, menu_choice, tab},
         feedback::{self, Tone},
         form::{choices, option_row},
         pattern::{page, section, settings_group},
     },
 };
-use rune::{El, col};
+use rune::{El, col, row};
 use scry_library::guide::{EpisodeOrder, SourcePolicy};
 use scry_playback::subtitles::{LANGUAGES, Preferences, SIZES, language_label};
 
 #[derive(Default)]
 pub(super) struct SettingsState {
+    pub tab: SettingsTab,
     pub subtitle_preferences: Preferences,
     pub subtitles: super::player::subtitles::SettingsUi,
     pub streaming: streaming::SettingsUi,
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(super) enum SettingsTab {
+    #[default]
+    Streaming,
+    Subtitles,
+    Guide,
+}
+
 pub(super) fn view(s: &State) -> El {
-    let mut content = col()
+    let mut tabs = row()
+        .key("settings-tabs")
+        .self_start()
+        .gap(4.0)
+        .role("tablist")
+        .label("Settings");
+    for (key, title, target) in [
+        (
+            "settings-tab-streaming",
+            "Streaming",
+            SettingsTab::Streaming,
+        ),
+        (
+            "settings-tab-subtitles",
+            "Subtitles",
+            SettingsTab::Subtitles,
+        ),
+        ("settings-tab-guide", "Guide", SettingsTab::Guide),
+    ] {
+        tabs = tabs.child(tab(
+            key,
+            title,
+            s.settings.tab == target,
+            move |s: &mut State| {
+                s.settings.subtitles.language_menu = None;
+                s.settings.tab = target;
+            },
+        ));
+    }
+    let panel = match s.settings.tab {
+        SettingsTab::Streaming => streaming::view(s),
+        SettingsTab::Subtitles => subtitle_settings(s),
+        SettingsTab::Guide => guide_settings(s),
+    };
+    let content = col()
         .w_full()
         .gap(tokens::layout::SECTION_GAP)
-        .child(streaming::view(s))
-        .child(subtitle_settings(s))
-        .child(section(
-            "guide-preferences",
-            "Guide",
-            "Applies to Guide channels. Published programs stay in place when settings change.",
-            col()
-                .gap(tokens::layout::SECTION_GAP)
-                .child(source_settings(s))
-                .child(programming_settings(s)),
-        ));
+        .child(tabs)
+        .child(panel);
+    page("settings-page", "Settings", "", row(), content)
+}
+
+fn guide_settings(s: &State) -> El {
+    let mut content = col()
+        .key("guide-preferences")
+        .w_full()
+        .gap(tokens::layout::SECTION_GAP)
+        .child(playback_settings(s))
+        .child(source_settings(s))
+        .child(programming_settings(s));
     if let Some(error) = &s.guide.error {
         content = content.child(feedback::message(
             "guide-settings-error",
@@ -46,7 +91,7 @@ pub(super) fn view(s: &State) -> El {
             rune::row(),
         ));
     }
-    page("settings-page", "Settings", "", rune::row(), content)
+    content
 }
 
 struct SubtitleControls {
@@ -219,12 +264,7 @@ fn subtitle_settings(s: &State) -> El {
             ),
         ));
     }
-    section(
-        "subtitle-section",
-        "Subtitles",
-        "Defaults for new playback, including Guide. Player adjustments do not change these settings.",
-        panel,
-    )
+    col().key("subtitle-section").w_full().child(panel)
 }
 
 fn subtitle_choice(
@@ -295,11 +335,9 @@ fn language_trigger(s: &State, slot: Slot) -> El {
 }
 
 pub(super) fn language_menu(s: &State) -> Option<El> {
-    let slot = s
-        .settings
-        .subtitles
-        .language_menu
-        .filter(|_| s.navigation.page == super::Page::Settings)?;
+    let slot = s.settings.subtitles.language_menu.filter(|_| {
+        s.navigation.page == super::Page::Settings && s.settings.tab == SettingsTab::Subtitles
+    })?;
     let anchor = if slot == Slot::Primary {
         "subtitle-primary-language"
     } else {
@@ -349,6 +387,31 @@ fn policy_button(s: &State, key: String, title: &str, selected: bool, policy: So
         })
         .w(0.0)
         .grow(1.0)
+}
+
+fn playback_settings(s: &State) -> El {
+    let policy = &s.guide.data.policy;
+    let mut autoplay = choices();
+    for (key, title, disabled) in [("on", "On", false), ("off", "Off", true)] {
+        let mut next = policy.clone();
+        next.autoplay_disabled = disabled;
+        autoplay = autoplay.child(policy_button(
+            s,
+            format!("guide-autoplay-{key}"),
+            title,
+            policy.autoplay_disabled == disabled,
+            next,
+        ));
+    }
+    settings_group(
+        "guide-playback-settings",
+        [option_row(
+            "guide-autoplay",
+            "Autoplay preview",
+            "Start playback automatically when opening Guide. When off, choose a channel to play it.",
+            autoplay,
+        )],
+    )
 }
 
 fn source_settings(s: &State) -> El {

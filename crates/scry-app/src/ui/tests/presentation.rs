@@ -14,7 +14,7 @@ fn watching_empty_state_has_catalog_actions() {
 }
 
 #[test]
-fn library_empty_states_keep_filters_and_browse_the_selected_type() {
+fn library_empty_states_keep_watch_filters_without_type_tabs() {
     for watched in [false, true] {
         let mut s = init();
         s.navigation.page = Page::Library;
@@ -24,19 +24,15 @@ fn library_empty_states_keep_filters_and_browse_the_selected_type() {
         if watched {
             tap(&mut rt, "library-watched-tab");
         }
-        tap(&mut rt, "library-series-filter");
         rt.update(|s, _| s.apply_library_entries(vec![]));
         rt.frame(1.0 / 60.0);
         let list_tab = rect(&rt, "library-watchlist-tab");
-        let kind_tab = rect(&rt, "library-series-filter");
-        assert!(
-            (list_tab[1] - kind_tab[1]).abs() < 1.0,
-            "Library filters share one toolbar"
-        );
+        assert!(rt.find("library-movies").is_none());
+        assert!(rt.find("library-series-filter").is_none());
         assert_eq!(list_tab[3], super::super::design::tokens::control::HEIGHT);
         assert!(rt.find("library-empty").is_some());
         let empty = rect(&rt, "library-empty");
-        let filters = rect(&rt, "library-series-filter");
+        let filters = list_tab;
         assert!(
             empty[1] >= filters[1] + filters[3],
             "empty content must stay below the filters"
@@ -45,13 +41,13 @@ fn library_empty_states_keep_filters_and_browse_the_selected_type() {
         assert_empty_panel_centered(&rt, "library-empty");
         assert!(rt.elements().iter().any(|e| e.text.as_deref()
             == Some(if watched {
-                "No watched TV series"
+                "No watched titles"
             } else {
-                "No TV series saved"
+                "No titles saved"
             })));
         tap(&mut rt, "library-browse");
         assert_eq!(rt.state.navigation.page, Page::Discover);
-        assert_eq!(rt.state.discover.kind, "series");
+        assert_eq!(rt.state.discover.kind, "movie");
     }
 }
 

@@ -182,7 +182,7 @@ mod tests {
             assert!(states[0].watched);
             assert_eq!(
                 library
-                    .list_library(true, MediaKind::Series, scry_library::Page::default())
+                    .list_library(true, Some(MediaKind::Series), scry_library::Page::default())
                     .unwrap(),
                 vec![parent.clone()]
             );
@@ -334,11 +334,14 @@ mod tests {
     }
 
     #[test]
-    fn watchlist_snapshot_can_reach_items_after_the_first_page() {
+    fn mixed_library_snapshot_can_reach_items_after_the_first_page() {
         let mut library = Library::memory().unwrap();
         for i in 0..205 {
             let mut item = movie();
             item.key.id = format!("item-{i}");
+            if i % 2 == 1 {
+                item.key.kind = MediaKind::Series;
+            }
             apply(&mut library, Command::ToggleWatchlist(item)).unwrap();
         }
         let Event::Browse { items, .. } = apply(
@@ -346,7 +349,6 @@ mod tests {
             Command::Browse {
                 generation: 1,
                 watched: false,
-                kind: MediaKind::Movie,
                 offset: 200,
             },
         )
@@ -354,6 +356,8 @@ mod tests {
             panic!("Expected snapshot");
         };
         assert_eq!(items.len(), 5);
+        assert!(items.iter().any(|item| item.key.kind == MediaKind::Movie));
+        assert!(items.iter().any(|item| item.key.kind == MediaKind::Series));
         assert_eq!(items[0].key.id, "item-4");
         assert_eq!(items[4].key.id, "item-0");
     }

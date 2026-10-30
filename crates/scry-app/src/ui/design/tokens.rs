@@ -261,6 +261,13 @@ pub(in crate::ui) mod detail {
     pub const PREVIEW_INSET: f32 = 16.0;
 }
 
+pub(in crate::ui) mod addon {
+    pub const TILE_HEIGHT: f32 = 220.0;
+    pub const DIALOG_WIDTH: f32 = 560.0;
+    pub const FEEDBACK_HEIGHT: f32 = 48.0;
+    pub const NOTICE_HEIGHT: f32 = 32.0;
+}
+
 pub(in crate::ui) mod guide {
     pub const CHANNEL_WIDTH: f32 = 132.0;
     pub const ROW_HEIGHT: f32 = 52.0;
@@ -312,7 +319,7 @@ pub(in crate::ui) mod control {
     pub const RADIUS: f32 = super::radius::XS;
     pub const INPUT_HEIGHT: f32 = HEIGHT;
     pub const DIALOG_HEIGHT: f32 = 36.0;
-    pub const DIALOG_SUBMIT_WIDTH: f32 = 40.0;
+    pub const DIALOG_ACTION_WIDTH: f32 = 128.0;
     pub const SETTING_HEIGHT: f32 = 34.0;
     pub const SETTING_MIN_WIDTH: f32 = 64.0;
     pub const PILL_HEIGHT: f32 = 36.0;

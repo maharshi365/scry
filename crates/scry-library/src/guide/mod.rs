@@ -90,6 +90,8 @@ pub struct Collection {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SourcePolicy {
+    /// Keep the Guide preview idle until a channel is selected for playback.
+    pub autoplay_disabled: bool,
     pub allow_torrents: bool,
     /// Empty means any installed provider. Stored by display name, never private URL.
     pub provider: String,

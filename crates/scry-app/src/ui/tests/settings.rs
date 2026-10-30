@@ -6,6 +6,70 @@ use scry_library::{
 };
 
 #[test]
+fn settings_tabs_do_not_repeat_the_tab_heading_or_explainer() {
+    use super::super::settings::SettingsTab;
+    for (tab, title, explainer) in [
+        (
+            SettingsTab::Streaming,
+            "Streaming",
+            "Cache size changes apply to the next playback. Older inactive data is removed first.",
+        ),
+        (
+            SettingsTab::Subtitles,
+            "Subtitles",
+            "Defaults for new playback, including Guide. Player adjustments do not change these settings.",
+        ),
+        (
+            SettingsTab::Guide,
+            "Guide",
+            "Applies to Guide channels. Published programs stay in place when settings change.",
+        ),
+    ] {
+        let mut state = init();
+        state.navigation.page = Page::Settings;
+        state.settings.tab = tab;
+        let mut rt = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
+        rt.frame(0.0);
+        let elements = rt.elements();
+        assert_eq!(
+            elements
+                .iter()
+                .filter(|element| element.text.as_deref() == Some(title))
+                .count(),
+            1
+        );
+        assert!(
+            !elements
+                .iter()
+                .any(|element| element.text.as_deref() == Some(explainer))
+        );
+    }
+}
+
+#[test]
+fn settings_tabs_show_only_the_selected_page_and_close_language_menus() {
+    let mut state = init();
+    state.navigation.page = Page::Settings;
+    let mut rt = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
+    rt.frame(0.0);
+    assert!(rt.find("streaming-settings").is_some());
+    assert!(rt.find("subtitle-settings").is_none());
+    assert!(rt.find("guide-preferences").is_none());
+    tap(&mut rt, "settings-tab-subtitles");
+    assert!(rt.find("subtitle-settings").is_some());
+    assert!(rt.find("streaming-settings").is_none());
+    tap(&mut rt, "subtitle-primary-language");
+    assert!(rt.state.settings.subtitles.language_menu.is_some());
+    tap(&mut rt, "settings-tab-guide");
+    assert!(rt.state.settings.subtitles.language_menu.is_none());
+    assert!(rt.find("guide-autoplay-off").is_some());
+    assert!(rt.find("subtitle-settings").is_none());
+    tap(&mut rt, "settings-tab-streaming");
+    assert!(rt.find("streaming-settings").is_some());
+    assert!(rt.find("guide-preferences").is_none());
+}
+
+#[test]
 fn streaming_cache_choices_apply_without_changing_current_playback() {
     let mut state = init();
     state.navigation.page = Page::Settings;
@@ -102,6 +166,7 @@ fn sidebar_settings_exposes_guide_preferences_and_keeps_addons_separate() {
     rt.frame(0.0);
     tap(&mut rt, "nav-settings");
     assert!(rt.find("settings-page").is_some());
+    tap(&mut rt, "settings-tab-guide");
     for key in [
         "guide-provider-any",
         "guide-quality-1080",
@@ -132,6 +197,7 @@ fn guide_settings_shortcut_is_separate_from_collection_management() {
     rt.frame(0.0);
     tap(&mut rt, "guide-settings");
     assert!(rt.find("settings-page").is_some());
+    assert!(rt.find("guide-autoplay-off").is_some());
     rt.update(|s, _| s.travel(false));
     rt.frame(0.0);
     assert_eq!(rt.state.navigation.page, Page::Guide);
@@ -142,11 +208,12 @@ fn guide_settings_shortcut_is_separate_from_collection_management() {
 }
 
 #[test]
-fn settings_loads_existing_guide_preferences_and_saves_all_five_controls() {
+fn settings_loads_existing_guide_preferences_and_saves_all_controls() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("library.db");
     let now = chrono::Utc::now().timestamp();
     let saved = SourcePolicy {
+        autoplay_disabled: false,
         provider: "Streams".into(),
         quality: "720".into(),
         allow_torrents: true,
@@ -159,6 +226,7 @@ fn settings_loads_existing_guide_preferences_and_saves_all_five_controls() {
         .unwrap();
     let mut state = init();
     state.addons.busy = false;
+    state.settings.tab = super::super::settings::SettingsTab::Guide;
     state.detail.sources.provider = Some("Regular playback filter".into());
     state.addons.installed = vec![
         serde_json::from_value(serde_json::json!({
@@ -178,6 +246,7 @@ fn settings_loads_existing_guide_preferences_and_saves_all_five_controls() {
     assert_eq!(rt.state.guide.data.policy.order, saved.order);
     assert!(rt.state.guide.data.policy.watched_only);
     for key in [
+        "guide-autoplay-off",
         "guide-provider-any",
         "guide-quality-1080",
         "guide-sources-direct",
@@ -192,6 +261,7 @@ fn settings_loads_existing_guide_preferences_and_saves_all_five_controls() {
     }
     let mut db = Library::open(&path).unwrap();
     let policy = db.guide_update(GuideAction::Refresh, now).unwrap().policy;
+    assert!(policy.autoplay_disabled);
     assert!(policy.provider.is_empty());
     assert_eq!(policy.quality, "1080");
     assert!(!policy.allow_torrents);
@@ -209,6 +279,7 @@ fn settings_loads_existing_guide_preferences_and_saves_all_five_controls() {
 fn settings_disables_policy_edits_while_a_guide_update_is_pending() {
     let mut state = init();
     state.navigation.page = Page::Settings;
+    state.settings.tab = super::super::settings::SettingsTab::Guide;
     state.guide.busy = true;
     let mut rt = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);
@@ -240,6 +311,7 @@ fn opening_settings_stops_guide_playback_and_invalidates_pending_sources() {
 fn settings_choices_use_the_right_half_of_wide_rows_and_fill_the_available_width() {
     let mut state = init();
     state.navigation.page = Page::Settings;
+    state.settings.tab = super::super::settings::SettingsTab::Guide;
     let mut rt = rune::Runtime::new(state, view, (1920.0, 1080.0), rune::Env::default());
     rt.frame(0.0);
     let panel = rect(&rt, "guide-source-settings");

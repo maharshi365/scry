@@ -148,7 +148,7 @@ pub(in crate::ui) enum Size {
     Compact,
     Pill,
     Setting,
-    Dialog,
+    DialogAction,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -278,9 +278,9 @@ impl Button {
                 .h(control::SETTING_HEIGHT)
                 .min_w(control::SETTING_MIN_WIDTH)
                 .radius(tokens::radius::MD),
-            Size::Dialog => frame
+            Size::DialogAction => frame
                 .h(control::DIALOG_HEIGHT)
-                .w(control::DIALOG_SUBMIT_WIDTH),
+                .w(control::DIALOG_ACTION_WIDTH),
         };
         frame = match self.layout {
             Layout::Standard => frame,
@@ -301,13 +301,17 @@ impl Button {
             } else {
                 tokens::theme().hover
             }))
+        } else if self.busy {
+            frame
         } else {
             frame.opacity(tokens::opacity::DISABLED)
         }
     }
 
     fn content(&self) -> El {
-        let color = if !self.enabled || self.busy {
+        let color = if self.busy {
+            tokens::transparent()
+        } else if !self.enabled {
             tokens::disabled()
         } else if matches!(self.variant, Variant::Danger) {
             tokens::danger()
@@ -316,12 +320,12 @@ impl Button {
         } else {
             tokens::theme().text
         };
-        if let Some(glyph) = self.glyph {
+        let content = if let Some(glyph) = self.glyph {
             self.frame()
                 .w(match self.size {
                     Size::Compact => control::COMPACT_HEIGHT,
                     Size::Pill => control::PILL_HEIGHT,
-                    Size::Dialog => control::DIALOG_SUBMIT_WIDTH,
+                    Size::DialogAction => control::DIALOG_ACTION_WIDTH,
                     _ => control::ICON_TARGET,
                 })
                 .px(0.0)
@@ -356,6 +360,13 @@ impl Button {
             } else {
                 content
             }
+        };
+        if self.busy {
+            content.child(el().absolute(0.0, 0.0).w_full().h_full().center().child(
+                super::status::spinner(format!("{}-spinner", self.key), control::ICON_SIZE),
+            ))
+        } else {
+            content
         }
     }
 

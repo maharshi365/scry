@@ -242,7 +242,7 @@ fn addon_cards_show_cached_logos_and_keep_fallbacks_and_status_separate() {
 }
 
 #[test]
-fn addon_artwork_tracks_scrolling_without_starving_available_cards() {
+fn addon_artwork_tracks_visible_tiles_while_scrolling() {
     let mut s = init();
     s.navigation.page = Page::Addons;
     s.addons.installed = (0..32).map(|index| serde_json::from_value(serde_json::json!({
@@ -256,6 +256,10 @@ fn addon_artwork_tracks_scrolling_without_starving_available_cards() {
         rt.frame(0.0);
     }
     assert!(visible_artwork(&rt.state).contains(&"https://example.com/0.png".into()));
+    assert!(
+        visible_artwork(&rt.state)
+            .contains(&"https://torrentio.strem.fun/images/logo_v1.png".into())
+    );
     assert!(!visible_artwork(&rt.state).contains(&"https://example.com/31.png".into()));
     let viewport = rect(&rt, "addons-scroll");
     rt.wheel(viewport[0] + 20.0, viewport[1] + 20.0, -100_000.0);
@@ -264,12 +268,106 @@ fn addon_artwork_tracks_scrolling_without_starving_available_cards() {
     }
     let urls = visible_artwork(&rt.state);
     assert!(urls.contains(&"https://example.com/31.png".into()));
-    assert!(urls.contains(&"https://torrentio.strem.fun/images/logo_v1.png".into()));
+    assert!(!urls.contains(&"https://torrentio.strem.fun/images/logo_v1.png".into()));
     assert!(!urls.contains(&"https://example.com/0.png".into()));
     assert!(urls.len() < 32);
     rt.update(|s, _| s.navigation.page = Page::Discover);
     rt.frame(0.0);
     assert!(rt.state.artwork.poster_urls.is_empty());
+}
+
+#[test]
+fn addon_tiles_keep_four_columns_and_stay_put_during_installation() {
+    for width in [880.0, 1280.0, 1920.0] {
+        let (mut s, tx) = state_with_events();
+        let (services, requests) = crate::services::Services::install_fixture().unwrap();
+        s.runtime.services = Some(services);
+        super::super::scenes::scene_addons(&mut s);
+        let custom = s.addons.installed.clone();
+        let mut rt = rune::Runtime::new(s, view, (width, 820.0), rune::Env::default());
+        rt.poll = Some(poll);
+        rt.frame(0.0);
+        let slots = [
+            "addon-slot-0",
+            "addon-slot-1",
+            "addon-slot-2",
+            "installed-addon-0",
+        ];
+        let before = slots.map(|key| rect(&rt, key));
+        for bounds in before {
+            assert!((bounds[1] - before[0][1]).abs() < 1.0);
+            assert!((bounds[2] - before[0][2]).abs() < 1.0);
+        }
+        assert!(
+            before
+                .windows(2)
+                .all(|pair| pair[0][0] + pair[0][2] <= pair[1][0])
+        );
+        let button = rect(&rt, "supported-addon-0");
+        tap(&mut rt, "supported-addon-0");
+        assert_eq!(requests.try_recv().unwrap(), crate::services::CINEMETA);
+        assert_eq!(rect(&rt, "supported-addon-0"), button);
+        assert!(rt.find("supported-addon-0-spinner").is_some());
+        assert!(rt.find("supported-addon-1-spinner").is_none());
+        for (key, bounds) in slots.into_iter().zip(before) {
+            assert_eq!(rect(&rt, key), bounds);
+        }
+        let mut installed = custom;
+        installed.push(
+            serde_json::from_value(serde_json::json!({
+                "manifest_url": crate::services::CINEMETA,
+                "manifest": {"id":"com.linvo.cinemeta", "name":"Cinemeta"}
+            }))
+            .unwrap(),
+        );
+        tx.try_send(Event::Addons(Ok(installed))).unwrap();
+        rt.frame(1.0 / 60.0);
+        assert!(rt.state.addons.pending.is_none());
+        assert!(rt.find("supported-addon-0").is_none());
+        assert!(rt.find("toggle-addon-1").is_some());
+        for (key, bounds) in slots.into_iter().zip(before) {
+            assert_eq!(rect(&rt, key), bounds);
+        }
+    }
+}
+
+#[test]
+fn addon_dialog_keeps_its_size_and_footer_position_in_every_install_state() {
+    let mut s = init();
+    s.navigation.page = Page::Addons;
+    s.addons.install_open = true;
+    s.addons.busy = false;
+    let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
+    rt.frame(0.0);
+    let panel = rect(&rt, "addon-install-dialog");
+    let button = rect(&rt, "install-addon");
+    let input = rect(&rt, "manifest-frame");
+    for (busy, error, complete) in [
+        (true, None, false),
+        (false, Some("Cannot fetch manifest"), false),
+        (false, None, true),
+    ] {
+        rt.update(|s, _| {
+            s.addons.busy = busy;
+            s.addons.error = error.map(str::to_owned);
+            s.addons.install_complete = complete;
+        });
+        rt.frame(0.0);
+        assert_eq!(rect(&rt, "addon-install-dialog"), panel);
+        assert_eq!(rect(&rt, "manifest-frame"), input);
+        assert_eq!(
+            rect(
+                &rt,
+                if complete {
+                    "addon-install-done"
+                } else {
+                    "install-addon"
+                }
+            ),
+            button
+        );
+        assert_eq!(rt.find("install-addon-spinner").is_some(), busy);
+    }
 }
 
 #[test]
@@ -411,7 +509,7 @@ fn unified_addons_page_and_busy_install_spinner() {
         "busy installation must not offer an active control"
     );
     assert_eq!(install.label.as_deref(), Some("Install, busy"));
-    assert!(rt.find("addon-install-spinner").is_some());
+    assert!(rt.find("install-addon-spinner").is_some());
 }
 
 #[test]
@@ -436,6 +534,16 @@ fn installed_addons_share_the_available_list_without_duplicate_cards() {
         .find(|e| e.key.as_deref() == Some("toggle-addon-0"))
         .unwrap();
     assert_eq!(toggle.label.as_deref(), Some("Disable"));
+    let bounds = rect(&rt, "toggle-addon-0");
+    let remove = rect(&rt, "remove-0");
+    let card = rect(&rt, "installed-addon-0");
+    assert_eq!(bounds[2], remove[2]);
+    assert_eq!(bounds[3], remove[3]);
+    assert_eq!(bounds[1], remove[1]);
+    assert!(bounds[0] > card[0] + card[2] / 2.0);
+    assert!(
+        (remove[0] + remove[2] - (card[0] + card[2] - tokens::layout::PANEL_INSET)).abs() < 2.0
+    );
     assert_eq!(rt.state.catalogs().len(), 1);
     rt.update(|s, _| s.addons.installed[0].disabled = true);
     rt.frame(0.0);
@@ -445,6 +553,7 @@ fn installed_addons_share_the_available_list_without_duplicate_cards() {
         .find(|e| e.key.as_deref() == Some("toggle-addon-0"))
         .unwrap();
     assert_eq!(toggle.label.as_deref(), Some("Enable"));
+    assert_eq!(rect(&rt, "toggle-addon-0"), bounds);
     assert!(rt.state.catalogs().is_empty());
 }
 
@@ -457,7 +566,7 @@ fn install_completion_replaces_the_spinner_with_a_checkmark() {
     let mut rt = rune::Runtime::new(s, view, (1000.0, 800.0), rune::Env::default());
     rt.poll = Some(poll);
     rt.frame(0.0);
-    assert!(rt.find("addon-install-spinner").is_some());
+    assert!(rt.find("install-addon-spinner").is_some());
     tx.try_send(Event::Addons(Ok(vec![]))).unwrap();
     rt.frame(1.0 / 60.0);
     assert!(rt.find("addon-install-success").is_some());

@@ -255,6 +255,6 @@ fn install_dialog_uses_matching_shared_input_and_submit_heights() {
     assert_eq!(submit[3], input[3]);
     assert_eq!(
         submit[2],
-        super::super::design::tokens::control::DIALOG_SUBMIT_WIDTH
+        super::super::design::tokens::control::DIALOG_ACTION_WIDTH
     );
 }
