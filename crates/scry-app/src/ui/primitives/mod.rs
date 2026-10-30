@@ -15,3 +15,4 @@ pub(super) mod status;
 pub(super) mod stepper;
 pub(super) mod surface;
 pub(super) mod text;
+pub(super) mod titlebar;

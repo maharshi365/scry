@@ -235,6 +235,13 @@ pub(in crate::ui) mod layout {
 }
 
 pub(in crate::ui) mod shell {
+    /// Keep native traffic lights centered in the integrated header.
+    pub const CHROME: rune::Chrome = rune::Chrome {
+        full_size_content: true,
+        traffic_lights: Some((14.0, 17.0)),
+        drag_regions: true,
+    };
+    pub const TITLEBAR_INSET_GAP: f32 = 14.0;
     pub const SIDEBAR_WIDTH: f32 = 188.0;
     pub const TOPBAR_HEIGHT: f32 = 48.0;
     pub const SIDEBAR_INSET: f32 = 10.0;

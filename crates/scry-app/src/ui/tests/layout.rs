@@ -1,6 +1,48 @@
 use super::*;
 
 #[test]
+fn titlebar_reserves_native_controls_without_losing_search_or_navigation() {
+    for inset in [
+        0.0,
+        crate::ui::design::tokens::shell::CHROME.titlebar_inset(),
+    ] {
+        for width in [880.0, 1280.0] {
+            let mut rt = rune::Runtime::new(init(), view, (width, 600.0), rune::Env::default());
+            rt.set_titlebar_inset(inset);
+            rt.frame(0.0);
+            let logo = rect(&rt, "brand-logo");
+            assert!(logo[0] >= inset + 14.0, "Header overlaps native controls");
+            let header = rect(&rt, "topbar");
+            for key in ["search-frame", "nav-back", "nav-forward", "app-fullscreen"] {
+                let bounds = rect(&rt, key);
+                assert!(bounds[1] >= header[1] && bounds[1] + bounds[3] <= header[1] + header[3]);
+                assert!(bounds[0] + bounds[2] <= width, "{key} exceeds window");
+            }
+            tap(&mut rt, "app-fullscreen");
+            assert!(rt.state.shell.fullscreen);
+            assert!(rt.find("topbar").is_none());
+        }
+    }
+}
+
+#[test]
+fn titlebar_background_drags_but_search_receives_input() {
+    let mut rt = rune::Runtime::new(init(), view, (880.0, 600.0), rune::Env::default());
+    rt.frame(0.0);
+    rt.pointer_down(4.0, 24.0);
+    assert_eq!(rt.take_titlebar_action(), Some(rune::TitlebarAction::Drag));
+    rt.pointer_up(4.0, 24.0);
+    tap(&mut rt, "search");
+    assert!(rt.take_titlebar_action().is_none());
+    rt.key(rune::KeyEvent {
+        key: rune::Key::Text("Alien".into()),
+        mods: rune::Mods::default(),
+    });
+    rt.frame(0.0);
+    assert!(rt.state.discover.search.text.contains("Alien"));
+}
+
+#[test]
 fn season_group_controls_have_equal_heights() {
     let mut s = init();
     s.navigation.page = Page::Detail;

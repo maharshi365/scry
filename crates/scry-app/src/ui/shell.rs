@@ -14,7 +14,7 @@ use super::{
     primitives::{
         button::{Button, Variant, navigation_item},
         input_group::input_group,
-        surface::{Variant as Surface, divider, scroll},
+        surface::{divider, scroll},
         text::eyebrow,
     },
 };
@@ -125,7 +125,7 @@ fn window_chrome(s: &State, cx: &mut Cx<State>, content: El) -> El {
             s.shell.context_menu = Some((p, None));
         });
     if !s.shell.fullscreen {
-        root = root.child(topbar(s));
+        root = root.child(topbar(s, cx.titlebar_inset()));
     }
     root = root
         .child(body.child(content))
@@ -279,7 +279,7 @@ fn nav_action(
     navigation_item(key, title, glyph, selected, f)
 }
 
-fn topbar(s: &State) -> El {
+fn topbar(s: &State, native_inset: f32) -> El {
     let searching = s.navigation.page == Page::Discover
         && s.discover.request.loading
         && !s.discover.displayed_query.is_empty();
@@ -294,14 +294,8 @@ fn topbar(s: &State) -> El {
                 control::COMPACT_ICON_SIZE,
             ));
     }
-    Surface::Chrome
-        .apply(row())
+    super::primitives::titlebar::titlebar(native_inset)
         .key("topbar")
-        .w_full()
-        .h(tokens::shell::TOPBAR_HEIGHT)
-        .px(14.0)
-        .gap(8.0)
-        .center_y()
         .child(
             el().key("brand-logo")
                 .label("Scry")

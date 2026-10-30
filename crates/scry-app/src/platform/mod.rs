@@ -20,6 +20,8 @@ pub struct VideoOverlay {
     pub radius: f32,
 }
 mod browser;
+mod titlebar;
+pub use titlebar::match_title_bar;
 mod navigation;
 pub use browser::open_browser;
 pub use navigation::{HistoryDirection, NavigationInput};

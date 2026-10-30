@@ -9,6 +9,15 @@ fn raw_visual_value(text: &str) -> bool {
     })
 }
 
+#[test]
+fn native_drag_regions_stay_in_the_shared_titlebar() {
+    let shell = include_str!("../shell.rs");
+    assert!(!shell.contains(".window_drag()"));
+    assert!(shell.contains("primitives::titlebar::titlebar(native_inset)"));
+    let primitive = include_str!("../primitives/titlebar.rs");
+    assert!(primitive.contains(".window_drag()"));
+}
+
 fn local_motion(text: &str) -> bool {
     ["Transition::", "Spring::", "Anim::", ".hover_motion("]
         .iter()

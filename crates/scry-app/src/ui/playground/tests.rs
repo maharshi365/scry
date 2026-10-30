@@ -1,5 +1,13 @@
 use super::*;
 
+#[test]
+fn titlebar_fixture_keeps_actions_interactive() {
+    let mut rt = runtime(scene_titlebar, (1280.0, 820.0));
+    tap(&mut rt, "playground-titlebar-back");
+    assert_eq!(stage(&rt).presses, 1);
+    assert_eq!(rt.state.presses, 0);
+}
+
 fn runtime(scene: fn(&mut State), size: (f32, f32)) -> rune::Runtime<State> {
     let mut state = init();
     scene(&mut state);

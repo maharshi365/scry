@@ -221,6 +221,7 @@ fn run_app() -> anyhow::Result<()> {
         min_size: Some((880.0, 600.0)),
         ..AppSpec::new("Scry", (1280.0, 820.0), init, view)
     })
+    .chrome(super::design::tokens::shell::CHROME)
     .keep_running();
     let quit = app.handle();
     app.args(rune_args)
@@ -232,6 +233,7 @@ fn run_app() -> anyhow::Result<()> {
             state
         })
         .on_window(move |window| {
+            scry_app::platform::match_title_bar(window, super::design::tokens::topbar());
             if let Err(error) = window_navigation.attach(window)
                 && let Ok(mut current) = window_error.lock()
             {

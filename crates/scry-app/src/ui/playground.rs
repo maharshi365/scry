@@ -24,6 +24,7 @@ enum Category {
     ListDetail,
     Feedback,
     Motion,
+    Titlebar,
 }
 
 impl Category {
@@ -35,6 +36,7 @@ impl Category {
             Self::ListDetail => "Examples/List detail",
             Self::Feedback => "Feedback/Notice",
             Self::Motion => "Examples/Motion",
+            Self::Titlebar => "Examples/Title bar",
         }
     }
 }
@@ -349,6 +351,24 @@ fn view(s: &State, _: &mut Cx<State>) -> El {
         Category::ListDetail => list_detail(s),
         Category::Feedback => feedback(s),
         Category::Motion => motion(s),
+        Category::Titlebar => {
+            super::primitives::titlebar::titlebar(tokens::shell::CHROME.titlebar_inset())
+                .key("playground-titlebar")
+                .child(label("SCRY"))
+                .child(input(
+                    "playground-titlebar-search",
+                    &s.name,
+                    "Search…",
+                    |s: &mut State| &mut s.name,
+                    on_key,
+                    |s: &mut State| s.presses += 1,
+                ))
+                .child(
+                    Button::new("playground-titlebar-back", "Back")
+                        .variant(Variant::Ghost)
+                        .on_press(|s: &mut State| s.presses += 1),
+                )
+        }
     };
     let mut root = el()
         .key("playground-root")
@@ -409,6 +429,11 @@ fn scene_motion(s: &mut State) {
     s.expanded = true;
 }
 
+fn scene_titlebar(s: &mut State) {
+    *s = init();
+    s.show(Category::Titlebar);
+}
+
 fn app() -> App<State> {
     App::new(AppSpec {
         fonts: tokens::fonts::FILES,
@@ -421,6 +446,7 @@ fn app() -> App<State> {
             ("Feedback/Notice", scene_feedback),
             ("Feedback/Dialog", scene_dialog),
             ("Examples/Motion", scene_motion),
+            ("Examples/Title bar", scene_titlebar),
         ],
         min_size: Some((1106.0, 480.0)),
         ..AppSpec::new("Scry · UI playground", (1280.0, 820.0), init, view)
