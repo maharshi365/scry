@@ -142,22 +142,24 @@ fn on_close(s: &mut State, _: &mut Tx) {
 )]
 fn view(s: &State, cx: &mut Cx<State>) -> El {
     let scale = cx.env().scale;
+    let video = el()
+        .key("native-video")
+        .w_full()
+        .grow(1.0)
+        .fill(rune::oklch(0.08, 0.0, 0.0))
+        .on_layout(move |s: &mut State, rect| {
+            s.host.place(rect, scale);
+            s.host.show();
+        });
+    #[cfg(target_os = "macos")]
+    let video = video.pixels_fit(s.host.pixels(), rune::SurfaceFit::Fit);
     col()
         .w_full()
         .h_full()
         .padding(16.0)
         .gap(12.0)
         .child(text("Scry · embedded native playback probe"))
-        .child(
-            el().key("native-video")
-                .w_full()
-                .grow(1.0)
-                .fill(rune::oklch(0.08, 0.0, 0.0))
-                .on_layout(move |s: &mut State, rect| {
-                    s.host.place(rect, scale);
-                    s.host.show();
-                }),
-        )
+        .child(video)
         .child(text(if s.stopping {
             "Stopping; waiting for native player teardown…"
         } else {
@@ -260,9 +262,15 @@ fn probe(
         let target = target
             .recv()
             .map_err(|_| anyhow::anyhow!("Native host disconnected"))??;
+        #[cfg(not(target_os = "macos"))]
         ensure!(
             matches!(target, PlaybackTarget::NativeWindow(_)),
             "Expected a native video target"
+        );
+        #[cfg(target_os = "macos")]
+        ensure!(
+            matches!(target, PlaybackTarget::Macos(_)),
+            "Expected a macOS video target"
         );
         ensure!(
             commands.try_recv().is_err(),
@@ -346,6 +354,10 @@ fn main() -> Result<()> {
     let options = Options::parse(std::env::args().skip(1).collect())?;
     let host = Host::default();
     let window_host = host.clone();
+    #[cfg(target_os = "macos")]
+    let surface_window = Arc::new(Mutex::new(None::<rune::WindowHandle>));
+    #[cfg(target_os = "macos")]
+    let measured_window = surface_window.clone();
     let (target_tx, target) = mpsc::sync_channel(1);
     let (stop, commands) = mpsc::sync_channel(1);
     #[cfg(windows)]
@@ -372,6 +384,10 @@ fn main() -> Result<()> {
             stopping: false,
         })
         .on_window(move |window| {
+            #[cfg(target_os = "macos")]
+            if let Ok(mut measured) = measured_window.lock() {
+                *measured = Some(window.clone());
+            }
             let target = (|| {
                 #[cfg(windows)]
                 close_gate::install(window, native_stop.clone())?;
@@ -395,6 +411,12 @@ fn main() -> Result<()> {
     println!(
         "Sampled progress is not proof of display or audio quality. Memory is process-wide, excluding dedicated GPU memory."
     );
+    #[cfg(target_os = "macos")]
+    if let Ok(window) = surface_window.lock()
+        && let Some(window) = window.as_ref()
+    {
+        println!("Mac surface: {}", window.surface_stats().summary());
+    }
     Ok(())
 }
 

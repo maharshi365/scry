@@ -1,6 +1,8 @@
 //! Small dynamic binding to libmpv's stable C client API. No mpv subprocess or webview.
 pub mod audio;
 mod cache_budget;
+#[cfg(target_os = "macos")]
+pub mod macos;
 mod process;
 pub mod subtitles;
 pub mod telemetry;
@@ -60,6 +62,8 @@ struct NodeList {
 }
 
 pub struct Player {
+    #[cfg(target_os = "macos")]
+    renderer: Option<macos::Renderer>,
     handle: *mut c_void,
     _library: Library,
     destroy: Destroy,
@@ -81,10 +85,13 @@ pub enum PlaybackEvent {
     Shutdown,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
+#[cfg_attr(not(target_os = "macos"), derive(Copy))]
 pub enum PlaybackTarget {
     NativeWindow(u64),
     DecodeOnly,
+    #[cfg(target_os = "macos")]
+    Macos(macos::Surface),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -136,9 +143,11 @@ impl Player {
     /// Returns an error if the runtime is missing, its API cannot be loaded,
     /// renderer settings are invalid, or player initialization fails.
     pub fn open(target: PlaybackTarget) -> Result<Self> {
-        let renderer = match target {
+        let renderer = match &target {
             PlaybackTarget::NativeWindow(_) => Some(VideoRenderer::from_env()?),
             PlaybackTarget::DecodeOnly => None,
+            #[cfg(target_os = "macos")]
+            PlaybackTarget::Macos(_) => None,
         };
         let path = library_path()?;
         // SAFETY: the library remains alive for all resolved functions and the mpv handle.
@@ -161,6 +170,8 @@ impl Player {
                 bail!("libmpv could not allocate a player");
             }
             let player = Self {
+                #[cfg(target_os = "macos")]
+                renderer: None,
                 handle,
                 _library: library,
                 destroy,
@@ -172,22 +183,7 @@ impl Player {
                 wait,
                 cache_budget: Cell::new(renderer.map(|_| cache_budget::CacheBudget::default())),
             };
-            let mut options = vec![
-                ("config", "no".to_owned()),
-                ("load-scripts", "no".into()),
-                ("ytdl", "no".into()),
-                ("terminal", "no".into()),
-                ("input-default-bindings", "no".into()),
-                ("osc", "no".into()),
-                ("idle", "yes".into()),
-                ("keep-open", "no".into()),
-                ("cache", "yes".into()),
-                ("demuxer-max-bytes", "32MiB".into()),
-                ("demuxer-max-back-bytes", "2MiB".into()),
-                ("cache-secs", "10".into()),
-                ("network-timeout", "20".into()),
-                ("msg-level", "all=no".into()),
-            ];
+            let mut options = common_options();
             if let PlaybackTarget::NativeWindow(hwnd) = target {
                 options.extend([
                     ("wid", hwnd.to_string()),
@@ -203,12 +199,16 @@ impl Player {
                 // Keep both renderers on the same native API with D3D11 decode interop.
                 #[cfg(windows)]
                 options.extend([("gpu-api", "d3d11".into()), ("gpu-context", "d3d11".into())]);
-            } else {
+            } else if matches!(target, PlaybackTarget::DecodeOnly) {
                 options.extend([
                     ("vo", "null".into()),
                     ("ao", "null".into()),
                     ("hwdec", "no".into()),
                 ]);
+            }
+            #[cfg(target_os = "macos")]
+            if matches!(target, PlaybackTarget::Macos(_)) {
+                options.extend([("vo", "libmpv".into()), ("hwdec", "auto-safe".into())]);
             }
             for (key, value) in options {
                 let key_c = CString::new(key)?;
@@ -234,6 +234,12 @@ impl Player {
             }
             if initialize(handle) < 0 {
                 bail!("libmpv initialization failed");
+            }
+            #[cfg(target_os = "macos")]
+            let mut player = player;
+            #[cfg(target_os = "macos")]
+            if let PlaybackTarget::Macos(surface) = target {
+                player.renderer = Some(macos::Renderer::start(handle, &path, surface)?);
             }
             Ok(player)
         }
@@ -313,6 +319,14 @@ impl Player {
     }
     #[must_use]
     pub fn event(&self, timeout: f64) -> Option<PlaybackEvent> {
+        #[cfg(target_os = "macos")]
+        if self
+            .renderer
+            .as_ref()
+            .is_some_and(macos::Renderer::is_finished)
+        {
+            return Some(PlaybackEvent::Failed);
+        }
         // SAFETY: copy event data before the next wait_event invalidates it.
         unsafe {
             let event = &*(self.wait)(self.handle, event_timeout(timeout));
@@ -420,12 +434,36 @@ impl PlaybackEngine for Player {
 
 impl Drop for Player {
     fn drop(&mut self) {
+        #[cfg(target_os = "macos")]
+        drop(self.renderer.take());
         // SAFETY: handle was created by this library and is destroyed exactly once,
         // before the library field is dropped and its function pointers become invalid.
         unsafe {
             (self.destroy)(self.handle);
         }
     }
+}
+
+fn common_options() -> Vec<(&'static str, String)> {
+    [
+        ("config", "no"),
+        ("load-scripts", "no"),
+        ("ytdl", "no"),
+        ("terminal", "no"),
+        ("input-default-bindings", "no"),
+        ("osc", "no"),
+        ("idle", "yes"),
+        ("keep-open", "no"),
+        ("cache", "yes"),
+        ("demuxer-max-bytes", "32MiB"),
+        ("demuxer-max-back-bytes", "2MiB"),
+        ("cache-secs", "10"),
+        ("network-timeout", "20"),
+        ("msg-level", "all=no"),
+    ]
+    .into_iter()
+    .map(|(key, value)| (key, value.to_owned()))
+    .collect()
 }
 
 fn library_path() -> Result<PathBuf> {
@@ -448,6 +486,10 @@ fn library_path() -> Result<PathBuf> {
         .join(name);
     if local.exists() {
         return Ok(local);
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(path) = macos::library_path() {
+        return Ok(path);
     }
     bail!("libmpv is missing. Put {name} in runtime/ or set Scry_MPV_LIBRARY. See README.md")
 }

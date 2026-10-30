@@ -1,5 +1,11 @@
 # Rust development rules
 
+- On macOS, use `bash scripts/macos/setup.sh` for prerequisites,
+  `bash scripts/macos/dev.sh` for isolated development (`--release` optional),
+  and `bash scripts/macos/install.sh --launch` for the per-user production bundle.
+  macOS scripts and native configuration stay under `scripts/macos/`; keep
+  Windows deployment scripts unchanged. Both platforms use the shared check script.
+
 - Use `pwsh -File scripts/install.ps1 -Launch` to build and update the per-user
   production app outside the repo. Use `pwsh -File scripts/dev.ps1` for a separate
   development copy with isolated data in `target/dev-data` (`-Release` optional).

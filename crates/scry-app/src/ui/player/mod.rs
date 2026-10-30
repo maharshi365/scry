@@ -56,6 +56,10 @@ fn surface(s: &State, scale: f32, compact: bool) -> El {
                 tx.wake_after(s.player.interaction.double_click);
             }
         });
+    #[cfg(target_os = "macos")]
+    if s.player.playing {
+        surface = surface.pixels_fit(s.shell.host.pixels(), rune::SurfaceFit::Fit);
+    }
     if s.player.playing {
         surface = surface.on_layout(move |s: &mut State, rect| {
             s.player.interaction.video_rect = Some(rect);

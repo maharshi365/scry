@@ -1,3 +1,5 @@
+#[cfg(target_os = "macos")]
+mod macos;
 #[cfg(windows)]
 mod windows;
 
@@ -6,7 +8,11 @@ pub fn memory() -> (Option<u64>, Option<u64>) {
     {
         windows::memory()
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        macos::memory()
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         (None, None)
     }
@@ -17,7 +23,11 @@ pub fn cpu_time_s() -> Option<f64> {
     {
         windows::cpu_time_s()
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        macos::cpu_time_s()
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         None
     }

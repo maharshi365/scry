@@ -4,7 +4,7 @@
 
 A native, Windows-first streaming app. Rune draws the interface. libmpv plays video inside the app. Rust services handle Stremio add-ons and torrents. There is no browser, webview, Electron process, or external player.
 
-**Early prototype, not a full Stremio replacement.** Local SQLite stores saved titles, watched state, and episode progress. macOS embedding, DRM, and universal add-on compatibility are not implemented.
+**Early prototype, not a full Stremio replacement.** Local SQLite stores saved titles, watched state, and episode progress. macOS has an initial software-rendered video backend; DRM and universal add-on compatibility are not implemented.
 
 ## Run on Windows
 
@@ -34,6 +34,43 @@ dropping required credentials or headers. Add-ons are remote JSON services,
 not downloaded plugins executed inside Scry.
 
 Only stream media you have permission to access. Direct torrents expose your IP address to peers, can upload pieces, and use disk space. The torrent engine starts only when a torrent source is selected. Stop removes files downloaded into that engine's own cache directory; crashes or file locks can leave cache files behind. It never sweeps existing directories or deletes library metadata.
+
+## Run on macOS
+
+Install Xcode Command Line Tools (`xcode-select --install`) and [Homebrew](https://brew.sh), then:
+
+```sh
+bash scripts/macos/setup.sh
+export PATH="$HOME/.cargo/bin:$PATH" # also add to ~/.zshrc
+# If setup installed Homebrew rustup instead, prepend $(brew --prefix rustup)/bin.
+bash scripts/macos/dev.sh           # isolated data in target/dev-data
+# Optional: local release bundle outside the repository
+bash scripts/macos/install.sh --launch
+```
+
+Rustup selects the repository's Rust 1.97.1 pin (including rustfmt and Clippy).
+The setup script also updates your global stable toolchain without changing the
+shared Windows pin. Avoid Homebrew's standalone `rust` taking precedence over rustup.
+Apple Silicon builds natively; Intel macOS uses the same scripts but requires separate validation.
+
+The initial Mac backend uses libmpv's software render API on a dedicated thread,
+composited through Rune, with physical output bounded to 1280×720. This is not
+GPU rendering or HDR output and is not performance-equivalent to Windows/D3D11.
+Controls, overlays, resizing, and Retina scaling remain in the same UI scene.
+Frame delivery uses libmpv's update callback rather than an idle polling timer.
+Homebrew's `mpv` must remain installed, including for the local app bundle;
+this is not a self-contained or notarized distribution. The loader checks both
+Apple Silicon and Intel Homebrew prefixes, or honors `Scry_MPV_LIBRARY`.
+Windows runtime setup and deployment are unchanged.
+
+To isolate render-bridge pacing from network buffering, pass a local synthetic
+fixture to `cargo run -p scry-playback --example macos_pacing -- path/to/fixture.mp4`
+(add `--release` for matched release comparisons). It reports frame-delivery
+intervals, not actual display presentation or end-to-end audio/video smoothness.
+
+Mac production data lives in `~/Library/Application Support/app.Scry.Scry`;
+development uses `target/dev-data`. Do not share these databases: they can contain
+private add-on URLs. Windows profiling/desktop automation scripts remain Windows-only.
 
 ## Player controls
 
@@ -181,7 +218,7 @@ flowchart LR
     HTTP --> Player
     Player --> Host[VideoHost adapter]
     Host --> Windows[Windows child HWND]
-    Host -. future .-> Mac[macOS native host]
+    Host --> Mac[macOS software render API / Rune surface]
     Player --> Metrics[Local JSONL report]
     OS[Platform memory / CPU counters] --> Metrics
 ```
@@ -189,7 +226,7 @@ flowchart LR
 - `crates/scry-addons/`: manifest, catalog, metadata, episode IDs, and stream resources.
 - `crates/scry-torrents/`: lazy torrent session, file selection, seekable local HTTP delivery. No torrent control API is exposed.
 - `crates/scry-playback/`: `PlaybackEngine` contract, dynamic libmpv client binding, playback telemetry, and OS process counters. No Rune dependency.
-- `crates/scry-app/src/platform/`: `VideoHost` contract and OS implementations. Win32 stays in `windows.rs`; other systems return a clear unsupported error for embedding.
+- `crates/scry-app/src/platform/`: `VideoHost` contract and OS implementations. Win32 stays in `windows.rs`; macOS stays in `macos.rs`; other systems return a clear unsupported error for embedding.
 - `crates/scry-app/src/diagnostics.rs`: no-window playback probes and report analysis.
 - `crates/scry-library/`: Diesel/SQLite repository and a single embedded schema for installed add-ons, watchlists, ordered playlists, watched state, per-video progress, and derived show summaries.
 
@@ -203,9 +240,12 @@ The workspace shares dependency versions, one lockfile, and one target directory
 The app depends on all four service crates; torrents depends on add-ons. None of
 the service crates depends on the app or Rune.
 
-### macOS implementation path
+### macOS boundaries
 
-Implement `VideoHost` in `crates/scry-app/src/platform/macos.rs`, then select it with `cfg(target_os = "macos")`. Choose an appropriate NSView/libmpv render integration; do not assume a Windows window identifier works on macOS. Add native process counters in `crates/scry-playback/src/process/` and test resizing, Retina scaling, playback lifecycle, audio, and shutdown. Shared add-on and torrent services do not need OS-specific forks.
+AppKit fullscreen and subtitle selection live in `crates/scry-app/src/platform/macos.rs`.
+The render thread, Homebrew discovery, and process counters live in macOS-only
+modules in `scry-playback`. Shared add-on and torrent services have no OS forks.
+A future GPU render-API backend can replace the bounded software bridge.
 
 ## Development
 
@@ -214,6 +254,8 @@ Run the local checks:
 ```powershell
 pwsh -File scripts/check.ps1
 pwsh -File scripts/check.ps1 -AllFeatures
+# macOS runtime smoke test (synthetic media; no network or display required):
+cargo test -p scry-app --test macos_playback -- --ignored
 # Optional dependency checks (install once):
 cargo install cargo-audit --locked --version 0.22.2
 cargo install cargo-machete --locked --version 0.9.1
@@ -227,7 +269,7 @@ cargo test -p scry-torrents
 cargo run -p scry-addons --example addon_probe
 ```
 
-Rune is pinned to Git revision `e18cc657232a93af500b40917880c02cd4edd069`. Cargo downloads Rune and its dependencies; no framework fork is maintained in this repository. `Cargo.lock` should be retained for reproducible app builds. The first build is much larger than the running app: it compiles Rune/wgpu and the torrent dependencies.
+Rune is pinned to Git revision `b63efb3db3a2fa59bf4a11a947944de2a8b69303`. Cargo downloads Rune and its dependencies; no framework fork is maintained in this repository. `Cargo.lock` should be retained for reproducible app builds. The first build is much larger than the running app: it compiles Rune/wgpu and the torrent dependencies.
 
 libmpv and its codec build have their own license obligations. Include their license notices and satisfy the selected build's source-distribution requirements before redistributing an installer. This repository does not treat third-party binaries as MIT-licensed.
 

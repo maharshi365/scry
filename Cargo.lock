@@ -4121,6 +4121,8 @@ dependencies = [
  "directories",
  "ico",
  "image",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
  "reqwest",
  "resvg",
  "rune",
@@ -4159,6 +4161,8 @@ name = "scry-playback"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytemuck",
+ "libc",
  "libloading",
  "serde",
  "serde_json",

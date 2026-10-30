@@ -24,11 +24,15 @@ mod navigation;
 pub use browser::open_browser;
 pub use navigation::{HistoryDirection, NavigationInput};
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+pub use macos::Host;
+#[cfg(not(any(windows, target_os = "macos")))]
 mod unsupported;
 #[cfg(windows)]
 mod windows;
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub use unsupported::Host;
 #[cfg(windows)]
 pub use windows::Host;
