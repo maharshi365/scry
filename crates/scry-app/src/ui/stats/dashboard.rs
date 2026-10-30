@@ -69,13 +69,14 @@ pub(super) fn view(s: &State) -> El {
                 el().equal_columns(2)
                     .w_full()
                     .gap(12.0)
-                    .child(rankings(stats))
+                    .child(rankings(stats).self_stretch())
                     .child(
                         col()
                             .key("stats-records-column")
+                            .self_stretch()
                             .min_w(0.0)
                             .gap(12.0)
-                            .child(library_health(stats))
+                            .child(library_health(stats).grow(1.0))
                             .child(records(stats)),
                     ),
             );

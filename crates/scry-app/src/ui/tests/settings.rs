@@ -34,9 +34,11 @@ fn settings_tabs_do_not_repeat_the_tab_heading_or_explainer() {
         assert_eq!(
             elements
                 .iter()
+                .filter(|element| element.path.contains("/settings-page/"))
                 .filter(|element| element.text.as_deref() == Some(title))
                 .count(),
-            1
+            1,
+            "Repeated heading {title}"
         );
         assert!(
             !elements
@@ -47,7 +49,7 @@ fn settings_tabs_do_not_repeat_the_tab_heading_or_explainer() {
 }
 
 #[test]
-fn settings_tabs_show_only_the_selected_page_and_close_language_menus() {
+fn settings_tabs_show_only_the_selected_page_and_dismiss_language_menus_before_switching() {
     let mut state = init();
     state.navigation.page = Page::Settings;
     let mut rt = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
@@ -56,12 +58,19 @@ fn settings_tabs_show_only_the_selected_page_and_close_language_menus() {
     assert!(rt.find("subtitle-settings").is_none());
     assert!(rt.find("guide-preferences").is_none());
     tap(&mut rt, "settings-tab-subtitles");
+    // Let the new panel's layout settle before clicking its language trigger.
+    for _ in 0..60 {
+        rt.frame(1.0 / 60.0);
+    }
     assert!(rt.find("subtitle-settings").is_some());
     assert!(rt.find("streaming-settings").is_none());
     tap(&mut rt, "subtitle-primary-language");
     assert!(rt.state.settings.subtitles.language_menu.is_some());
+    // An outside press dismisses the modal without activating the tab below it.
     tap(&mut rt, "settings-tab-guide");
     assert!(rt.state.settings.subtitles.language_menu.is_none());
+    assert!(rt.find("subtitle-settings").is_some());
+    tap(&mut rt, "settings-tab-guide");
     assert!(rt.find("guide-autoplay-off").is_some());
     assert!(rt.find("subtitle-settings").is_none());
     tap(&mut rt, "settings-tab-streaming");
@@ -165,6 +174,10 @@ fn sidebar_settings_exposes_guide_preferences_and_keeps_addons_separate() {
     let mut rt = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);
     tap(&mut rt, "nav-settings");
+    // Let route layout motion settle before clicking the settings tabs.
+    for _ in 0..60 {
+        rt.frame(1.0 / 60.0);
+    }
     assert!(rt.find("settings-page").is_some());
     tap(&mut rt, "settings-tab-guide");
     for key in [
