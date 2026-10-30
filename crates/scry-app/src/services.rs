@@ -1,5 +1,6 @@
 //! Background work and the narrow, bounded boundary to the native UI.
 mod addon_storage;
+pub(crate) mod introdb;
 mod metadata;
 #[cfg(test)]
 #[expect(
@@ -65,6 +66,7 @@ impl LibraryPoster {
 
 #[derive(Debug)]
 pub enum Event {
+    IntroSegments(u64, Option<introdb::Segment>),
     StreamingPreferences(Result<streaming_settings::Preferences, String>),
     SubtitlePreferences(Result<scry_playback::subtitles::Preferences, String>),
     SubtitlePreferencesSaved(Result<(), String>),
@@ -153,6 +155,7 @@ pub enum Control {
 }
 
 pub struct Services {
+    intro_lookup: Option<introdb::Lookup>,
     streaming_settings: mpsc::Sender<streaming_settings::Preferences>,
     subtitle_settings: mpsc::Sender<scry_playback::subtitles::Preferences>,
     subtitle_task: Option<tokio::task::JoinHandle<()>>,
@@ -194,6 +197,7 @@ impl Services {
         // Tests provide completion events explicitly; dispatch alone is not success.
         Ok((
             Self {
+                intro_lookup: None,
                 streaming_settings,
                 subtitle_settings,
                 subtitle_task: None,
@@ -289,6 +293,7 @@ impl Services {
                 ));
             })?;
         let services = Self {
+            intro_lookup: Some(introdb::Lookup::start(&runtime, &data, inbox.clone())?),
             streaming_settings,
             subtitle_settings,
             subtitle_task: None,
@@ -1022,6 +1027,7 @@ impl Services {
     }
 
     pub fn shutdown_then(&mut self, finished: impl FnOnce() + Send + 'static) {
+        self.intro_lookup.take();
         for task in self.watch_tasks.drain(..) {
             task.abort();
         }

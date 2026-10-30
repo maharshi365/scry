@@ -289,6 +289,15 @@ const SCENES: &[Scene] = &[
     ("anime-empty", super::scenes::scene_anime_empty),
     ("watching-empty", super::library_view::scene_watching_empty),
     ("player-fullscreen", scene_player_fullscreen),
+    ("player-intro", super::scenes::scene_player_intro),
+    (
+        "player-intro-fullscreen",
+        super::scenes::scene_player_intro_fullscreen,
+    ),
+    (
+        "player-intro-upcoming",
+        super::scenes::scene_player_intro_upcoming,
+    ),
     ("settings", super::scenes::scene_settings),
     ("addons", super::scenes::scene_addons),
     ("subtitles", super::player::subtitles::scene),

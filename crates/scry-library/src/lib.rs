@@ -9,6 +9,7 @@ mod models;
 mod playback;
 mod playlists;
 mod schema;
+mod skip_segments;
 mod stats;
 mod up_next;
 mod watch_status;
@@ -19,6 +20,7 @@ pub use achievements::{
 };
 pub use app_storage::AddonRecord;
 pub use models::*;
+pub use skip_segments::SkipSegmentsRecord;
 pub use stats::{NerdStats, StatsPeriod, TopTitle};
 pub use watch_status::can_mark_watched;
 
@@ -33,7 +35,7 @@ use diesel::{
 
 /// All persistent app state shares this database. Older pre-release stores are not imported.
 pub const DATABASE_NAME: &str = "scry-v2.sqlite3";
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 // SQLite's initial journal-mode switch can return BUSY without using the
 // busy timeout. Serialize our workers' startup, not their normal database work.
 static INITIALIZE: Mutex<()> = Mutex::new(());
@@ -98,7 +100,7 @@ impl Library {
                 connection.batch_execute("DROP VIEW effective_watched;")?;
                 watch_status::install_view(connection)?;
                 connection.batch_execute("PRAGMA user_version=4;")?;
-            } else if version != 4 && version != 5 {
+            } else if version != 4 && version != 5 && version != 6 {
                 ensure!(
                     version == SCHEMA_VERSION,
                     "unsupported app database schema; reset the local database"
@@ -111,6 +113,10 @@ impl Library {
             if version < 6 {
                 connection.batch_execute(include_str!("guide_schema.sql"))?;
                 connection.batch_execute("PRAGMA user_version=6;")?;
+            }
+            if version < 7 {
+                connection.batch_execute(include_str!("skip_segments.sql"))?;
+                connection.batch_execute("PRAGMA user_version=7;")?;
             }
             Self::validate(connection)?;
             Ok(())
@@ -162,6 +168,7 @@ impl Library {
             .load::<(i64, bool)>(connection)?;
         stats::validate(connection)?;
         guide::validate(connection)?;
+        skip_segments::validate(connection)?;
         ensure!(
             diesel::sql_query("PRAGMA foreign_key_check")
                 .load::<ForeignKeyViolation>(connection)?

@@ -19,6 +19,16 @@ fn native_drag_regions_stay_in_the_shared_titlebar() {
 }
 
 #[test]
+fn intro_prompt_reuses_shared_actions_feedback_and_motion() {
+    let source = include_str!("../player/intro.rs");
+    assert!(source.contains("Button::new(\"player-skip-intro\""));
+    assert!(source.contains("feedback::status("));
+    assert!(source.contains("primitives::motion::fade()"));
+    assert!(source.contains("tokens::player::INTRO_FULLSCREEN_BOTTOM"));
+    assert!(!source.contains(".fill("));
+}
+
+#[test]
 fn full_page_empty_states_are_not_constrained_by_virtual_poster_rows() {
     let grid = include_str!("../poster_grid.rs");
     assert!(

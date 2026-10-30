@@ -141,7 +141,9 @@ impl State {
                     radius: super::super::design::tokens::overlay::RADIUS,
                 })
         } else {
-            None
+            super::intro::phase(self)
+                .and(self.player.intro_rect)
+                .and_then(local_overlay)
         };
         self.shell.host.cover(controls, overlay, interaction.scale);
     }

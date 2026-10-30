@@ -125,6 +125,11 @@ fn apply(s: &mut State, event: Event) {
             s.settings.subtitles.error = result.err();
         }
         Event::Subtitles(id, snapshot) => s.apply_subtitle_snapshot(id, snapshot),
+        Event::IntroSegments(id, intro) => {
+            if id == s.player.generation && s.player.playing {
+                s.player.intro = intro;
+            }
+        }
         Event::Audio(id, snapshot) => s.apply_audio_snapshot(id, snapshot),
         Event::SubtitleSources(id, sources, done, failed) => {
             s.apply_subtitle_sources(id, sources, done, failed);

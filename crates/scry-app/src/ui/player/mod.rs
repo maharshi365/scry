@@ -3,6 +3,7 @@ pub(crate) mod actions;
 pub(super) mod audio;
 mod feedback;
 mod interaction;
+mod intro;
 mod session;
 pub(super) mod shortcuts;
 pub(crate) mod state;
@@ -93,7 +94,7 @@ fn surface(s: &State, scale: f32, compact: bool) -> El {
     } else if !s.player.playing {
         surface = surface.child(label("Choose another source to continue."));
     }
-    surface
+    surface.children(intro::prompt(s))
 }
 
 pub(super) fn player(s: &State, scale: f32) -> El {

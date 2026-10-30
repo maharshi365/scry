@@ -15,6 +15,7 @@ impl State {
         self.player.generation += 1;
         self.player.playing = false;
         self.player.ready = false;
+        self.player.intro = None;
         self.player.seek_preview = None;
         self.player.interaction.reset();
         self.player.stats_overlay.dismiss();
@@ -22,6 +23,7 @@ impl State {
         self.player.audio = super::audio::Audio::default();
         if let Some(services) = &mut self.runtime.services {
             services.cancel_subtitles();
+            services.intro_segments(self.player.generation, None);
         }
         self.player.torrent_stats = None;
         self.player.torrent_source = false;
@@ -97,6 +99,7 @@ impl State {
                 self.player.generation += 1;
                 self.player.playing = true;
                 self.player.ready = false;
+                self.player.intro = None;
                 let meta = self.detail.meta.as_ref().filter(|meta| {
                     self.player
                         .meta_id
@@ -133,6 +136,14 @@ impl State {
                 });
                 self.player.subtitles.searching = true;
                 if let Some(services) = &mut self.runtime.services {
+                    let episode = self
+                        .player
+                        .meta_id
+                        .as_ref()
+                        .zip(self.player.video_id.as_deref())
+                        .filter(|_| matches!(source, Source::Stream(_)))
+                        .map(|((kind, series), video)| (kind.as_str(), series.as_str(), video));
+                    services.intro_segments(self.player.generation, episode);
                     services.subtitles(
                         self.player.generation,
                         identity,

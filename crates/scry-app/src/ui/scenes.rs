@@ -40,6 +40,31 @@ pub(super) fn scene_player_fullscreen(s: &mut State) {
     s.player.sample.cache_s = Some(120.0);
 }
 
+pub(super) fn scene_player_intro(s: &mut State) {
+    scene_player_fullscreen(s);
+    s.player.fullscreen = false;
+    s.player.title = "Attack on Titan · S1 E2".into();
+    s.player.sample.duration_s = Some(1436.0);
+    s.player.sample.position_s = Some(60.0);
+    s.player.intro = Some(crate::services::introdb::Segment {
+        start_ms: 54312,
+        end_ms: 144_312,
+        confidence: 1.0,
+        submission_count: 1,
+        updated_at: None,
+    });
+}
+
+pub(super) fn scene_player_intro_fullscreen(s: &mut State) {
+    scene_player_intro(s);
+    s.player.fullscreen = true;
+}
+
+pub(super) fn scene_player_intro_upcoming(s: &mut State) {
+    scene_player_intro_fullscreen(s);
+    s.player.sample.position_s = Some(52.5);
+}
+
 pub(super) fn scene_addons(s: &mut State) {
     s.navigation.page = Page::Addons;
     s.addons.busy = false;

@@ -7,6 +7,8 @@ use std::path::PathBuf;
     reason = "Playback readiness, window mode, and mute are independent state"
 )]
 pub(crate) struct PlayerState {
+    pub intro: Option<crate::services::introdb::Segment>,
+    pub intro_rect: Option<[f32; 4]>,
     pub error: Option<String>,
     pub status: String,
     pub playing: bool,
@@ -35,6 +37,8 @@ pub(crate) struct PlayerState {
 impl Default for PlayerState {
     fn default() -> Self {
         Self {
+            intro: None,
+            intro_rect: None,
             error: None,
             status: String::new(),
             playing: false,

@@ -210,6 +210,10 @@ pub(in crate::ui) mod motion {
 }
 
 pub(in crate::ui) mod player {
+    // Keep the intro prompt above the fullscreen controls, even while they are hidden.
+    pub const INTRO_FULLSCREEN_BOTTOM: f32 = 128.0;
+    pub const INTRO_PROMPT_WIDTH: f32 = 160.0;
+    pub const INTRO_LEAD_SECONDS: f64 = 2.0;
     pub const CONTROLS_INSET: f32 = 24.0;
     pub const CONTROLS_MAX_WIDTH: f32 = 1200.0;
     pub const FEEDBACK_SIZE: f32 = 88.0;

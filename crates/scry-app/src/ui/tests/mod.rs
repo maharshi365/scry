@@ -27,6 +27,7 @@ mod navigation;
 mod patterns;
 mod playback;
 mod player;
+mod player_intro;
 mod presentation;
 mod series;
 mod settings;
