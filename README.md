@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="crates/scry-app/assets/skry.svg" width="120" height="120" alt="Scry logo">
+  <img src="crates/scry-app/assets/scry.svg" width="120" height="120" alt="Scry logo">
 </p>
 
 <h1 align="center">Scry</h1>

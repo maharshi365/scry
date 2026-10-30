@@ -1,15 +1,15 @@
 use std::{env, fs, path::PathBuf};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("cargo:rerun-if-changed=assets/skry.svg");
-    println!("cargo:rerun-if-changed=assets/skry-dev.svg");
+    println!("cargo:rerun-if-changed=assets/scry.svg");
+    println!("cargo:rerun-if-changed=assets/scry-dev.svg");
     println!("cargo:rerun-if-env-changed=SCRY_DEV_ICON");
     println!("cargo:rerun-if-changed=assets/app.manifest");
     let out = PathBuf::from(env::var_os("OUT_DIR").ok_or("Missing Cargo output directory")?);
     let source = fs::read(if env::var("SCRY_DEV_ICON").as_deref() == Ok("1") {
-        "assets/skry-dev.svg"
+        "assets/scry-dev.svg"
     } else {
-        "assets/skry.svg"
+        "assets/scry.svg"
     })?;
     let tree = resvg::usvg::Tree::from_data(&source, &resvg::usvg::Options::default())?;
     let mut icons = ico::IconDir::new(ico::ResourceType::Icon);
@@ -32,12 +32,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .collect();
         if size == 128 {
-            fs::write(out.join("skry.rgba"), &rgba)?;
+            fs::write(out.join("scry.rgba"), &rgba)?;
         }
         let image = ico::IconImage::from_rgba_data(u32::from(size), u32::from(size), rgba);
         icons.add_entry(ico::IconDirEntry::encode(&image)?);
     }
-    let icon_path = out.join("skry.ico");
+    let icon_path = out.join("scry.ico");
     icons.write(fs::File::create(&icon_path)?)?;
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         winresource::WindowsResource::new()

@@ -98,7 +98,7 @@ impl State {
         logo.set(
             128,
             128,
-            include_bytes!(concat!(env!("OUT_DIR"), "/skry.rgba")).to_vec(),
+            include_bytes!(concat!(env!("OUT_DIR"), "/scry.rgba")).to_vec(),
         );
         Self {
             runtime: AppRuntime::default(),
