@@ -1,18 +1,13 @@
 name: Test builds
 
 on:
-  push:
-    branches: [dev]
-    paths-ignore: ['**/*.md']
-  pull_request:
-    paths-ignore: ['**/*.md']
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: builds-${{ github.event.pull_request.number || github.ref }}
+  group: builds-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
