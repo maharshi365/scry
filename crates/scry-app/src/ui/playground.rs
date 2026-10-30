@@ -6,9 +6,11 @@ use super::{
         dialog,
         feedback::{self, Tone},
         form::{choices, option_row},
+        image,
         input::input,
         motion,
         pattern::{detail_header, page, section, settings_group},
+        poster,
         stepper::stepper,
         text::label,
     },
@@ -25,6 +27,7 @@ enum Category {
     Feedback,
     Motion,
     Titlebar,
+    PosterGallery,
 }
 
 impl Category {
@@ -37,6 +40,7 @@ impl Category {
             Self::Feedback => "Feedback/Notice",
             Self::Motion => "Examples/Motion",
             Self::Titlebar => "Examples/Title bar",
+            Self::PosterGallery => "Browse/Quiet gallery",
         }
     }
 }
@@ -54,6 +58,8 @@ struct State {
     notice: bool,
     expanded: bool,
     loading: Loading,
+    hovered_poster: Option<usize>,
+    poster_pixels: rune::Pixels,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -80,6 +86,15 @@ impl Quality {
 }
 
 fn init() -> State {
+    let poster_pixels = rune::Pixels::new();
+    let mut rgba = Vec::with_capacity(120 * 180 * 4);
+    for y in 0u8..180 {
+        for x in 0u8..120 {
+            let stripe = if x % 30 < 2 || y % 30 < 2 { 255 } else { 100 };
+            rgba.extend_from_slice(&[x.saturating_add(40), y, stripe, 255]);
+        }
+    }
+    poster_pixels.set(120, 180, rgba);
     State {
         category: Category::default(),
         name: TextEdit::new("Local example"),
@@ -92,6 +107,8 @@ fn init() -> State {
         notice: true,
         expanded: false,
         loading: Loading::Idle,
+        hovered_poster: None,
+        poster_pixels,
     }
 }
 
@@ -368,13 +385,65 @@ fn motion(s: &State) -> El {
     )
 }
 
-fn view(s: &State, _: &mut Cx<State>) -> El {
+fn poster_gallery(s: &State, reduced_motion: bool) -> El {
+    let mut posters = row().gap(tokens::poster::GAP).flex_wrap();
+    for (index, (title, subtitle)) in [
+        ("The last light beyond the horizon", "2017 · Movie"),
+        ("Night city", "2022– · Series"),
+        ("A world apart", "2026– · Series"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let key = format!("playground-poster-{index}");
+        let artwork = image::gallery(
+            &format!("{key}-frame"),
+            image::frame(title, index, image::Variant::Poster)
+                .pixels_fit(&s.poster_pixels, rune::SurfaceFit::Fill),
+            if !reduced_motion && s.hovered_poster == Some(index) {
+                motion::Zoom::Hovered
+            } else {
+                motion::Zoom::Rest
+            },
+        )
+        .on_hover_change(move |s: &mut State, hovered, _| {
+            if hovered {
+                s.hovered_poster = Some(index);
+            } else if s.hovered_poster == Some(index) {
+                s.hovered_poster = None;
+            }
+        });
+        posters = posters.child(
+            poster::card(
+                &key,
+                poster::Content {
+                    title,
+                    subtitle,
+                    subtitle_key: &format!("{key}-subtitle"),
+                    artwork,
+                },
+                poster::Selection::Normal,
+            )
+            .w(tokens::poster::MIN_WIDTH)
+            .on_press(|s: &mut State| s.presses += 1),
+        );
+    }
+    section(
+        "playground-gallery",
+        "Quiet gallery",
+        "Centered artwork zoom. The grid lines make movement easy to inspect. No services or saved data.",
+        posters,
+    )
+}
+
+fn view(s: &State, cx: &mut Cx<State>) -> El {
     let examples = match s.category {
         Category::Controls => controls(s),
         Category::Settings => settings(s),
         Category::ListDetail => list_detail(s),
         Category::Feedback => feedback(s),
         Category::Motion => motion(s),
+        Category::PosterGallery => poster_gallery(s, cx.is_reduced_motion()),
         Category::Titlebar => {
             super::primitives::titlebar::titlebar(tokens::shell::CHROME.titlebar_inset())
                 .key("playground-titlebar")
@@ -462,6 +531,11 @@ fn scene_titlebar(s: &mut State) {
     s.show(Category::Titlebar);
 }
 
+fn scene_poster_gallery(s: &mut State) {
+    *s = init();
+    s.show(Category::PosterGallery);
+}
+
 fn app() -> App<State> {
     App::new(AppSpec {
         fonts: tokens::fonts::FILES,
@@ -476,6 +550,7 @@ fn app() -> App<State> {
             ("Feedback/Dialog", scene_dialog),
             ("Examples/Motion", scene_motion),
             ("Examples/Title bar", scene_titlebar),
+            ("Browse/Quiet gallery", scene_poster_gallery),
         ],
         min_size: Some((1106.0, 480.0)),
         ..AppSpec::new("Scry · UI playground", (1280.0, 820.0), init, view)

@@ -23,6 +23,21 @@ pub(in crate::ui) fn hover(content: El) -> El {
     content.hover_motion(tokens::motion::HOVER, tokens::motion::HOVER)
 }
 
+#[derive(Clone, Copy)]
+pub(in crate::ui) enum Zoom {
+    Rest,
+    Hovered,
+}
+
+pub(in crate::ui) fn poster_zoom(content: El, zoom: Zoom) -> El {
+    content
+        .scale(match zoom {
+            Zoom::Rest => 1.0,
+            Zoom::Hovered => tokens::motion::POSTER_ZOOM,
+        })
+        .scale_motion(tokens::motion::POSTER_ZOOM_CURVE)
+}
+
 pub(in crate::ui) fn surface(content: El) -> El {
     content.transition(Transition::scale(tokens::motion::SURFACE_SCALE))
 }

@@ -74,9 +74,15 @@ fn full_page_empty_states_are_not_constrained_by_virtual_poster_rows() {
 }
 
 fn local_motion(text: &str) -> bool {
-    ["Transition::", "Spring::", "Anim::", ".hover_motion("]
-        .iter()
-        .any(|pattern| text.contains(pattern))
+    [
+        "Transition::",
+        "Spring::",
+        "Anim::",
+        ".hover_motion(",
+        ".scale_motion(",
+    ]
+    .iter()
+    .any(|pattern| text.contains(pattern))
 }
 
 fn check_source(path: &Path, violations: &mut Vec<String>) {
@@ -180,6 +186,7 @@ fn motion_policy_rejects_local_tuning_but_allows_shared_intent() {
         "use rune::Transition; Transition::scale(0.96)",
         ".hover_motion(Anim::INSTANT, Anim::INSTANT)",
         "Spring::new(0.3, 0.0)",
+        ".scale_motion(tokens::motion::POSTER_ZOOM_CURVE)",
     ] {
         assert!(local_motion(source), "{source}");
     }
@@ -187,6 +194,7 @@ fn motion_policy_rejects_local_tuning_but_allows_shared_intent() {
         ".transition(primitives::motion::fade())",
         "motion::surface(panel)",
         "motion::playback_feedback(elapsed)",
+        "motion::poster_zoom(artwork, Zoom::Hovered)",
     ] {
         assert!(!local_motion(source), "{source}");
     }

@@ -1,6 +1,26 @@
 use super::*;
 
 #[test]
+fn gallery_fixture_wraps_and_keeps_actions_local() {
+    for size in [(640.0, 600.0), (1280.0, 820.0)] {
+        let mut rt = runtime(scene_poster_gallery, size);
+        for _ in 0..60 {
+            rt.frame(1.0 / 60.0);
+        }
+        for index in 0..3 {
+            let rect = rect(&rt, &format!("playground-poster-{index}"));
+            assert!(
+                rect[2] > 0.0 && rect[0] + rect[2] <= size.0 + 0.5,
+                "Gallery card must fit at {size:?}: {rect:?}"
+            );
+        }
+        tap(&mut rt, "playground-poster-0");
+        assert_eq!(stage(&rt).presses, 1);
+        assert_eq!(rt.state.presses, 0);
+    }
+}
+
+#[test]
 fn loading_action_reserves_its_label_space_and_restores_the_same_button() {
     let mut rt = runtime(scene_controls, (1280.0, 820.0));
     let before = rect(&rt, "playground-loading-action");

@@ -204,6 +204,8 @@ pub(in crate::ui) mod motion {
     pub const SURFACE_SCALE: f32 = 0.99;
     pub const NOTIFICATION_OFFSET: f32 = -24.0;
     pub const HOVER: rune::Anim = rune::Anim::INSTANT;
+    pub const POSTER_ZOOM: f32 = 1.04;
+    pub const POSTER_ZOOM_CURVE: rune::Spring = rune::Spring::new(0.3, 0.0);
 }
 
 pub(in crate::ui) mod player {
@@ -274,8 +276,11 @@ pub(in crate::ui) mod guide {
 
 pub(in crate::ui) mod poster {
     pub const HEIGHT: f32 = 190.0;
-    pub const CARD_HEIGHT: f32 = 242.0;
-    pub const GAP: f32 = 12.0;
+    pub const CARD_HEIGHT: f32 = 252.0;
+    pub const GAP: f32 = 14.0;
+    pub const ARTWORK_GAP: f32 = 10.0;
+    pub const TITLE_HEIGHT: f32 = 32.0;
+    pub const SUBTITLE_GAP: f32 = 5.0;
     pub const MIN_WIDTH: f32 = 124.0;
     pub const RADIUS: f32 = super::radius::SM;
     pub const THUMBNAIL_WIDTH: f32 = 32.0;

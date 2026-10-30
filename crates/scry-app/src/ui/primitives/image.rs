@@ -1,6 +1,18 @@
 use super::super::design::tokens;
 use rune::{El, el};
 
+/// Keep the clip stationary while only the artwork zooms about its center.
+pub(in crate::ui) fn gallery(key: &str, artwork: El, zoom: super::motion::Zoom) -> El {
+    el().key(key)
+        .w_full()
+        .h(tokens::poster::HEIGHT)
+        .clip_rounded(tokens::poster::RADIUS)
+        .child(super::motion::poster_zoom(
+            artwork.key(format!("{key}-artwork")),
+            zoom,
+        ))
+}
+
 #[derive(Clone, Copy)]
 pub(in crate::ui) enum Variant {
     Poster,

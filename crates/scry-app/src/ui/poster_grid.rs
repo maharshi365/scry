@@ -5,11 +5,10 @@ use super::{
     design::tokens::{
         self,
         poster::{CARD_HEIGHT as POSTER_CARD_HEIGHT, GAP as POSTER_GAP},
-        theme, type_,
     },
-    primitives::{surface::scroll, text::label},
+    primitives::{image, motion::Zoom, poster as gallery, surface::scroll, text::label},
 };
-use rune::{Cx, El, GrowthSpec, Tx, col, text};
+use rune::{Cx, El, GrowthSpec, Tx, col};
 use scry_library::{Media, MediaKey, MediaKind};
 
 pub(super) struct PosterGridState {
@@ -17,6 +16,7 @@ pub(super) struct PosterGridState {
     pub columns: usize,
     pub viewport: Option<[f32; 4]>,
     pub route: u64,
+    hovered: Option<(u64, String)>,
 }
 
 impl Default for PosterGridState {
@@ -26,6 +26,7 @@ impl Default for PosterGridState {
             columns: 3,
             viewport: None,
             route: 0,
+            hovered: None,
         }
     }
 }
@@ -236,7 +237,8 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> El {
     let columns = cx
         .layout_size(&viewport_key)
         .map_or(3, |size| poster_columns(size[0]));
-    let rows = Rows::new(s, columns);
+    let mut rows = Rows::new(s, columns);
+    rows.reduced_motion = cx.is_reduced_motion();
     let route_key = s.navigation.route_key;
     let source_generation = if matches!(s.navigation.page, Page::Library | Page::Watching) {
         s.library.grid_generation
@@ -253,7 +255,13 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> El {
             move |_: &State, index| rows.key(index).into(),
             move |s: &State, index| rows.build(s, index),
         )
-        .virtual_rows_version((rows.main, rows.next, rows.loading))
+        .virtual_rows_version((
+            rows.main,
+            rows.next,
+            rows.loading,
+            rows.reduced_motion,
+            &s.posters.hovered,
+        ))
         .on_visible_rows(move |s: &mut State, range| {
             let pending = s.discover.paging.pending;
             s.posters.route = route_key;
@@ -315,6 +323,7 @@ struct Rows {
     next: usize,
     loading: bool,
     prefix: &'static str,
+    reduced_motion: bool,
 }
 
 impl Rows {
@@ -334,6 +343,7 @@ impl Rows {
             loading: s.navigation.page == Page::Discover
                 && s.discover.paging.pending.is_some_and(|offset| offset > 0),
             prefix: prefix(s),
+            reduced_motion: false,
         }
     }
 
@@ -384,7 +394,7 @@ impl Rows {
             .equal_columns(self.columns);
         for index in row_index * self.columns..((row_index + 1) * self.columns).min(count) {
             let item = entry(s, start + index);
-            card_row = card_row.child(card(s, &item, index, prefix));
+            card_row = card_row.child(card(s, &item, index, prefix, self.reduced_motion));
         }
         card_row
     }
@@ -398,7 +408,7 @@ fn prefix(s: &State) -> &'static str {
     }
 }
 
-fn card(s: &State, entry: &Entry, index: usize, prefix: &str) -> El {
+fn card(s: &State, entry: &Entry, index: usize, prefix: &str, reduced_motion: bool) -> El {
     let selected = s.navigation.page == Page::Detail
         && s.detail.preview
         && s.detail
@@ -418,17 +428,65 @@ fn card(s: &State, entry: &Entry, index: usize, prefix: &str) -> El {
         .then(|| s.result_media(index))
         .flatten();
     let menu = entry.media.clone().or_else(|| result.clone());
-    super::primitives::interaction::action(
-        super::primitives::surface::Variant::Poster
-            .apply_selected(col(), selected)
-            .key(key.clone())
-            .label(format!("Open {}", entry.title)),
-        selected,
+    let poster_key = format!("{prefix}-poster-{index}");
+    let route = s.navigation.route_key;
+    let hovered = s
+        .posters
+        .hovered
+        .as_ref()
+        .is_some_and(|(owner, hovered)| *owner == route && hovered == &poster_key);
+    let hover_key = poster_key.clone();
+    let surface = image::gallery(
+        &poster_key,
+        poster(s, &entry.title, entry.poster.as_deref(), index),
+        if hovered && !reduced_motion {
+            Zoom::Hovered
+        } else {
+            Zoom::Rest
+        },
     )
-    .w_full()
-    .min_w(0.0)
-    .gap(6.0)
-    .padding(4.0)
+    .on_hover_change(move |s: &mut State, hovered, _| {
+        if hovered {
+            s.posters.hovered = Some((route, hover_key.clone()));
+        } else if s
+            .posters
+            .hovered
+            .as_ref()
+            .is_some_and(|(owner, key)| *owner == route && key == &hover_key)
+        {
+            s.posters.hovered = None;
+        }
+    });
+    let artwork = match entry.overlay {
+        Overlay::Summary => poster_overlay(
+            s,
+            surface,
+            entry.identity.as_ref(),
+            &poster_key,
+            tokens::poster::HEIGHT,
+        ),
+        Overlay::Item { watched, progress } => poster_status_overlay(
+            surface,
+            &poster_key,
+            tokens::poster::HEIGHT,
+            watched,
+            progress,
+        ),
+    };
+    gallery::card(
+        &key,
+        gallery::Content {
+            title: &entry.title,
+            subtitle: &entry.subtitle,
+            subtitle_key: &format!("{prefix}-info-{index}"),
+            artwork,
+        },
+        if selected {
+            gallery::Selection::Selected
+        } else {
+            gallery::Selection::Normal
+        },
+    )
     .on_press(move |s: &mut State| {
         s.navigation.anchor = Some(key.clone());
         if let Some(media) = &item {
@@ -445,38 +503,4 @@ fn card(s: &State, entry: &Entry, index: usize, prefix: &str) -> El {
     .on_secondary_press(move |s: &mut State, p, _| {
         s.open_title_menu(p, menu.clone());
     })
-    .child({
-        let surface = poster(s, &entry.title, entry.poster.as_deref(), index);
-        let key = format!("{prefix}-poster-{index}");
-        match entry.overlay {
-            Overlay::Summary => poster_overlay(
-                s,
-                surface,
-                entry.identity.as_ref(),
-                &key,
-                tokens::poster::HEIGHT,
-            ),
-            Overlay::Item { watched, progress } => {
-                poster_status_overlay(surface, &key, tokens::poster::HEIGHT, watched, progress)
-            }
-        }
-    })
-    .child(
-        col()
-            .gap(3.0)
-            .child(
-                text(entry.title.clone())
-                    .w_full()
-                    .truncate()
-                    .font(type_::POSTER_TITLE)
-                    .color(theme().text),
-            )
-            .child(
-                label(entry.subtitle.clone())
-                    .font(type_::CAPTION)
-                    .key(format!("{prefix}-info-{index}"))
-                    .w_full()
-                    .truncate(),
-            ),
-    )
 }

@@ -10,6 +10,7 @@ pub(super) mod input_group;
 pub(super) mod interaction;
 pub(super) mod motion;
 pub(super) mod pattern;
+pub(super) mod poster;
 pub(super) mod progress;
 pub(super) mod status;
 pub(super) mod stepper;

@@ -61,11 +61,7 @@ impl Variant {
             ),
             Self::Poster => (
                 tokens::poster::RADIUS,
-                if selected {
-                    tokens::selected()
-                } else {
-                    panel()
-                },
+                tokens::transparent(),
                 tokens::transparent_edge(),
             ),
             Self::Hero => (tokens::radius::LG, tokens::stats_hero(), edge()),
