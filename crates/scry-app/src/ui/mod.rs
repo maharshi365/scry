@@ -75,6 +75,7 @@ pub struct State {
     player: PlayerState,
     subtitle_preferences: scry_playback::subtitles::Preferences,
     subtitle_settings: player::subtitles::SettingsUi,
+    streaming_settings: settings::streaming::SettingsUi,
     addons: Vec<Addon>,
     config_busy: bool,
     install: TextEdit,

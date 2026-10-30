@@ -1,6 +1,7 @@
 //! Background work and the narrow, bounded boundary to the native UI.
 mod addon_storage;
 mod metadata;
+pub(crate) mod streaming_settings;
 mod subtitle_settings;
 mod subtitle_sources;
 use addon_storage::load;
@@ -58,6 +59,7 @@ impl LibraryPoster {
 
 #[derive(Debug)]
 pub enum Event {
+    StreamingPreferences(Result<streaming_settings::Preferences, String>),
     SubtitlePreferences(Result<scry_playback::subtitles::Preferences, String>),
     SubtitlePreferencesSaved(Result<(), String>),
     Subtitles(u64, scry_playback::subtitles::Snapshot),
@@ -145,6 +147,7 @@ pub enum Control {
 }
 
 pub struct Services {
+    streaming_settings: mpsc::Sender<streaming_settings::Preferences>,
     subtitle_settings: mpsc::Sender<scry_playback::subtitles::Preferences>,
     subtitle_task: Option<tokio::task::JoinHandle<()>>,
     subtitle_file_task: Option<tokio::task::JoinHandle<()>>,
@@ -178,12 +181,14 @@ impl Services {
         let runtime = Arc::new(tokio::runtime::Builder::new_current_thread().build()?);
         let (tx, _events) = mpsc::channel(1);
         let (subtitle_settings, _settings) = mpsc::channel(1);
+        let (streaming_settings, _streaming) = mpsc::channel(1);
         let (stream_stats, _stats) = watch::channel(None);
         let (requests, recorded) = std::sync::mpsc::channel();
         // No worker, startup load, cache directory, or runtime driver is started.
         // Tests provide completion events explicitly; dispatch alone is not success.
         Ok((
             Self {
+                streaming_settings,
                 subtitle_settings,
                 subtitle_task: None,
                 subtitle_file_task: None,
@@ -225,6 +230,16 @@ impl Services {
             .map_err(|_| anyhow::anyhow!("Subtitle settings are busy; try again"))
     }
 
+    pub fn save_streaming_preferences(
+        &self,
+        preferences: streaming_settings::Preferences,
+    ) -> Result<()> {
+        preferences.validate()?;
+        self.streaming_settings
+            .try_send(preferences)
+            .map_err(|_| anyhow::anyhow!("Streaming settings are busy; try again"))
+    }
+
     pub fn cancel_streams(&mut self) {
         if let Some(task) = self.stream_task.take() {
             task.abort();
@@ -246,6 +261,7 @@ impl Services {
         let (tx, rx) = mpsc::channel(64);
         let inbox = Inbox { tx, wake };
         let subtitle_settings = subtitle_settings::start(&runtime, data.clone(), inbox.clone());
+        let streaming_settings = streaming_settings::start(&runtime, data.clone(), inbox.clone());
         let (control, lifecycle) = watch::channel(None);
         let (commands, command_rx) = mpsc::channel(16);
         let (stream_stats, stats_rx) = watch::channel(None);
@@ -258,6 +274,7 @@ impl Services {
                 rt.block_on(player_loop(lifecycle, command_rx, stats_rx, output, folder));
             })?;
         let services = Self {
+            streaming_settings,
             subtitle_settings,
             subtitle_task: None,
             subtitle_file_task: None,
@@ -1221,10 +1238,14 @@ async fn player_loop(
                                 if let Some(url) = direct_url(&stream)? {
                                     url
                                 } else {
-                                    let session =
-                                        Torrents::new(data.join("torrent-cache")).await.map_err(
-                                            |_| anyhow::anyhow!("Cannot start torrent engine"),
-                                        )?;
+                                    let budget =
+                                        streaming_settings::cache_budget(data.clone()).await?;
+                                    let session = Torrents::with_cache_budget(
+                                        data.join("torrent-cache"),
+                                        budget,
+                                    )
+                                    .await
+                                    .map_err(|_| anyhow::anyhow!("Cannot start torrent engine"))?;
                                     torrents = Some(session);
                                     let session = torrents
                                         .as_ref()

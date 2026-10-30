@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod cache;
 mod stats;
 pub use stats::Stats;
 
@@ -32,7 +33,7 @@ pub struct Torrents {
     port: u16,
     token: String,
     server: tokio::task::JoinHandle<()>,
-    folder: PathBuf,
+    cache: Arc<cache::Cache>,
 }
 
 #[derive(Clone)]
@@ -42,9 +43,20 @@ struct Server {
 }
 
 impl Torrents {
+    /// Opens a persistent torrent cache with a 2 GiB budget.
+    ///
     /// # Errors
     /// Returns an error if session storage, the torrent engine, or its local HTTP listener cannot start.
     pub async fn new(folder: PathBuf) -> Result<Self> {
+        Self::with_cache_budget(folder, cache::DEFAULT_BUDGET).await
+    }
+
+    /// Opens a persistent torrent cache with the given byte budget.
+    /// The current video is retained even if it exceeds the budget.
+    ///
+    /// # Errors
+    /// Returns an error if the cache is in use or the engine cannot start.
+    pub async fn with_cache_budget(folder: PathBuf, budget: u64) -> Result<Self> {
         #[cfg(feature = "profiling")]
         let peer = std::env::var("SCRY_PROFILE_TORRENT_PEER")
             .ok()
@@ -55,12 +67,12 @@ impl Torrents {
         if peer.is_some_and(|peer| !peer.ip().is_loopback()) {
             bail!("Profiling peer must be loopback");
         }
-        // Each engine owns a new cache directory. Never remove files from a caller's
-        // existing directory, or from another Scry session.
-        let folder = folder.join(uuid::Uuid::new_v4().to_string());
-        std::fs::create_dir_all(&folder)?;
+        let cache = Arc::new(
+            tokio::task::spawn_blocking(move || cache::Cache::open(&folder, budget)).await??,
+        );
+        // Each torrent supplies its own validated hash-based subfolder below.
         let session = Session::new_with_opts(
-            folder.clone(),
+            PathBuf::new(),
             SessionOptions {
                 #[cfg(feature = "profiling")]
                 disable_dht: peer.is_some(),
@@ -93,7 +105,7 @@ impl Torrents {
             port,
             token,
             server,
-            folder,
+            cache,
         })
     }
 
@@ -110,11 +122,103 @@ impl Torrents {
 
     async fn prepare(&self, stream: &Stream) -> Result<String> {
         let magnet = magnet(stream)?;
+        let hash = stream
+            .info_hash
+            .as_deref()
+            .context("Stream has no torrent hash")?
+            .to_ascii_lowercase();
+        let cache = self.cache.clone();
+        let cache_hash = hash.clone();
+        let (entry, cached) = tokio::task::spawn_blocking(move || {
+            let entry = cache.entry(&cache_hash)?;
+            let metadata = cache::Cache::metadata(&entry)?;
+            Ok::<_, anyhow::Error>((entry, metadata))
+        })
+        .await??;
+        let source = cached.map_or_else(
+            || AddTorrent::from_url(magnet.clone()),
+            AddTorrent::from_bytes,
+        );
         // Inspect every path before the engine opens files, even with an explicit index.
+        let listed = self.list(source).await?;
+        if listed.info_hash.as_string() != hash {
+            bail!("Cached torrent identity does not match the stream");
+        }
+        let files = listed
+            .info
+            .iter_file_details()?
+            .take(MAX_TORRENT_FILES + 1)
+            .map(|file| Ok((file.filename.to_string()?, file.len)))
+            .collect::<Result<Vec<_>>>()?;
+        let index = select_torrent_file(
+            &files
+                .iter()
+                .map(|(name, len)| (name.as_str(), *len))
+                .collect::<Vec<_>>(),
+            stream.file_idx,
+        )?;
+        let metadata = listed.torrent_bytes.clone();
+        let metadata_entry = entry.clone();
+        tokio::task::spawn_blocking(move || {
+            cache::Cache::save_metadata(&metadata_entry, &metadata)
+        })
+        .await??;
+        let initial_peers = listed.seen_peers;
+        #[cfg(feature = "profiling")]
+        let initial_peers = self.peer.map_or(initial_peers, |peer| vec![peer]);
+        let added = tokio::time::timeout(
+            std::time::Duration::from_secs(90),
+            self.api.api_add_torrent(
+                AddTorrent::from_bytes(listed.torrent_bytes),
+                Some(AddTorrentOptions {
+                    initial_peers: Some(initial_peers),
+                    #[cfg(feature = "profiling")]
+                    disable_trackers: self.peer.is_some(),
+                    paused: true,
+                    only_files: Some(vec![index]),
+                    output_folder: Some(
+                        entry
+                            .join("data")
+                            .to_str()
+                            .context("Invalid torrent cache path")?
+                            .to_owned(),
+                    ),
+                    trackers: Some(
+                        url::Url::parse(&magnet)?
+                            .query_pairs()
+                            .filter(|(key, _)| key == "tr")
+                            .map(|(_, value)| value.into_owned())
+                            .collect(),
+                    ),
+                    overwrite: true,
+                    ..Default::default()
+                }),
+            ),
+        )
+        .await
+        .context("Torrent metadata timed out")??;
+        let id = added.id.context("Torrent has no session ID")?;
+        let handle = self.api.mgr_handle(id.into())?;
+        tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            handle.wait_until_initialized(),
+        )
+        .await
+        .context("Torrent file initialization timed out")??;
+        let cache = self.cache.clone();
+        tokio::task::spawn_blocking(move || cache.trim(&hash)).await??;
+        self.session.unpause(&handle).await?;
+        Ok(format!(
+            "http://127.0.0.1:{}/{}/{id}/{index}",
+            self.port, self.token
+        ))
+    }
+
+    async fn list(&self, source: AddTorrent<'_>) -> Result<librqbit::ListOnlyResponse> {
         let listed = tokio::time::timeout(
             std::time::Duration::from_secs(90),
             self.session.add_torrent(
-                AddTorrent::from_url(magnet),
+                source,
                 Some(AddTorrentOptions {
                     #[cfg(feature = "profiling")]
                     initial_peers: self.peer.map(|peer| vec![peer]),
@@ -131,53 +235,7 @@ impl Torrents {
         let AddTorrentResponse::ListOnly(listed) = listed else {
             bail!("Unexpected torrent metadata response");
         };
-        let files = listed
-            .info
-            .iter_file_details()?
-            .take(MAX_TORRENT_FILES + 1)
-            .map(|file| Ok((file.filename.to_string()?, file.len)))
-            .collect::<Result<Vec<_>>>()?;
-        let index = select_torrent_file(
-            &files
-                .iter()
-                .map(|(name, len)| (name.as_str(), *len))
-                .collect::<Vec<_>>(),
-            stream.file_idx,
-        )?;
-        let initial_peers = listed.seen_peers;
-        #[cfg(feature = "profiling")]
-        let initial_peers = self.peer.map_or(initial_peers, |peer| vec![peer]);
-        let added = tokio::time::timeout(
-            std::time::Duration::from_secs(90),
-            self.api.api_add_torrent(
-                AddTorrent::from_bytes(listed.torrent_bytes),
-                Some(AddTorrentOptions {
-                    initial_peers: Some(initial_peers),
-                    #[cfg(feature = "profiling")]
-                    disable_trackers: self.peer.is_some(),
-                    paused: true,
-                    only_files: Some(vec![index]),
-                    sub_folder: Some(String::new()),
-                    overwrite: true,
-                    ..Default::default()
-                }),
-            ),
-        )
-        .await
-        .context("Torrent metadata timed out")??;
-        let id = added.id.context("Torrent has no session ID")?;
-        let handle = self.api.mgr_handle(id.into())?;
-        tokio::time::timeout(
-            std::time::Duration::from_secs(30),
-            handle.wait_until_initialized(),
-        )
-        .await
-        .context("Torrent file initialization timed out")??;
-        self.session.unpause(&handle).await?;
-        Ok(format!(
-            "http://127.0.0.1:{}/{}/{id}/{index}",
-            self.port, self.token
-        ))
+        Ok(listed)
     }
 
     pub async fn stop(&self) {
@@ -185,7 +243,7 @@ impl Torrents {
             .session
             .with_torrents(|items| items.map(|(id, _)| id).collect::<Vec<_>>());
         for id in ids {
-            let _ = self.session.delete(id.into(), true).await;
+            let _ = self.session.delete(id.into(), false).await;
         }
     }
 }
@@ -194,8 +252,6 @@ impl Drop for Torrents {
     fn drop(&mut self) {
         self.server.abort();
         self.session.cancellation_token().cancel();
-        // Only remove an empty directory here; interrupted downloads are not swept.
-        let _ = std::fs::remove_dir(&self.folder);
     }
 }
 
@@ -530,6 +586,119 @@ mod tests {
         let trackers: Vec<_> = url.query_pairs().filter(|(key, _)| key == "tr").collect();
         assert_eq!(trackers.len(), 1);
         assert_eq!(trackers[0].1, "https://tracker.example/announce");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn switching_oversized_cached_videos_evicts_previous_data_across_engine_restarts() {
+        let root = tempfile::tempdir().unwrap();
+        let cache = root.path().join("cache");
+        let media = root.path().join("fixture.mp4");
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .unwrap();
+        for video in 0..8 {
+            let bytes = vec![video; 1024];
+            std::fs::write(&media, &bytes).unwrap();
+            let torrent =
+                librqbit::create_torrent(&media, librqbit::CreateTorrentOptions::default())
+                    .await
+                    .unwrap();
+            let hash = torrent.info_hash().as_string();
+            let entry = cache.join("v1").join(&hash);
+            std::fs::create_dir_all(entry.join("data")).unwrap();
+            std::fs::copy(&media, entry.join("data/fixture.mp4")).unwrap();
+            std::fs::write(entry.join("metadata.torrent"), torrent.as_bytes().unwrap()).unwrap();
+            let stream: Stream = serde_json::from_value(serde_json::json!({
+                "infoHash": hash, "fileIdx": 0
+            }))
+            .unwrap();
+            let engine = Torrents::with_cache_budget(cache.clone(), 512)
+                .await
+                .unwrap();
+            let url = tokio::time::timeout(std::time::Duration::from_secs(5), engine.play(&stream))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                client
+                    .get(url)
+                    .send()
+                    .await
+                    .unwrap()
+                    .bytes()
+                    .await
+                    .unwrap()
+                    .as_ref(),
+                bytes,
+                "different torrents with the same file name must not share video data"
+            );
+            engine.stop().await;
+            drop(engine);
+            let retained: Vec<_> = std::fs::read_dir(cache.join("v1"))
+                .unwrap()
+                .map(|item| item.unwrap().path())
+                .filter(|path| path.is_dir())
+                .collect();
+            assert_eq!(
+                retained,
+                vec![entry],
+                "only the current oversized torrent may remain"
+            );
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn cached_torrent_reopens_after_stop_and_engine_restart_without_peers() {
+        let root = tempfile::tempdir().unwrap();
+        let media = root.path().join("fixture.mp4");
+        let bytes = b"previously downloaded video bytes";
+        std::fs::write(&media, bytes).unwrap();
+        let torrent = librqbit::create_torrent(&media, librqbit::CreateTorrentOptions::default())
+            .await
+            .unwrap();
+        let hash = torrent.info_hash().as_string();
+        let cache = root.path().join("cache");
+        let entry = cache.join("v1").join(&hash);
+        std::fs::create_dir_all(entry.join("data")).unwrap();
+        std::fs::copy(&media, entry.join("data/fixture.mp4")).unwrap();
+        std::fs::write(entry.join("metadata.torrent"), torrent.as_bytes().unwrap()).unwrap();
+        let stream: Stream = serde_json::from_value(serde_json::json!({
+            "infoHash": hash.to_uppercase(), "fileIdx": 0
+        }))
+        .unwrap();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .unwrap();
+        for _ in 0..2 {
+            let engine = Torrents::new(cache.clone()).await.unwrap();
+            for _ in 0..2 {
+                let url =
+                    tokio::time::timeout(std::time::Duration::from_secs(5), engine.play(&stream))
+                        .await
+                        .unwrap()
+                        .unwrap();
+                assert_eq!(
+                    client
+                        .get(url)
+                        .send()
+                        .await
+                        .unwrap()
+                        .bytes()
+                        .await
+                        .unwrap()
+                        .as_ref(),
+                    bytes,
+                    "reload must serve the previously downloaded bytes without peers"
+                );
+                engine.stop().await;
+                assert_eq!(
+                    std::fs::read(entry.join("data/fixture.mp4")).unwrap(),
+                    bytes
+                );
+            }
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

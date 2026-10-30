@@ -93,6 +93,17 @@ fn request_library_updates(s: &mut State, tx: &mut Tx) -> bool {
 )]
 fn apply(s: &mut State, event: Event) {
     match event {
+        Event::StreamingPreferences(result) => {
+            s.streaming_settings.busy = false;
+            match result {
+                Ok(preferences) => {
+                    s.streaming_settings.preferences = preferences;
+                    s.streaming_settings.error = None;
+                    s.streaming_settings.pending = None;
+                }
+                Err(error) => s.streaming_settings.error = Some(error),
+            }
+        }
         Event::SubtitlePreferences(result) => {
             s.subtitle_settings.busy = false;
             match result {

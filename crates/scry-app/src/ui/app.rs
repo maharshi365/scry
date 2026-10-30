@@ -119,6 +119,7 @@ impl State {
             player: super::player::state::PlayerState::default(),
             subtitle_preferences: scry_playback::subtitles::Preferences::default(),
             subtitle_settings: super::player::subtitles::SettingsUi::default(),
+            streaming_settings: super::settings::streaming::SettingsUi::default(),
             addons: Vec::new(),
             config_busy: true,
             install: TextEdit::new(""),
@@ -205,6 +206,7 @@ fn setup(s: &mut State, wake: rune::Waker) {
             }
             s.services = Some(services);
             s.subtitle_settings.busy = true;
+            s.streaming_settings.busy = true;
             s.events = Some(events);
         }
         Err(error) => {

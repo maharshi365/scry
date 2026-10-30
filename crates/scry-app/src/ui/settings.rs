@@ -1,4 +1,5 @@
 //! App preferences. Guide policies keep their existing storage and scope.
+pub(super) mod streaming;
 use super::player::subtitles::Slot;
 use super::{
     State,
@@ -18,6 +19,7 @@ pub(super) fn view(s: &State) -> El {
     let mut content = col()
         .w_full()
         .gap(tokens::layout::SECTION_GAP)
+        .child(streaming::view(s))
         .child(subtitle_settings(s))
         .child(section(
             "guide-preferences",
