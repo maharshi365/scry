@@ -268,9 +268,8 @@ fn sidebar(s: &State) -> El {
         );
     }
     sidebar.child(
-        eyebrow(format!(
-            "SCRY / {}",
-            option_env!("SCRY_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+        eyebrow(super::formatting::build_version(
+            option_env!("SCRY_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")),
         ))
         .px(10.0),
     )

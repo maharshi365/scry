@@ -9,9 +9,8 @@ use scry_library::{
 fn sidebar_shows_the_build_version() {
     let mut rt = rune::Runtime::new(init(), view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);
-    let expected = format!(
-        "SCRY / {}",
-        option_env!("SCRY_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+    let expected = super::super::formatting::build_version(
+        option_env!("SCRY_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")),
     );
     assert!(
         rt.elements()

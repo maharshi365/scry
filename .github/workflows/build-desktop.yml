@@ -8,6 +8,12 @@ on:
       sha:
         required: true
         type: string
+      release:
+        type: boolean
+        default: false
+    outputs:
+      version:
+        value: ${{ jobs.build.outputs.version }}
 
 permissions:
   contents: read
@@ -18,6 +24,8 @@ env:
 jobs:
   build:
     name: ${{ matrix.platform }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     strategy:
       fail-fast: false
       matrix:
@@ -42,7 +50,10 @@ jobs:
           key: desktop-${{ matrix.platform }}
           cache-on-failure: true
       - name: Set build version
+        id: version
         shell: bash
+        env:
+          RELEASE: ${{ inputs.release }}
         run: |
           python3 - <<'PY'
           import json
@@ -60,10 +71,15 @@ jobs:
               if not re.fullmatch(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?", tag):
                   raise SystemExit("Release tags must have the form v1.2.3 (optional prerelease/build suffix).")
               version = tag[1:]
+          elif os.environ["RELEASE"] == "true":
+              major, minor, patch = base.split('+')[0].split('-')[0].split('.')
+              version = f"{major}.{minor}.{int(patch) + int(os.environ['GITHUB_RUN_NUMBER'])}"
           else:
               version = f"{base.split('+')[0].split('-')[0]}-dev.{os.environ['GITHUB_RUN_NUMBER']}+{sha}"
           with open(os.environ["GITHUB_ENV"], "a") as output:
               output.write(f"SCRY_BUILD_VERSION={version}\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"version={version}\n")
           PY
       - name: Prepare Windows runtime
         if: runner.os == 'Windows'

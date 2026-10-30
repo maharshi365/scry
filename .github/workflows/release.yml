@@ -2,7 +2,10 @@ name: Release
 
 on:
   push:
+    branches: [master, main]
     tags: ['v*']
+    paths-ignore: ['**/*.md']
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,6 +19,7 @@ jobs:
     uses: ./.github/workflows/build-desktop.yml
     with:
       sha: ${{ github.sha }}
+      release: true
   publish:
     name: Draft GitHub release
     needs: desktop
@@ -29,10 +33,10 @@ jobs:
           pattern: scry-*
           path: dist
           merge-multiple: true
-      - name: Verify downloads and tag
+      - name: Verify downloads and version
         working-directory: dist
         env:
-          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.desktop.outputs.version }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -41,12 +45,13 @@ jobs:
           test "${#archives[@]}" -eq 2
           test "${#checksums[@]}" -eq 2
           sha256sum --check --strict -- *.sha256
-          test -f "Scry-${TAG#v}-windows-x64.zip"
-          test -f "Scry-${TAG#v}-macos-arm64.dmg"
+          test -f "Scry-$VERSION-windows-x64.zip"
+          test -f "Scry-$VERSION-macos-arm64.dmg"
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.desktop.outputs.version }}
+          COMMIT: ${{ github.sha }}
         run: |
-          gh release create "$TAG" dist/* --verify-tag --draft --title "Scry $TAG" --notes 'Unsigned preview builds. Windows: extract the ZIP and run scry.exe. macOS (Apple Silicon): requires Homebrew mpv (brew install mpv); drag Scry from the DMG to Applications. Developer signing and notarization are not configured. Review runtime redistribution licensing before publishing this draft.'
+          gh release create "v$VERSION" dist/* --target "$COMMIT" --draft --title "Scry v$VERSION" --notes 'Unsigned preview builds. Windows: extract the ZIP and run scry.exe. macOS (Apple Silicon): requires Homebrew mpv (brew install mpv); drag Scry from the DMG to Applications. Developer signing and notarization are not configured. Review runtime redistribution licensing before publishing this draft.'
