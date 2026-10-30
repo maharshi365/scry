@@ -6,6 +6,14 @@ use super::{
 };
 use rune::{El, el, row, text};
 
+#[derive(Default)]
+pub(super) struct ArtworkState {
+    pub posters: Option<crate::artwork::Artwork>,
+    pub poster_urls: Vec<String>,
+    pub player: Option<crate::artwork::Artwork>,
+    pub player_urls: Vec<String>,
+}
+
 #[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
@@ -20,18 +28,18 @@ pub(super) fn poster_columns(width: f32) -> usize {
 impl State {
     pub(super) fn refresh_artwork(&mut self) {
         let urls = visible_artwork(self);
-        if urls != self.artwork_urls {
-            if let Some(artwork) = &mut self.artwork {
+        if urls != self.artwork.poster_urls {
+            if let Some(artwork) = &mut self.artwork.posters {
                 artwork.set_visible(&urls);
             }
-            self.artwork_urls = urls;
+            self.artwork.poster_urls = urls;
         }
         let urls = player_artwork(self);
-        if urls != self.player_artwork_urls {
-            if let Some(artwork) = &mut self.player_artwork {
+        if urls != self.artwork.player_urls {
+            if let Some(artwork) = &mut self.artwork.player {
                 artwork.set_visible(&urls);
             }
-            self.player_artwork_urls = urls;
+            self.artwork.player_urls = urls;
         }
     }
 }
@@ -41,7 +49,7 @@ pub(super) fn player_artwork(s: &State) -> Vec<String> {
         if s.navigation.page == Page::Player && s.player.playing && !s.player.ready {
             (s.player.background.as_ref(), s.player.logo.as_ref())
         } else if s.navigation.page == Page::Detail {
-            s.detail.as_ref().map_or((None, None), |meta| {
+            s.detail.meta.as_ref().map_or((None, None), |meta| {
                 (meta.background.as_ref(), meta.logo.as_ref())
             })
         } else {
@@ -57,7 +65,7 @@ pub(super) fn visible_artwork(s: &State) -> Vec<String> {
     }
     if s.navigation.page == Page::Addons {
         return super::addons::artwork_urls(s);
-    } else if (s.navigation.page == Page::Detail && s.detail_preview)
+    } else if (s.navigation.page == Page::Detail && s.detail.preview)
         || matches!(
             s.navigation.page,
             Page::Discover | Page::Library | Page::Watching
@@ -65,10 +73,10 @@ pub(super) fn visible_artwork(s: &State) -> Vec<String> {
     {
         return super::poster_grid::artwork_urls(s);
     } else if s.navigation.page == Page::Detail {
-        if let Some(url) = s.detail.as_ref().and_then(|meta| meta.poster.as_ref()) {
+        if let Some(url) = s.detail.meta.as_ref().and_then(|meta| meta.poster.as_ref()) {
             urls.push(url.clone());
         }
-        if let Some(meta) = &s.detail {
+        if let Some(meta) = &s.detail.meta {
             for index in s.visible_episode_indices() {
                 if let Some(url) = &meta.videos[index].thumbnail {
                     if urls.len() >= 32 {
@@ -132,7 +140,7 @@ pub(super) fn visible_artwork(s: &State) -> Vec<String> {
 pub(super) fn poster(s: &State, title: &str, url: Option<&str>, index: usize) -> El {
     let surface =
         super::primitives::image::frame(title, index, super::primitives::image::Variant::Poster);
-    if let Some(image) = url.and_then(|url| s.artwork.as_ref()?.get(url)) {
+    if let Some(image) = url.and_then(|url| s.artwork.posters.as_ref()?.get(url)) {
         surface.pixels_fit(&image, rune::SurfaceFit::Fill)
     } else {
         surface.center().child(
@@ -209,7 +217,7 @@ pub(super) fn poster_thumbnail(s: &State, key: &str, url: Option<&str>, title: &
     let surface =
         super::primitives::image::frame(title, 0, super::primitives::image::Variant::Thumbnail)
             .key(key);
-    if let Some(image) = url.and_then(|url| s.artwork.as_ref()?.get(url)) {
+    if let Some(image) = url.and_then(|url| s.artwork.posters.as_ref()?.get(url)) {
         surface.child(
             el().key(format!("{key}-image"))
                 .w_full()

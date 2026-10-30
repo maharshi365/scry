@@ -12,11 +12,12 @@ impl State {
             "series"
         };
         self.detail
+            .meta
             .iter()
             .filter(|meta| {
                 meta.id == media.key.id
                     && meta.kind == kind
-                    && super::key(&self.detail_namespace, media.key.kind, &meta.id) == media.key
+                    && super::key(&self.detail.namespace, media.key.kind, &meta.id) == media.key
             })
             .chain(
                 self.library
@@ -26,7 +27,8 @@ impl State {
                     .and_then(|(meta, _)| meta.as_ref()),
             )
             .chain(
-                self.metas
+                self.discover
+                    .results
                     .iter()
                     .enumerate()
                     .filter(|(_, meta)| meta.id == media.key.id && meta.kind == kind)
@@ -50,6 +52,7 @@ impl State {
     fn known_release_date(&self, media: &Media) -> Option<i64> {
         if let Some(parent) = &media.parent {
             self.detail
+                .meta
                 .iter()
                 .filter(|meta| {
                     meta.id == parent.id
@@ -90,6 +93,7 @@ impl State {
     pub(in crate::ui) fn can_mark_released(&self, media: &Media) -> bool {
         let season = media.parent.as_ref().and_then(|parent| {
             self.detail
+                .meta
                 .iter()
                 .filter(|meta| {
                     meta.id == parent.id
@@ -129,11 +133,15 @@ impl State {
     pub(in crate::ui) fn mark_media_watched(&mut self, media: Media, watched: bool) {
         let runtime_key = media.key.clone();
         let runtime_meta = self.watch_metadata(&media).cloned().or_else(|| {
-            self.metas.iter().enumerate().find_map(|(index, meta)| {
-                self.result_media(index)
-                    .filter(|item| item.key == media.key)
-                    .map(|_| meta.clone())
-            })
+            self.discover
+                .results
+                .iter()
+                .enumerate()
+                .find_map(|(index, meta)| {
+                    self.result_media(index)
+                        .filter(|item| item.key == media.key)
+                        .map(|_| meta.clone())
+                })
         });
         self.library.watch_pending.remove(&media.key);
         let date = self.known_release_date(&media);
@@ -161,10 +169,15 @@ impl State {
             })
         {
             self.db(Command::SetWatched(media, watched), true);
-        } else if let Some(services) = &mut self.services {
+        } else if let Some(services) = &mut self.runtime.services {
             self.library.watch_generation += 1;
             let token = self.library.watch_generation;
-            match services.watch_metadata(token, self.addons.clone(), media.clone(), watched) {
+            match services.watch_metadata(
+                token,
+                self.addons.installed.clone(),
+                media.clone(),
+                watched,
+            ) {
                 Ok(()) => {
                     self.library.watch_pending.insert(media.key, token);
                 }
@@ -255,7 +268,7 @@ mod tests {
         let mut s = crate::ui::app::init();
         s.library.worker =
             Some(crate::library_worker::Worker::start(path.clone(), Arc::new(|| {})).unwrap());
-        s.metas = Arc::new(vec![
+        s.discover.results = crate::ui::catalog::CatalogResults::from(vec![
             serde_json::from_value(serde_json::json!({
                 "id":"tt123", "type":"movie", "name":"Movie", "runtime":"120 min"
             }))

@@ -10,7 +10,7 @@ fn watching_empty_state_has_catalog_actions() {
     assert!(rt.find("watching-empty").is_some());
     tap(&mut rt, "watching-browse-movies");
     assert_eq!(rt.state.navigation.page, Page::Discover);
-    assert_eq!(rt.state.kind, "movie");
+    assert_eq!(rt.state.discover.kind, "movie");
 }
 
 #[test]
@@ -54,7 +54,7 @@ fn library_empty_states_keep_filters_and_browse_the_selected_type() {
             })));
         tap(&mut rt, "library-browse");
         assert_eq!(rt.state.navigation.page, Page::Discover);
-        assert_eq!(rt.state.kind, "series");
+        assert_eq!(rt.state.discover.kind, "series");
     }
 }
 
@@ -138,7 +138,7 @@ fn calendar_has_date_navigation_for_large_libraries() {
 fn episode_names_and_watched_badge_are_shown() {
     let mut s = init();
     scene_detail(&mut s);
-    s.detail.as_mut().unwrap().videos[0].title = "First Period".into();
+    s.detail.meta.as_mut().unwrap().videos[0].title = "First Period".into();
     let media = s.library_media().unwrap();
     s.library.snapshot = Some(Snapshot {
         selected_state: Some(SelectedState {
@@ -171,8 +171,8 @@ fn episode_names_and_watched_badge_are_shown() {
 fn compact_source_header_keeps_controls_and_episode_on_two_rows() {
     let mut s = init();
     scene_detail(&mut s);
-    s.detail = Some(multi_season_series());
-    s.selected_video_id = Some("show:1:1".into());
+    s.detail.meta = Some(multi_season_series());
+    s.detail.episodes.selected = Some("show:1:1".into());
     let mut rt = rune::Runtime::new(s, view, (880.0, 650.0), rune::Env::default());
     rt.frame(0.0);
     let season = rect(&rt, "season-select");
@@ -186,15 +186,15 @@ fn compact_source_header_keeps_controls_and_episode_on_two_rows() {
     tap(&mut rt, "source-sort");
     tap(&mut rt, "source-original");
     assert_eq!(
-        rt.state.stream_sort,
+        rt.state.detail.sources.sort,
         crate::ui::source_picker::SourceSort::Original
     );
     tap(&mut rt, "season-select");
     tap(&mut rt, "season-option-1");
     assert_eq!(rt.state.active_season(), Some(2));
-    assert!(rt.state.selected_video_id.is_none());
+    assert!(rt.state.detail.episodes.selected.is_none());
     assert!(rt.find("episodes").is_some());
-    assert!(rt.state.streams.is_empty());
+    assert!(rt.state.detail.sources.streams.is_empty());
 }
 
 #[test]
@@ -219,7 +219,7 @@ fn calendar_retains_provider_poster_and_renders_cached_image_in_month_view() {
     );
     let image = rune::Pixels::new();
     image.set(2, 3, vec![180; 24]);
-    s.artwork = Some(crate::artwork::Artwork::player_fixture(&[(
+    s.artwork.posters = Some(crate::artwork::Artwork::player_fixture(&[(
         "https://example.com/poster.jpg",
         image,
     )]));
@@ -235,7 +235,8 @@ fn calendar_retains_provider_poster_and_renders_cached_image_in_month_view() {
     assert!(r[2] > 20.0 && r[3] > 35.0);
     assert!(
         rt.state
-            .artwork_urls
+            .artwork
+            .poster_urls
             .iter()
             .any(|url| url == "https://example.com/poster.jpg")
     );

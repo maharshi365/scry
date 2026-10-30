@@ -4,10 +4,9 @@ use crate::services::{Event, Source};
 use rune::{TextEdit, Tx};
 use scry_addons::Meta;
 use scry_app::platform::VideoHost;
-use std::sync::Arc;
 
 pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
-    let history = s.native_navigation.drain();
+    let history = s.shell.native_navigation.drain();
     let navigated = !history.is_empty();
     let fullscreen = s.player.fullscreen;
     for direction in history {
@@ -23,10 +22,12 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
     let mut changed = s.poll_player_interaction(tx)
         | navigated
         | s.poll_library()
-        | s.player_artwork
+        | s.artwork
+            .player
             .as_mut()
             .is_some_and(crate::artwork::Artwork::poll)
         | s.artwork
+            .posters
             .as_mut()
             .is_some_and(crate::artwork::Artwork::poll);
     changed |= s.poll_achievement_toast(tx);
@@ -44,12 +45,12 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
         }
     }
     if !headless()
-        && s.services.is_some()
-        && s.host.target().is_ok()
-        && let Some(input) = s.startup_play.take()
+        && s.runtime.services.is_some()
+        && s.shell.host.target().is_ok()
+        && let Some(input) = s.runtime.startup_play.take()
     {
         if input.starts_with("http://") || input.starts_with("https://") {
-            s.direct = TextEdit::new(input);
+            s.addons.direct = TextEdit::new(input);
             s.play_direct();
         } else {
             s.save_library_progress();
@@ -61,7 +62,11 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     for _ in 0..64 {
-        let event = s.events.as_mut().and_then(|events| events.try_recv().ok());
+        let event = s
+            .runtime
+            .events
+            .as_mut()
+            .and_then(|events| events.try_recv().ok());
         let Some(event) = event else {
             break;
         };
@@ -94,30 +99,30 @@ fn request_library_updates(s: &mut State, tx: &mut Tx) -> bool {
 fn apply(s: &mut State, event: Event) {
     match event {
         Event::StreamingPreferences(result) => {
-            s.streaming_settings.busy = false;
+            s.settings.streaming.busy = false;
             match result {
                 Ok(preferences) => {
-                    s.streaming_settings.preferences = preferences;
-                    s.streaming_settings.error = None;
-                    s.streaming_settings.pending = None;
+                    s.settings.streaming.preferences = preferences;
+                    s.settings.streaming.error = None;
+                    s.settings.streaming.pending = None;
                 }
-                Err(error) => s.streaming_settings.error = Some(error),
+                Err(error) => s.settings.streaming.error = Some(error),
             }
         }
         Event::SubtitlePreferences(result) => {
-            s.subtitle_settings.busy = false;
+            s.settings.subtitles.busy = false;
             match result {
-                Ok(preferences) => s.subtitle_preferences = preferences,
-                Err(error) => s.subtitle_settings.error = Some(error),
+                Ok(preferences) => s.settings.subtitle_preferences = preferences,
+                Err(error) => s.settings.subtitles.error = Some(error),
             }
             if s.player.playing {
-                s.player.subtitles.defaults = s.subtitle_preferences.clone();
+                s.player.subtitles.defaults = s.settings.subtitle_preferences.clone();
                 s.apply_subtitle_appearance();
             }
         }
         Event::SubtitlePreferencesSaved(result) => {
-            s.subtitle_settings.busy = false;
-            s.subtitle_settings.error = result.err();
+            s.settings.subtitles.busy = false;
+            s.settings.subtitles.error = result.err();
         }
         Event::Subtitles(id, snapshot) => s.apply_subtitle_snapshot(id, snapshot),
         Event::Audio(id, snapshot) => s.apply_audio_snapshot(id, snapshot),
@@ -149,23 +154,24 @@ fn apply(s: &mut State, event: Event) {
         }
         Event::Calendar(generation, found, failed) => s.apply_calendar(generation, found, failed),
         Event::Addons(result) => {
-            s.config_busy = false;
+            s.addons.busy = false;
             match result {
                 Ok(addons) => {
-                    if s.addon_install_open {
-                        s.status = "Add-on installed successfully".into();
-                        s.addon_install_complete = true;
+                    if s.addons.install_open {
+                        s.addons.status = "Add-on installed successfully".into();
+                        s.addons.install_complete = true;
                     }
                     s.retry_library_posters();
                     s.library.posters.cache.clear();
-                    s.addons = addons;
+                    s.addons.installed = addons;
                     s.reset_movie_runtimes();
                     s.request_series_tracking(true);
                     if s.navigation.page == Page::Calendar {
                         s.fetch_calendar();
                     }
                     let catalogs = s.catalogs();
-                    s.catalog = s
+                    s.discover.catalog = s
+                        .discover
                         .catalog
                         .as_ref()
                         .and_then(|(addon, catalog)| {
@@ -183,52 +189,61 @@ fn apply(s: &mut State, event: Event) {
                         s.fetch_catalog();
                     }
                 }
-                Err(error) => s.error = Some(error),
+                Err(error) => s.addons.error = Some(error),
             }
         }
         Event::Catalog(id, offset, result) => s.apply_catalog_page(id, offset, result),
         Event::Search(id, results, warnings, done)
-            if id == s.catalog_id && s.navigation.page == Page::Discover =>
+            if id == s.discover.generation && s.navigation.page == Page::Discover =>
         {
-            s.loading = !done;
-            s.providers = Arc::new(results.iter().map(|result| result.addon.clone()).collect());
-            s.metas = Arc::new(results.into_iter().map(|result| result.meta).collect());
-            s.warnings = warnings;
-            s.status.clear();
+            s.discover.request.loading = !done;
+            s.discover.results.replace_search(results);
+            s.discover.request.warnings = warnings;
+            s.discover.request.status.clear();
         }
-        Event::Detail(id, result) if id == s.detail_id && s.navigation.page == Page::Detail => {
-            s.loading = false;
+        Event::Detail(id, result)
+            if id == s.detail.generation && s.navigation.page == Page::Detail =>
+        {
+            s.detail.request.loading = false;
             match result {
                 Ok((meta, namespace)) => {
-                    s.detail_namespace = namespace;
+                    s.detail.namespace = namespace;
                     apply_detail(s, meta);
                 }
-                Err(error) => s.error = Some(error),
+                Err(error) => s.detail.request.error = Some(error),
             }
         }
         Event::Streams(id, streams, warnings, done)
-            if id == s.stream_id && s.navigation.page == Page::Guide =>
+            if s.runtime
+                .streams
+                .accepts(id, super::request::StreamOwner::Guide)
+                && s.navigation.page == Page::Guide =>
         {
             s.apply_guide_streams(streams, done);
             let _ = warnings;
         }
         Event::Streams(id, streams, warnings, done)
-            if id == s.stream_id && s.navigation.page == Page::Detail =>
+            if s.runtime
+                .streams
+                .accepts(id, super::request::StreamOwner::Detail)
+                && s.navigation.page == Page::Detail =>
         {
-            s.loading = !done;
-            s.streams = streams;
-            s.warnings = warnings;
-            s.status = if !done {
-                format!("{} streams · loading…", s.streams.len())
-            } else if s.streams.is_empty() {
+            s.detail.sources.request.loading = !done;
+            s.detail.sources.streams = streams;
+            s.detail.sources.request.warnings = warnings;
+            s.detail.sources.request.status = if !done {
+                format!("{} streams · loading…", s.detail.sources.streams.len())
+            } else if s.detail.sources.streams.is_empty() {
                 "No streams found. Install a compatible stream add-on, or try another episode."
                     .into()
             } else {
-                format!("{} streams", s.streams.len())
+                format!("{} streams", s.detail.sources.streams.len())
             };
-            if done && s.library.quick_play == Some(s.detail_id) {
+            if done && s.library.quick_play == Some(s.detail.generation) {
                 s.library.quick_play = None;
                 let playable: Vec<_> = s
+                    .detail
+                    .sources
                     .streams
                     .iter()
                     .filter(|(_, stream)| stream.validate_playback().is_ok())
@@ -237,6 +252,7 @@ fn apply(s: &mut State, event: Event) {
                     let stream = playable[0].1.clone();
                     let title = s
                         .detail
+                        .meta
                         .as_ref()
                         .map_or_else(String::new, |meta| meta.name.clone());
                     s.play(stream, title);
@@ -246,7 +262,7 @@ fn apply(s: &mut State, event: Event) {
         Event::Playing(id, path) if id == s.player.generation => {
             s.apply_subtitle_appearance();
             s.player.report = Some(path);
-            s.status = "Loading…".into();
+            s.player.status = "Loading…".into();
             let volume = s.player.volume.to_string();
             s.command(&["set", "volume", &volume]);
         }
@@ -263,12 +279,12 @@ fn apply(s: &mut State, event: Event) {
             if s.navigation.page == Page::Player
                 || (s.navigation.page == Page::Guide && !s.guide.collections_open)
             {
-                s.host.show();
+                s.shell.host.show();
             }
-            s.status.clear();
+            s.player.status.clear();
         }
         Event::Metrics(id, sample) if id == s.player.generation => {
-            s.status = if sample.buffering {
+            s.player.status = if sample.buffering {
                 "Buffering"
             } else if sample.paused {
                 "Paused"
@@ -296,7 +312,7 @@ fn apply(s: &mut State, event: Event) {
             s.player.playing = false;
             s.player.subtitles = super::player::subtitles::Subtitles::default();
             s.player.audio = super::player::audio::Audio::default();
-            if let Some(services) = &mut s.services {
+            if let Some(services) = &mut s.runtime.services {
                 services.cancel_subtitles();
             }
             s.player.ready = false;
@@ -305,14 +321,16 @@ fn apply(s: &mut State, event: Event) {
             s.player.stats_overlay.dismiss();
             s.player.torrent_stats = None;
             s.player.torrent_source = false;
-            s.host.hide();
-            s.status = "Playback stopped".into();
+            s.shell.host.hide();
+            s.player.status = "Playback stopped".into();
             if error.is_some() {
-                s.error = error;
+                s.player.error = error;
                 s.guide_join_failed();
             }
         }
-        Event::PlayerWarning(id, error) if id == s.player.generation => s.error = Some(error),
+        Event::PlayerWarning(id, error) if id == s.player.generation => {
+            s.player.error = Some(error);
+        }
         _ => {}
     }
 }
@@ -321,15 +339,17 @@ fn apply_detail(s: &mut State, meta: Meta) {
     let movie = meta.kind == "movie";
     let (kind, id) = (meta.kind.clone(), meta.id.clone());
     let episode = s
+        .detail
         .pending_episode
         .take()
-        .or_else(|| s.selected_video_id.clone())
+        .or_else(|| s.detail.episodes.selected.clone())
         .filter(|_| !movie);
     if let Some(index) = episode
         .as_ref()
         .and_then(|id| meta.videos.iter().position(|video| &video.id == id))
     {
-        s.episode_season = Some(meta.videos[index].season);
+        s.detail.episodes.season =
+            super::episodes::SeasonSelection::Selected(meta.videos[index].season);
         let mut indices: Vec<_> = meta
             .videos
             .iter()
@@ -342,13 +362,13 @@ fn apply_detail(s: &mut State, meta: Meta) {
             .iter()
             .position(|value| *value == index)
             .unwrap_or(0);
-        s.episode_offset = position / EPISODES_PER_PAGE * EPISODES_PER_PAGE;
+        s.detail.episodes.offset = position / EPISODES_PER_PAGE * EPISODES_PER_PAGE;
     }
-    s.selected_video_id.clone_from(&episode);
-    s.detail = Some(meta);
+    s.detail.episodes.selected.clone_from(&episode);
+    s.detail.meta = Some(meta);
     s.register_library_detail();
     s.remember_series_detail();
-    s.status = "Choose an episode to find streams.".into();
+    s.detail.sources.request.status = "Choose an episode to find streams.".into();
     if movie {
         s.find_streams(kind, id);
     } else if let Some(episode) = episode {

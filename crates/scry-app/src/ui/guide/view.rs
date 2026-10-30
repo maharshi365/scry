@@ -139,7 +139,7 @@ fn header(s: &State) -> El {
     header = header.child(
         Button::new("guide-manage-collections", "Manage collections").on_press(|s: &mut State| {
             s.guide.collections_open = true;
-            s.host.hide();
+            s.shell.host.hide();
         }),
     );
     header = header.child(
@@ -339,7 +339,7 @@ pub(in crate::ui) fn player_actions(s: &State, compact: bool) -> El {
 }
 
 pub(in crate::ui) fn preview_status(s: &State) -> &'static str {
-    if s.guide.error.is_some() || s.error.is_some() {
+    if s.guide.error.is_some() || s.player.error.is_some() {
         "Channel unavailable · retry or choose another channel"
     } else if s.guide.resolving {
         "Finding a source…"

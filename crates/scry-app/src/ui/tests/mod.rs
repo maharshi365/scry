@@ -96,6 +96,6 @@ fn multi_season_series() -> Meta {
 fn state_with_events() -> (State, tokio::sync::mpsc::Sender<Event>) {
     let mut state = init();
     let (tx, rx) = tokio::sync::mpsc::channel(16);
-    state.events = Some(rx);
+    state.runtime.events = Some(rx);
     (state, tx)
 }

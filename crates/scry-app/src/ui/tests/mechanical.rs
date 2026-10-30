@@ -25,7 +25,7 @@ fn compact_catalog_exposes_more_titles_without_clipping_text_or_posters() {
         rt.frame(0.0);
     }
     assert!(
-        rt.state.poster_columns >= 6,
+        rt.state.posters.columns >= 6,
         "A desktop catalog must use compact columns"
     );
     let first = rect(&rt, "title-0");
@@ -36,7 +36,7 @@ fn compact_catalog_exposes_more_titles_without_clipping_text_or_posters() {
     assert!(info[1] + info[3] <= first[1] + first[3] + 0.5);
     tap(&mut rt, "title-0");
     assert_eq!(
-        rt.state.detail.as_ref().map(|m| m.id.as_str()),
+        rt.state.detail.meta.as_ref().map(|m| m.id.as_str()),
         Some("scene-0")
     );
 }

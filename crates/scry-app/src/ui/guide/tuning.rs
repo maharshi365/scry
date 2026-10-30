@@ -50,7 +50,7 @@ impl State {
         self.guide.resolving = false;
         self.guide.tuning.pending = None;
         self.guide.tuning.attempts = 0;
-        if let Some(services) = &mut self.services {
+        if let Some(services) = &mut self.runtime.services {
             services.cancel_streams();
         }
         self.guide.alternatives = sources

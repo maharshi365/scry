@@ -13,10 +13,10 @@ fn streaming_cache_choices_apply_without_changing_current_playback() {
     let generation = state.player.generation;
     let mut rt = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);
-    assert_eq!(rt.state.streaming_settings.preferences.cache_gib, 2);
+    assert_eq!(rt.state.settings.streaming.preferences.cache_gib, 2);
     for cache_gib in [5, 10, 20, 2] {
         tap(&mut rt, &format!("streaming-cache-{cache_gib}"));
-        assert_eq!(rt.state.streaming_settings.preferences.cache_gib, cache_gib);
+        assert_eq!(rt.state.settings.streaming.preferences.cache_gib, cache_gib);
         assert!(rt.state.player.playing);
         assert_eq!(rt.state.player.generation, generation);
     }
@@ -27,7 +27,7 @@ fn streaming_cache_choices_apply_without_changing_current_playback() {
 fn streaming_cache_choices_are_disabled_until_settings_finish_loading_or_saving() {
     let mut state = init();
     state.navigation.page = Page::Settings;
-    state.streaming_settings.busy = true;
+    state.settings.streaming.busy = true;
     let mut rt = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);
     let choice = rt
@@ -37,21 +37,22 @@ fn streaming_cache_choices_are_disabled_until_settings_finish_loading_or_saving(
         .unwrap();
     assert!(!choice.focusable);
     tap(&mut rt, "streaming-cache-5");
-    assert_eq!(rt.state.streaming_settings.preferences.cache_gib, 2);
+    assert_eq!(rt.state.settings.streaming.preferences.cache_gib, 2);
 }
 
 #[test]
 fn streaming_cache_save_failure_keeps_saved_value_and_requested_retry() {
     let mut state = init();
     state.navigation.page = Page::Settings;
-    state.services = Some(crate::services::Services::install_fixture().unwrap().0);
+    state.runtime.services = Some(crate::services::Services::install_fixture().unwrap().0);
     let mut rt = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);
     tap(&mut rt, "streaming-cache-10");
-    assert_eq!(rt.state.streaming_settings.preferences.cache_gib, 2);
+    assert_eq!(rt.state.settings.streaming.preferences.cache_gib, 2);
     assert_eq!(
         rt.state
-            .streaming_settings
+            .settings
+            .streaming
             .pending
             .as_ref()
             .unwrap()
@@ -62,7 +63,8 @@ fn streaming_cache_save_failure_keeps_saved_value_and_requested_retry() {
     tap(&mut rt, "streaming-settings-retry");
     assert_eq!(
         rt.state
-            .streaming_settings
+            .settings
+            .streaming
             .pending
             .as_ref()
             .unwrap()
@@ -95,7 +97,7 @@ fn streaming_cache_controls_fit_small_and_wide_settings_pages() {
 #[test]
 fn sidebar_settings_exposes_guide_preferences_and_keeps_addons_separate() {
     let mut state = init();
-    state.config_busy = false;
+    state.addons.busy = false;
     let mut rt = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);
     tap(&mut rt, "nav-settings");
@@ -124,7 +126,7 @@ fn sidebar_settings_exposes_guide_preferences_and_keeps_addons_separate() {
 #[test]
 fn guide_settings_shortcut_is_separate_from_collection_management() {
     let mut state = init();
-    state.config_busy = false;
+    state.addons.busy = false;
     state.navigation.page = Page::Guide;
     let mut rt = rune::Runtime::new(state, view, (1280.0, 820.0), rune::Env::default());
     rt.frame(0.0);
@@ -156,9 +158,9 @@ fn settings_loads_existing_guide_preferences_and_saves_all_five_controls() {
         .guide_update(GuideAction::Policy(saved.clone()), now)
         .unwrap();
     let mut state = init();
-    state.config_busy = false;
-    state.stream_provider = Some("Regular playback filter".into());
-    state.addons = vec![
+    state.addons.busy = false;
+    state.detail.sources.provider = Some("Regular playback filter".into());
+    state.addons.installed = vec![
         serde_json::from_value(serde_json::json!({
             "manifest_url":"https://example.com/private/manifest.json",
             "manifest":{"id":"streams","name":"Streams","resources":["stream"]}
@@ -196,7 +198,7 @@ fn settings_loads_existing_guide_preferences_and_saves_all_five_controls() {
     assert_eq!(policy.order, EpisodeOrder::Shuffle);
     assert!(!policy.watched_only);
     assert_eq!(
-        rt.state.stream_provider.as_deref(),
+        rt.state.detail.sources.provider.as_deref(),
         Some("Regular playback filter")
     );
     assert!(!rt.state.player.playing);
@@ -227,11 +229,11 @@ fn opening_settings_stops_guide_playback_and_invalidates_pending_sources() {
     state.navigation.page = Page::Guide;
     state.guide.resolving = true;
     state.player.playing = true;
-    let generation = state.stream_id;
+    let generation = state.runtime.streams.generation;
     state.navigate(Page::Settings);
     assert!(!state.player.playing);
     assert!(!state.guide.resolving);
-    assert!(state.stream_id > generation);
+    assert!(state.runtime.streams.generation > generation);
 }
 
 #[test]
@@ -271,7 +273,7 @@ fn settings_choices_use_the_right_half_of_wide_rows_and_fill_the_available_width
 #[test]
 fn sidebar_utility_pages_stay_pinned_when_content_links_scroll() {
     let mut state = init();
-    state.addons = vec![serde_json::from_value(serde_json::json!({
+    state.addons.installed = vec![serde_json::from_value(serde_json::json!({
         "manifest_url":"https://example.com/manifest.json",
         "manifest":{"id":"categories","name":"Categories","catalogs":
             (0..20).map(|i| serde_json::json!({"id":format!("category-{i}"),"type":format!("kind-{i}")})).collect::<Vec<_>>()}

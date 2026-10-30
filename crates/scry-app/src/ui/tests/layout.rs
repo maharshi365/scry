@@ -4,8 +4,8 @@ use super::*;
 fn season_group_controls_have_equal_heights() {
     let mut s = init();
     s.navigation.page = Page::Detail;
-    s.detail = Some(multi_season_series());
-    s.episode_season = Some(Some(2));
+    s.detail.meta = Some(multi_season_series());
+    s.detail.episodes.season = crate::ui::episodes::SeasonSelection::Selected(Some(2));
     let mut rt = rune::Runtime::new(s, view, (1280.0, 820.0), rune::Env::default());
     rt.frame(0.0);
     let select = rect(&rt, "season-select");
@@ -30,8 +30,8 @@ fn topbar_controls_share_height_and_alignment_while_searching() {
         }
         rt.update(|s, _| {
             s.navigation.page = Page::Discover;
-            s.loading = true;
-            s.displayed_query = "movie".into();
+            s.discover.request.loading = true;
+            s.discover.displayed_query = "movie".into();
         });
         rt.frame(0.0);
         assert_eq!(rect(&rt, "search-frame"), search);
@@ -42,8 +42,8 @@ fn topbar_controls_share_height_and_alignment_while_searching() {
 fn watched_episode_badges_do_not_move_episode_cards_or_titles() {
     let mut s = init();
     s.navigation.page = Page::Detail;
-    s.detail = Some(series(3));
-    s.detail.as_mut().unwrap().videos[0].title =
+    s.detail.meta = Some(series(3));
+    s.detail.meta.as_mut().unwrap().videos[0].title =
         "A long episode name that wraps onto multiple lines in the episode list".into();
     let key = s.visible_episode_keys()[0].clone();
     s.library.snapshot = Some(crate::library_worker::Snapshot {
@@ -111,7 +111,7 @@ fn topbar_keeps_a_compact_brand_at_minimum_window_size() {
 fn episode_wheel_is_bounded_and_selection_panel_and_toolbar_stay_visible() {
     let mut state = init();
     state.navigation.page = Page::Detail;
-    state.detail = Some(series(250));
+    state.detail.meta = Some(series(250));
     let mut rt = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);
     let toolbar = rect(&rt, "topbar");

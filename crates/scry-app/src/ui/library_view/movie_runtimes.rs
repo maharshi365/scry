@@ -37,7 +37,10 @@ impl State {
     }
 
     pub(in crate::ui) fn poll_movie_runtimes(&mut self, tx: &mut rune::Tx) {
-        if self.library.worker.is_none() || self.services.is_none() || self.addons.is_empty() {
+        if self.library.worker.is_none()
+            || self.runtime.services.is_none()
+            || self.addons.installed.is_empty()
+        {
             return;
         }
         let scan = &mut self.library.movie_runtimes;
@@ -88,8 +91,12 @@ impl State {
             scan.busy = false;
             return;
         }
-        if let Some(services) = &mut self.services {
-            services.movie_runtime_details(generation, self.addons.clone(), scan.keys.clone());
+        if let Some(services) = &mut self.runtime.services {
+            services.movie_runtime_details(
+                generation,
+                self.addons.installed.clone(),
+                scan.keys.clone(),
+            );
         } else {
             scan.busy = false;
         }

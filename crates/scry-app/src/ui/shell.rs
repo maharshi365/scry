@@ -20,6 +20,15 @@ use super::{
 };
 use rune::{Cx, El, col, el, row, text};
 
+pub(super) struct ShellState {
+    pub host: scry_app::platform::Host,
+    pub host_error: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    pub native_navigation: scry_app::platform::NavigationInput,
+    pub logo: rune::Pixels,
+    pub fullscreen: bool,
+    pub context_menu: Option<(rune::PointerPress, Option<super::context_menu::Target>)>,
+}
+
 pub(super) fn shortcut(
     s: &mut State,
     event: &rune::KeyEvent,
@@ -45,7 +54,7 @@ pub(super) fn shortcut(
             s.toggle_app_fullscreen();
             true
         }
-        Some(false) if s.app_fullscreen && !s.player.fullscreen => {
+        Some(false) if s.shell.fullscreen && !s.player.fullscreen => {
             s.toggle_app_fullscreen();
             true
         }
@@ -82,7 +91,7 @@ fn page_content(s: &State, cx: &mut Cx<State>) -> El {
         Page::Addons => addons(s),
         Page::Settings => super::settings::view(s),
         Page::Stats => super::stats::view(s),
-        Page::Detail if s.detail_preview => row()
+        Page::Detail if s.detail.preview => row()
             .grow(1.0)
             .min_h(0.0)
             .min_w(0.0)
@@ -113,9 +122,9 @@ fn window_chrome(s: &State, cx: &mut Cx<State>, content: El) -> El {
         .fill(tokens::canvas())
         .on_window_focus(on_window_focus)
         .on_secondary_press(|s: &mut State, p, _| {
-            s.context_menu = Some((p, None));
+            s.shell.context_menu = Some((p, None));
         });
-    if !s.app_fullscreen {
+    if !s.shell.fullscreen {
         root = root.child(topbar(s));
     }
     root = root
@@ -137,7 +146,7 @@ fn window_chrome(s: &State, cx: &mut Cx<State>, content: El) -> El {
     if let Some(panel) = super::player::stats::panel(s) {
         root = root.child(panel);
     }
-    if s.addon_install_open {
+    if s.addons.install_open {
         root = root.child(super::addons::install_dialog(s));
     }
     if s.navigation.page == Page::Calendar && s.calendar.expanded_day.is_some() {
@@ -150,7 +159,7 @@ fn window_chrome(s: &State, cx: &mut Cx<State>, content: El) -> El {
 
 fn on_window_focus(s: &mut State, focused: bool, tx: &mut rune::Tx) {
     if !focused {
-        s.catalog_menu_open = false;
+        s.discover.menu_open = false;
         s.player.subtitles.overlay.dismiss();
         s.player.audio.overlay.dismiss();
         s.player.stats_overlay.dismiss();
@@ -218,7 +227,7 @@ fn sidebar(s: &State) -> El {
                         &key,
                         &super::catalog::category_label(&kind),
                         glyph,
-                        s.navigation.page == Page::Discover && s.kind == kind,
+                        s.navigation.page == Page::Discover && s.discover.kind == kind,
                         move |s| s.choose_kind(&kind),
                     )
                     .w_full(),
@@ -246,7 +255,7 @@ fn sidebar(s: &State) -> El {
         );
     }
     sidebar = sidebar.child(utilities);
-    if s.app_fullscreen {
+    if s.shell.fullscreen {
         sidebar = sidebar.child(
             icon_action(
                 "app-exit-fullscreen",
@@ -271,8 +280,9 @@ fn nav_action(
 }
 
 fn topbar(s: &State) -> El {
-    let searching =
-        s.navigation.page == Page::Discover && s.loading && !s.displayed_query.is_empty();
+    let searching = s.navigation.page == Page::Discover
+        && s.discover.request.loading
+        && !s.discover.displayed_query.is_empty();
     let mut search_status = el()
         .w(control::COMPACT_ICON_SIZE)
         .h(control::COMPACT_ICON_SIZE);
@@ -297,7 +307,7 @@ fn topbar(s: &State) -> El {
                 .label("Scry")
                 .w(28.0)
                 .h(28.0)
-                .pixels(&s.logo),
+                .pixels(&s.shell.logo),
         )
         .child(
             text("SCRY")
@@ -320,9 +330,9 @@ fn topbar(s: &State) -> El {
                 .grow(1.0)
                 .child(input(
                     "search",
-                    &s.search,
+                    &s.discover.search,
                     "Search movies and series…",
-                    |s| &mut s.search,
+                    |s| &mut s.discover.search,
                     State::submit_search,
                 ))
                 .child(search_status),

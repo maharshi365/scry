@@ -33,14 +33,14 @@ fn large_visible_series_set_is_not_evicted_until_it_leaves_the_viewport() {
             .insert(item.key.clone(), (Some(meta), std::time::Instant::now()));
     }
     s.apply_library_entries(media);
-    s.poster_route = s.navigation.route_key;
-    s.poster_columns = 10;
-    s.poster_viewport = Some([0.0, 0.0, 2000.0, 1500.0]);
-    s.poster_visible = 0..5;
+    s.posters.route = s.navigation.route_key;
+    s.posters.columns = 10;
+    s.posters.viewport = Some([0.0, 0.0, 2000.0, 1500.0]);
+    s.posters.visible = 0..5;
     s.request_series_states();
     assert_eq!(s.library.series.details.len(), 50);
-    s.poster_viewport = Some([0.0, 0.0, 2000.0, 300.0]);
-    s.poster_visible = 0..1;
+    s.posters.viewport = Some([0.0, 0.0, 2000.0, 300.0]);
+    s.posters.visible = 0..1;
     s.request_series_states();
     assert_eq!(s.library.series.details.len(), 32);
     assert!(
@@ -80,7 +80,7 @@ fn undated_watched_specials_share_the_counter_and_poster_completion() {
     }
     let mut s = init();
     scene_discover(&mut s);
-    s.metas = Arc::new(vec![
+    s.discover.results = crate::ui::catalog::CatalogResults::from(vec![
         serde_json::from_value(serde_json::json!({"id":"tt123","type":"series","name":"Show"}))
             .unwrap(),
     ]);
@@ -180,7 +180,7 @@ fn tv_completion_waits_for_matching_metadata_and_reacts_to_new_releases() {
     }
     let (mut s, tx) = state_with_events();
     s.navigation.page = Page::Discover;
-    s.metas = Arc::new(vec![
+    s.discover.results = crate::ui::catalog::CatalogResults::from(vec![
         serde_json::from_value(serde_json::json!({"id":"tt123","type":"series","name":"Show"}))
             .unwrap(),
     ]);
@@ -280,11 +280,11 @@ fn tv_posters_share_episode_progress_and_require_the_full_inventory_across_route
         })).unwrap();
         let mut s = init();
         s.navigation.page = page;
-        s.kind = "series".into();
-        s.detail = Some(meta.clone());
-        s.detail_namespace = "imdb".into();
+        s.discover.kind = "series".into();
+        s.detail.meta = Some(meta.clone());
+        s.detail.namespace = "imdb".into();
         s.remember_series_detail();
-        s.metas = Arc::new(vec![meta]);
+        s.discover.results = crate::ui::catalog::CatalogResults::from(vec![meta]);
         s.library.worker =
             Some(crate::library_worker::Worker::start(path, Arc::new(|| {})).unwrap());
         let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
@@ -339,9 +339,9 @@ fn tv_posters_share_episode_progress_and_require_the_full_inventory_across_route
             })
         });
         rt.update(|s, _| {
-            let mut meta = s.detail.clone().unwrap();
+            let mut meta = s.detail.meta.clone().unwrap();
             meta.videos[2].released = Some("2002-01-01".into());
-            s.detail = Some(meta);
+            s.detail.meta = Some(meta);
             s.remember_series_detail();
             s.db(
                 crate::library_worker::Command::SetWatched(parent.clone(), true),

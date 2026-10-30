@@ -19,6 +19,54 @@ use super::{
 };
 use rune::{Cx, El, col, el, icon, row, text};
 
+#[derive(Default)]
+pub(super) struct DetailState {
+    pub request: super::request::RequestState,
+    pub meta: Option<scry_addons::Meta>,
+    pub namespace: String,
+    pub preview: bool,
+    pub pending_episode: Option<String>,
+    pub episodes: super::episodes::EpisodesState,
+    pub sources: super::source_picker::SourcesState,
+    pub generation: u64,
+}
+
+#[derive(Clone)]
+pub(super) struct DetailSnapshot {
+    meta: Option<scry_addons::Meta>,
+    namespace: String,
+    preview: bool,
+    pending_episode: Option<String>,
+    episodes: super::episodes::EpisodeSnapshot,
+    request: super::request::RequestSnapshot,
+    sources: super::request::RequestSnapshot,
+}
+
+impl DetailState {
+    pub fn snapshot(&self) -> DetailSnapshot {
+        DetailSnapshot {
+            meta: self.meta.clone(),
+            namespace: self.namespace.clone(),
+            preview: self.preview,
+            pending_episode: self.pending_episode.clone(),
+            episodes: self.episodes.snapshot(),
+            request: self.request.snapshot(),
+            sources: self.sources.request.snapshot(),
+        }
+    }
+
+    pub fn restore(&mut self, snapshot: DetailSnapshot) -> bool {
+        self.meta = snapshot.meta;
+        self.namespace = snapshot.namespace;
+        self.preview = snapshot.preview;
+        self.pending_episode = snapshot.pending_episode;
+        self.episodes.restore(snapshot.episodes);
+        self.sources.reset();
+        self.sources.request.restore(snapshot.sources);
+        self.request.restore(snapshot.request)
+    }
+}
+
 const PREVIEW_WIDTH: f32 = tokens::detail::PREVIEW_WIDTH;
 const PREVIEW_PADDING: f32 = tokens::detail::PREVIEW_INSET;
 
@@ -35,8 +83,8 @@ pub(super) fn detail(s: &State) -> El {
         .padding(tokens::layout::PAGE_GAP)
         .gap(12.0)
         .fill(tokens::preview_panel());
-    if let Some(meta) = &s.detail {
-        if meta.kind == "series" && s.selected_video_id.is_none() {
+    if let Some(meta) = &s.detail.meta {
+        if meta.kind == "series" && s.detail.episodes.selected.is_none() {
             side = side.child(episodes(s, meta));
         } else {
             side = side.child(source_picker::view(s).w_full());
@@ -65,9 +113,10 @@ fn backdrop(s: &State) -> El {
     let mut surface = el().fill(tokens::canvas());
     if let Some(image) = s
         .detail
+        .meta
         .as_ref()
         .and_then(|meta| meta.background.as_ref())
-        .and_then(|url| s.player_artwork.as_ref()?.get(url))
+        .and_then(|url| s.artwork.player.as_ref()?.get(url))
     {
         surface = surface.child(
             el().key("detail-background")
@@ -82,8 +131,11 @@ fn backdrop(s: &State) -> El {
 }
 
 fn back_button(s: &State) -> El {
-    let to_episodes = s.selected_video_id.is_some()
-        && s.detail.as_ref().is_some_and(|meta| meta.kind == "series");
+    let to_episodes = s.detail.episodes.selected.is_some()
+        && s.detail
+            .meta
+            .as_ref()
+            .is_some_and(|meta| meta.kind == "series");
     icon_action(
         "detail-back",
         if to_episodes {
@@ -107,7 +159,7 @@ fn hero(s: &State, compact: bool) -> El {
         .w_full()
         .child(back_button(s))
         .child(el().grow(1.0));
-    if s.app_fullscreen {
+    if s.shell.fullscreen {
         navigation = navigation.child(icon_action(
             "app-exit-fullscreen",
             "Exit app fullscreen (F11)",
@@ -119,11 +171,11 @@ fn hero(s: &State, compact: bool) -> El {
         .w_full()
         .gap(tokens::layout::SECTION_GAP)
         .child(navigation);
-    if let Some(meta) = &s.detail {
+    if let Some(meta) = &s.detail.meta {
         let title = if let Some(image) = meta
             .logo
             .as_ref()
-            .and_then(|url| s.player_artwork.as_ref()?.get(url))
+            .and_then(|url| s.artwork.player.as_ref()?.get(url))
         {
             el().key("detail-logo")
                 .w_full()
@@ -219,6 +271,7 @@ fn chips(title: &str, values: &[String]) -> El {
 pub(super) fn quick_actions(s: &State, compact: bool) -> El {
     let trailer = s
         .detail
+        .meta
         .as_ref()
         .and_then(|meta| meta.trailer_streams.first());
     let mut actions = input_group()
@@ -247,7 +300,7 @@ pub(super) fn quick_actions(s: &State, compact: bool) -> El {
                 )
                 .on_press(|s: &mut State| {
                     s.remember();
-                    s.detail_preview = false;
+                    s.detail.preview = false;
                 }),
         );
     }
@@ -255,9 +308,51 @@ pub(super) fn quick_actions(s: &State, compact: bool) -> El {
 }
 
 impl State {
+    pub(super) fn open_detail_from(&mut self, meta: scry_addons::Meta) {
+        if self.navigation.page == super::Page::Detail {
+            self.detail.generation += 1;
+            self.runtime.streams.invalidate();
+        }
+        self.navigate(super::Page::Detail);
+        self.detail.meta = Some(meta.clone());
+        self.detail.preview = false;
+        self.detail.episodes = super::episodes::EpisodesState::default();
+        self.detail.sources.reset();
+        self.library.snapshot = None;
+        self.detail.request = super::request::RequestState {
+            loading: true,
+            status: "Loading details…".into(),
+            ..super::request::RequestState::default()
+        };
+        if let Some(services) = &mut self.runtime.services {
+            services.detail(
+                self.detail.generation,
+                self.addons.installed.clone(),
+                meta,
+                self.detail.namespace.clone(),
+            );
+        }
+    }
+
+    pub(super) fn find_streams(&mut self, kind: String, id: String) {
+        let generation = self
+            .runtime
+            .streams
+            .start(super::request::StreamOwner::Detail);
+        self.detail.sources.reset();
+        self.detail.episodes.selected = Some(id.clone());
+        self.refresh_library();
+        self.detail.sources.request.loading = true;
+        self.detail.sources.request.status = "Loading streams…".into();
+        if let Some(services) = &mut self.runtime.services {
+            services.streams(generation, self.addons.installed.clone(), kind, id);
+        }
+    }
+
     fn open_trailer(&mut self) {
         let Some(id) = self
             .detail
+            .meta
             .as_ref()
             .and_then(|meta| meta.trailer_streams.first())
             .map(|trailer| &trailer.yt_id)
@@ -269,12 +364,12 @@ impl State {
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
         {
-            self.error = Some("The provider supplied an invalid trailer ID.".into());
+            self.detail.request.error = Some("The provider supplied an invalid trailer ID.".into());
             return;
         }
         let url = format!("https://www.youtube.com/watch?v={id}");
         if let Err(error) = scry_app::platform::open_browser(&url) {
-            self.error = Some(format!("Cannot open the trailer: {error}"));
+            self.detail.request.error = Some(format!("Cannot open the trailer: {error}"));
         }
     }
 }
@@ -286,22 +381,18 @@ impl State {
 fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
     let t = theme();
     let mut episodes = col().key("episodes").gap(8.0).w_full();
-    let range = s.episode_range();
+    let indices = s.season_episode_indices();
+    let range = s.detail.episodes.range(indices.len());
     if range.is_empty() {
-        episodes = episodes.child(label(if s.episode_search.text.trim().is_empty() {
+        episodes = episodes.child(label(if s.detail.episodes.search.text.trim().is_empty() {
             "No episodes in this season."
         } else {
             "No episodes match your search."
         }));
     }
-    for (position, index) in s
-        .season_episode_indices()
-        .into_iter()
-        .take(range.end)
-        .enumerate()
-    {
+    for (position, index) in indices.into_iter().take(range.end).enumerate() {
         let video = &meta.videos[index];
-        let selected = s.selected_video_id.as_deref() == Some(video.id.as_str());
+        let selected = s.detail.episodes.selected.as_deref() == Some(video.id.as_str());
         let mut status = row().w_full().h(22.0).center_y().gap(6.0).child(
             text(format!("EPISODE {}", video.episode.unwrap_or(0)))
                 .grow(1.0)
@@ -330,11 +421,11 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
             .gap(8.0)
             .on_press(move |s: &mut State| s.select_episode(index))
             .on_secondary_press(move |s: &mut State, p, _| {
-                let item = s.detail.as_ref().and_then(|meta| {
+                let item = s.detail.meta.as_ref().and_then(|meta| {
                     meta.videos.get(index).map(|video| scry_library::Media {
                         key: super::library_view::key(
                             &super::library_view::key(
-                                &s.detail_namespace,
+                                &s.detail.namespace,
                                 scry_library::MediaKind::Series,
                                 &meta.id,
                             )
@@ -344,7 +435,7 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
                         ),
                         title: format!("{} · {}", meta.name, video.title),
                         parent: Some(super::library_view::key(
-                            &s.detail_namespace,
+                            &s.detail.namespace,
                             scry_library::MediaKind::Series,
                             &meta.id,
                         )),
@@ -354,18 +445,20 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
             })
             .w_full()
             .on_layout(move |s: &mut State, rect| {
-                if s.episode_viewport.is_some_and(|viewport| {
+                if s.detail.episodes.viewport.is_some_and(|viewport| {
                     rect[1] <= viewport[1] && rect[1] + rect[3] > viewport[1]
                 }) {
                     let offset = position / super::EPISODES_PER_PAGE * super::EPISODES_PER_PAGE;
-                    if s.episode_state_offset != Some(offset) {
-                        s.episode_state_offset = Some(offset);
+                    if s.detail.episodes.state_offset != Some(offset) {
+                        s.detail.episodes.state_offset = Some(offset);
                         s.register_library_detail();
                     }
                 }
                 if position + 1 == range.end
                     && range.end == s.episode_range().end
-                    && s.episode_viewport
+                    && s.detail
+                        .episodes
+                        .viewport
                         .is_some_and(|viewport| rect[1] < viewport[1] + viewport[3] + 200.0)
                 {
                     s.move_episode_page(true);
@@ -425,7 +518,7 @@ fn episodes(s: &State, meta: &scry_addons::Meta) -> El {
                 ),
                 episodes,
             )
-            .on_layout(|s: &mut State, rect| s.episode_viewport = Some(rect)),
+            .on_layout(|s: &mut State, rect| s.detail.episodes.viewport = Some(rect)),
         )
 }
 
@@ -439,7 +532,7 @@ fn episode_thumbnail(s: &State, video: &scry_addons::Video, index: usize) -> El 
     if let Some(image) = video
         .thumbnail
         .as_ref()
-        .and_then(|url| s.artwork.as_ref()?.get(url))
+        .and_then(|url| s.artwork.posters.as_ref()?.get(url))
     {
         surface.pixels_fit(&image, rune::SurfaceFit::Fill)
     } else {
@@ -473,9 +566,9 @@ fn season_selector(s: &State) -> El {
             super::primitives::button::DropdownVariant::Transparent,
         )
         .on_press(|s: &mut State| {
-            s.source_menu_open = false;
-            s.source_sort_open = false;
-            s.season_menu_open = !s.season_menu_open;
+            s.detail.sources.menu_open = false;
+            s.detail.sources.sort_open = false;
+            s.detail.episodes.menu_open = !s.detail.episodes.menu_open;
         })
         .on_secondary_press(move |s: &mut State, point, _| s.open_season_menu(point, current)),
     );
@@ -491,7 +584,7 @@ fn season_selector(s: &State) -> El {
 }
 
 pub(super) fn season_menu(s: &State, cx: &Cx<State>) -> Option<El> {
-    if !s.season_menu_open {
+    if !s.detail.episodes.menu_open {
         return None;
     }
     let anchor = cx.layout("season-select")?;
@@ -521,7 +614,7 @@ pub(super) fn season_menu(s: &State, cx: &Cx<State>) -> Option<El> {
             "season-select",
             anchor[2].max(200.0),
             f32::from(visible) * (tokens::control::HEIGHT + 4.0),
-            |s: &mut State| s.season_menu_open = false,
+            |s: &mut State| s.detail.episodes.menu_open = false,
         )
         .child(choices),
     )

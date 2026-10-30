@@ -220,7 +220,7 @@ pub(super) fn view(s: &State) -> El {
 }
 
 pub(super) fn scene(s: &mut State) {
-    s.config_busy = false;
+    s.addons.busy = false;
     s.navigation.page = Page::Stats;
     s.stats.data = Some(NerdStats {
         started_at: 1_760_000_000,

@@ -38,9 +38,12 @@ fn quick_play_buttons_choose_the_first_matching_saved_video() {
         assert!(action[0] > header[0]);
         assert!(action[1] >= header[1] && action[1] + action[3] <= header[1] + header[3]);
         tap(&mut rt, button);
-        assert_eq!(rt.state.detail.as_ref().unwrap().id, expected);
-        assert_eq!(rt.state.pending_episode.as_deref(), episode);
-        assert_eq!(rt.state.library.quick_play, Some(rt.state.detail_id));
+        assert_eq!(rt.state.detail.meta.as_ref().unwrap().id, expected);
+        assert_eq!(rt.state.detail.pending_episode.as_deref(), episode);
+        assert_eq!(
+            rt.state.library.quick_play,
+            Some(rt.state.detail.generation)
+        );
     }
 }
 
@@ -106,16 +109,16 @@ fn up_next_entries_appear_with_or_without_currently_watching_items() {
 fn manual_episode_and_season_choices_cancel_pending_quick_play() {
     let mut s = init();
     s.navigation.page = Page::Detail;
-    s.detail = Some(multi_season_series());
-    s.library.quick_play = Some(s.detail_id);
+    s.detail.meta = Some(multi_season_series());
+    s.library.quick_play = Some(s.detail.generation);
     s.select_episode(4);
     assert!(s.library.quick_play.is_none());
-    assert_eq!(s.selected_video_id.as_deref(), Some("show:1:1"));
+    assert_eq!(s.detail.episodes.selected.as_deref(), Some("show:1:1"));
 
-    s.library.quick_play = Some(s.detail_id);
+    s.library.quick_play = Some(s.detail.generation);
     s.select_season(Some(2));
     assert!(s.library.quick_play.is_none());
-    assert!(s.selected_video_id.is_none());
+    assert!(s.detail.episodes.selected.is_none());
     assert_eq!(s.active_season(), Some(2));
 }
 
@@ -123,9 +126,9 @@ fn manual_episode_and_season_choices_cancel_pending_quick_play() {
 fn returning_to_episodes_cancels_quick_play_for_later_manual_selections() {
     let (mut s, tx) = state_with_events();
     s.navigation.page = Page::Detail;
-    s.detail = Some(series(3));
-    s.selected_video_id = Some("tt123:1:1".into());
-    s.library.quick_play = Some(s.detail_id);
+    s.detail.meta = Some(series(3));
+    s.detail.episodes.selected = Some("tt123:1:1".into());
+    s.library.quick_play = Some(s.detail.generation);
     s.show_episodes();
     assert!(
         s.library.quick_play.is_none(),
@@ -136,7 +139,7 @@ fn returning_to_episodes_cancels_quick_play_for_later_manual_selections() {
         serde_json::from_value(serde_json::json!({"url":"https://example.invalid/video.mp4"}))
             .unwrap();
     tx.try_send(Event::Streams(
-        s.stream_id,
+        s.runtime.streams.generation,
         vec![("Provider".into(), stream)],
         vec![],
         true,
@@ -148,7 +151,7 @@ fn returning_to_episodes_cancels_quick_play_for_later_manual_selections() {
         "A manual selection must show its sources"
     );
     assert_eq!(s.navigation.page, Page::Detail);
-    assert_eq!(s.streams.len(), 1);
+    assert_eq!(s.detail.sources.streams.len(), 1);
 }
 
 #[test]
@@ -156,20 +159,20 @@ fn quick_play_starts_a_single_source_but_keeps_multiple_sources_in_the_picker() 
     for count in [1, 2] {
         let (mut s, tx) = state_with_events();
         s.navigation.page = Page::Detail;
-        s.detail = Some(
+        s.detail.meta = Some(
             serde_json::from_value(
                 serde_json::json!({"id":"movie", "type":"movie", "name":"Movie"}),
             )
             .unwrap(),
         );
-        s.detail_namespace = "test".into();
-        s.selected_video_id = Some("movie".into());
-        s.library.quick_play = Some(s.detail_id);
+        s.detail.namespace = "test".into();
+        s.find_streams("movie".into(), "movie".into());
+        s.library.quick_play = Some(s.detail.generation);
         let stream: Stream =
             serde_json::from_value(serde_json::json!({"url":"https://example.com/video.mp4"}))
                 .unwrap();
         tx.try_send(Event::Streams(
-            s.stream_id,
+            s.runtime.streams.generation,
             vec![("Provider".into(), stream); count],
             vec![],
             true,
@@ -182,7 +185,7 @@ fn quick_play_starts_a_single_source_but_keeps_multiple_sources_in_the_picker() 
         } else {
             assert!(s.library.playing.is_none());
             assert_eq!(s.navigation.page, Page::Detail);
-            assert_eq!(s.streams.len(), 2);
+            assert_eq!(s.detail.sources.streams.len(), 2);
         }
     }
 }
@@ -247,8 +250,8 @@ fn next_cards_use_each_items_progress_and_resume_the_exact_episode() {
     assert!(rect(&rt, "up-next-heading")[1] >= current_card[1] + current_card[3]);
     assert!(visible_artwork(&rt.state).contains(&"https://example.com/show.jpg".into()));
     tap(&mut rt, "up-next-open-0");
-    assert_eq!(rt.state.detail.as_ref().unwrap().id, "show");
-    assert_eq!(rt.state.pending_episode.as_deref(), Some("show:1:1"));
+    assert_eq!(rt.state.detail.meta.as_ref().unwrap().id, "show");
+    assert_eq!(rt.state.detail.pending_episode.as_deref(), Some("show:1:1"));
 }
 
 #[test]
@@ -344,7 +347,7 @@ fn rapid_home_scrolling_keeps_layout_bounded_and_restores_visible_artwork() {
     }
     let pixels = rune::Pixels::new();
     pixels.set(2, 3, vec![180; 24]);
-    s.artwork = Some(crate::artwork::Artwork::player_fixture(&[
+    s.artwork.posters = Some(crate::artwork::Artwork::player_fixture(&[
         ("https://example.invalid/0.jpg", pixels.clone()),
         ("https://example.invalid/199.jpg", pixels),
     ]));
@@ -390,12 +393,14 @@ fn rapid_home_scrolling_keeps_layout_bounded_and_restores_visible_artwork() {
     }
     assert!(
         rt.state
-            .artwork_urls
+            .artwork
+            .poster_urls
             .contains(&"https://example.invalid/199.jpg".into())
     );
     assert!(
         !rt.state
-            .artwork_urls
+            .artwork
+            .poster_urls
             .contains(&"https://example.invalid/0.jpg".into())
     );
     rt.wheel(viewport[0] + 20.0, viewport[1] + 20.0, 100_000.0);
@@ -405,7 +410,8 @@ fn rapid_home_scrolling_keeps_layout_bounded_and_restores_visible_artwork() {
     assert!(rt.find("up-next-open-0").is_some());
     assert!(
         rt.state
-            .artwork_urls
+            .artwork
+            .poster_urls
             .contains(&"https://example.invalid/0.jpg".into())
     );
     rt.wheel(viewport[0] + 20.0, viewport[1] + 20.0, -100_000.0);
@@ -415,11 +421,12 @@ fn rapid_home_scrolling_keeps_layout_bounded_and_restores_visible_artwork() {
     settle_grid(&mut rt);
     assert!(
         rt.state
-            .artwork_urls
+            .artwork
+            .poster_urls
             .contains(&"https://example.invalid/199.jpg".into())
     );
     tap(&mut rt, "up-next-open-199");
-    assert_eq!(rt.state.detail.as_ref().unwrap().id, "movie-199");
+    assert_eq!(rt.state.detail.meta.as_ref().unwrap().id, "movie-199");
 }
 
 #[test]
@@ -492,7 +499,7 @@ fn watching_sections_reveal_unmounted_rows_and_restore_each_history_anchor() {
     rt.poll = Some(poll);
     settle_grid(&mut rt);
     for prefix in ["up-next", "watching"] {
-        let row = 90 / rt.state.poster_columns;
+        let row = 90 / rt.state.posters.columns;
         let key = format!("{prefix}-row-{row}");
         rt.update(move |_, tx| tx.scroll_into_view_in("watching-scroll", key));
         settle_grid(&mut rt);
@@ -506,7 +513,7 @@ fn watching_sections_reveal_unmounted_rows_and_restore_each_history_anchor() {
         } else {
             "current-90"
         };
-        assert_eq!(rt.state.detail.as_ref().unwrap().id, expected);
+        assert_eq!(rt.state.detail.meta.as_ref().unwrap().id, expected);
         tap(&mut rt, "nav-back");
         settle_grid(&mut rt);
         let restored = rect(&rt, &key);
@@ -564,7 +571,8 @@ fn series_metadata_supplies_saved_poster_artwork_without_another_lookup() {
     );
     assert!(s.missing_library_posters().is_empty());
     assert!(
-        s.artwork_urls
+        s.artwork
+            .poster_urls
             .contains(&"https://example.invalid/show.jpg".into())
     );
 }

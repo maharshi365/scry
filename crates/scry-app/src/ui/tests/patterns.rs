@@ -242,8 +242,8 @@ fn shared_controls_resolve_appearance_from_the_central_theme() {
 #[test]
 fn install_dialog_uses_matching_shared_input_and_submit_heights() {
     let mut state = super::init();
-    state.addon_install_open = true;
-    state.config_busy = false;
+    state.addons.install_open = true;
+    state.addons.busy = false;
     let mut rt = rune::Runtime::new(state, super::view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);
     let input = super::rect(&rt, "manifest-frame");

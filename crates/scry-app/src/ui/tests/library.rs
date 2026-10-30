@@ -11,7 +11,7 @@ fn movie_detail_overlay_shows_progress_and_watched_state() {
     ] {
         let mut s = init();
         s.navigation.page = Page::Detail;
-        s.detail = Some(serde_json::from_value(serde_json::json!({
+        s.detail.meta = Some(serde_json::from_value(serde_json::json!({
             "id":"tt123", "type":"movie", "name":"Film", "poster":"https://example.com/poster.jpg"
         })).unwrap());
         s.library.snapshot = Some(Snapshot {
@@ -101,7 +101,7 @@ fn movie_overlays_follow_saved_state_in_catalog_search_library_and_watching() {
                     )
                 })
                 .collect();
-            s.metas = Arc::new(
+            s.discover.results = crate::ui::catalog::CatalogResults::from(
                 movies
                     .iter()
                     .map(|m| {
@@ -110,10 +110,10 @@ fn movie_overlays_follow_saved_state_in_catalog_search_library_and_watching() {
                         }))
                         .unwrap()
                     })
-                    .collect(),
+                    .collect::<Vec<_>>(),
             );
             if search {
-                s.displayed_query = "Movie".into();
+                s.discover.displayed_query = "Movie".into();
             }
             let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
             rt.poll = Some(poll);
@@ -229,18 +229,25 @@ fn watching_cards_show_posters_progress_and_resume_the_saved_episode() {
     rt.secondary_down(card[0] + 10.0, card[1] + 10.0);
     rt.secondary_up(card[0] + 10.0, card[1] + 10.0);
     rt.frame(1.0 / 60.0);
-    let super::super::context_menu::Target::Title(item) =
-        rt.state.context_menu.as_ref().unwrap().1.as_ref().unwrap()
+    let super::super::context_menu::Target::Title(item) = rt
+        .state
+        .shell
+        .context_menu
+        .as_ref()
+        .unwrap()
+        .1
+        .as_ref()
+        .unwrap()
     else {
         panic!("Expected a title menu")
     };
     assert_eq!(item, &episode);
-    rt.update(|s, _| s.context_menu = None);
+    rt.update(|s, _| s.shell.context_menu = None);
     rt.frame(1.0 / 60.0);
     tap(&mut rt, "watching-open-1");
-    assert_eq!(rt.state.detail.as_ref().unwrap().id, "show");
-    assert_eq!(rt.state.detail.as_ref().unwrap().kind, "series");
-    assert_eq!(rt.state.pending_episode.as_deref(), Some("show:1:2"));
+    assert_eq!(rt.state.detail.meta.as_ref().unwrap().id, "show");
+    assert_eq!(rt.state.detail.meta.as_ref().unwrap().kind, "series");
+    assert_eq!(rt.state.detail.pending_episode.as_deref(), Some("show:1:2"));
 }
 
 #[test]
@@ -260,9 +267,9 @@ fn watching_requests_parent_series_artwork_and_keeps_it_after_library_refreshes(
             duration_seconds: 120.0,
         },
     )];
-    s.poster_route = s.navigation.route_key;
-    s.poster_viewport = Some([0.0, 0.0, 880.0, 600.0]);
-    s.poster_visible = 0..1;
+    s.posters.route = s.navigation.route_key;
+    s.posters.viewport = Some([0.0, 0.0, 880.0, 600.0]);
+    s.posters.visible = 0..1;
     let missing = s.missing_library_posters();
     assert_eq!(missing.len(), 1);
     assert_eq!(missing[0].key, parent);
@@ -327,8 +334,11 @@ fn watching_grid_history_restores_the_scrolled_episode_card() {
             .any(|m| m.key.id == "show39")
     );
     tap(&mut rt, "watching-open-39");
-    assert_eq!(rt.state.detail.as_ref().unwrap().id, "show39");
-    assert_eq!(rt.state.pending_episode.as_deref(), Some("show39:1:2"));
+    assert_eq!(rt.state.detail.meta.as_ref().unwrap().id, "show39");
+    assert_eq!(
+        rt.state.detail.pending_episode.as_deref(),
+        Some("show39:1:2")
+    );
     tap(&mut rt, "nav-back");
     for _ in 0..30 {
         rt.frame(1.0 / 60.0);
@@ -345,9 +355,9 @@ fn rendered_detail_actions_persist_and_appear_in_the_library() {
     let path = directory.path().join("library.sqlite3");
     let mut s = init();
     s.navigation.page = Page::Detail;
-    s.config_busy = false;
-    s.detail_namespace = "provider".into();
-    s.detail = Some(
+    s.addons.busy = false;
+    s.detail.namespace = "provider".into();
+    s.detail.meta = Some(
         serde_json::from_value(serde_json::json!({
             "id":"tt123", "type":"movie", "name":"A test movie"
         }))
@@ -440,7 +450,7 @@ fn library_and_catalog_use_the_same_poster_card_geometry() {
                 );
                 let image = rune::Pixels::new();
                 image.set(2, 3, vec![180; 24]);
-                s.artwork = Some(crate::artwork::Artwork::player_fixture(&[(
+                s.artwork.posters = Some(crate::artwork::Artwork::player_fixture(&[(
                     "https://example.com/poster.jpg",
                     image,
                 )]));
@@ -475,7 +485,7 @@ fn library_and_catalog_use_the_same_poster_card_geometry() {
                     vec!["https://example.com/poster.jpg"]
                 );
                 tap(&mut rt, "library-open-0");
-                assert_eq!(rt.state.detail.as_ref().unwrap().id, "film0");
+                assert_eq!(rt.state.detail.meta.as_ref().unwrap().id, "film0");
             }
         }
     }
@@ -526,16 +536,18 @@ fn library_grid_scrolls_and_history_restores_the_opened_poster_card() {
     assert_eq!(rect(&rt, "library-watchlist-tab"), filters);
     assert!(
         rt.state
-            .artwork_urls
+            .artwork
+            .poster_urls
             .contains(&"https://example.com/199.jpg".into())
     );
     assert!(
         !rt.state
-            .artwork_urls
+            .artwork
+            .poster_urls
             .contains(&"https://example.com/0.jpg".into())
     );
     tap(&mut rt, "library-open-199");
-    assert_eq!(rt.state.detail.as_ref().unwrap().id, "film199");
+    assert_eq!(rt.state.detail.meta.as_ref().unwrap().id, "film199");
     tap(&mut rt, "nav-back");
     for _ in 0..30 {
         rt.frame(1.0 / 60.0);
@@ -565,10 +577,10 @@ fn library_posters_are_bounded_visible_and_ignore_stale_or_unrelated_results() {
         s.missing_library_posters().is_empty(),
         "Wait for measured geometry before fetching"
     );
-    s.poster_route = s.navigation.route_key;
-    s.poster_columns = 3;
-    s.poster_viewport = Some([0.0, 0.0, 700.0, 300.0]);
-    s.poster_visible = 1..2;
+    s.posters.route = s.navigation.route_key;
+    s.posters.columns = 3;
+    s.posters.viewport = Some([0.0, 0.0, 700.0, 300.0]);
+    s.posters.visible = 1..2;
     let missing = s.missing_library_posters();
     assert_eq!(
         missing

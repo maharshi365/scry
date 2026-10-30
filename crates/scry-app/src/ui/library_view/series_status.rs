@@ -73,7 +73,7 @@ impl State {
                 self.library.series.requested.clone_from(&keys);
             }
         }
-        if self.library.series.busy || self.addons.is_empty() {
+        if self.library.series.busy || self.addons.installed.is_empty() {
             return;
         }
         let missing: Vec<_> = keys
@@ -88,18 +88,19 @@ impl State {
                     && (self.navigation.page != super::super::Page::Detail
                         || self
                             .detail
+                            .meta
                             .as_ref()
                             .is_none_or(|meta| meta.id != key.id || meta.videos.is_empty()))
             })
             .take(12)
             .collect();
         if !missing.is_empty()
-            && let Some(services) = &mut self.services
+            && let Some(services) = &mut self.runtime.services
         {
             self.library.series.busy = true;
             services.series_details(
                 self.library.series.metadata_generation,
-                self.addons.clone(),
+                self.addons.installed.clone(),
                 missing,
                 false,
             );
@@ -142,8 +143,13 @@ impl State {
     }
 
     pub(in crate::ui) fn remember_series_detail(&mut self) {
-        if let Some(meta) = self.detail.as_ref().filter(|meta| meta.kind == "series") {
-            let key = super::key(&self.detail_namespace, MediaKind::Series, &meta.id);
+        if let Some(meta) = self
+            .detail
+            .meta
+            .as_ref()
+            .filter(|meta| meta.kind == "series")
+        {
+            let key = super::key(&self.detail.namespace, MediaKind::Series, &meta.id);
             let meta = meta.clone();
             self.reconcile_series_metadata(&key, &meta);
             self.library

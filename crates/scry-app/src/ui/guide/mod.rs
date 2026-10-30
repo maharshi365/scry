@@ -152,7 +152,7 @@ impl State {
 
     pub(in crate::ui) fn autoplay_guide(&mut self) {
         if self.navigation.page != Page::Guide
-            || self.config_busy
+            || self.addons.busy
             || self.guide.collections_open
             || self.guide.busy
             || self.guide.tuned.is_some()
@@ -214,7 +214,7 @@ impl State {
     fn request_guide_details(&mut self) {
         if self.navigation.page != Page::Guide
             || self.guide.details_pending.is_some()
-            || self.addons.is_empty()
+            || self.addons.installed.is_empty()
             || chrono::Utc::now().timestamp() < self.guide.details_after
         {
             return;
@@ -244,7 +244,7 @@ impl State {
         if titles.is_empty() {
             return;
         }
-        if let Some(services) = &mut self.services {
+        if let Some(services) = &mut self.runtime.services {
             for title in &titles {
                 self.guide
                     .details_checked
@@ -254,7 +254,7 @@ impl State {
             let generation = self.guide.details_generation;
             self.guide.details_pending = Some(generation);
             self.guide.details_after = chrono::Utc::now().timestamp().saturating_add(60);
-            services.guide_details(generation, self.addons.clone(), titles);
+            services.guide_details(generation, self.addons.installed.clone(), titles);
         }
     }
 
@@ -292,8 +292,8 @@ impl State {
         self.guide.resolving = false;
         self.guide.alternatives.clear();
         self.guide.tuning = tuning::Tuning::default();
-        self.stream_id = self.stream_id.wrapping_add(1);
-        if let Some(services) = &mut self.services {
+        self.runtime.streams.invalidate();
+        if let Some(services) = &mut self.runtime.services {
             services.cancel_streams();
         }
     }
@@ -329,10 +329,14 @@ impl State {
         self.guide.tuned = Some((id, slot.clone()));
         self.guide.resolving = true;
         self.guide.error = None;
-        if let Some(services) = &mut self.services {
+        let generation = self
+            .runtime
+            .streams
+            .start(super::request::StreamOwner::Guide);
+        if let Some(services) = &mut self.runtime.services {
             services.streams(
-                self.stream_id,
-                self.addons.clone(),
+                generation,
+                self.addons.installed.clone(),
                 if slot.program.media.key.kind == MediaKind::Movie {
                     "movie"
                 } else {

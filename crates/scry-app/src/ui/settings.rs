@@ -15,6 +15,13 @@ use rune::{El, col};
 use scry_library::guide::{EpisodeOrder, SourcePolicy};
 use scry_playback::subtitles::{LANGUAGES, Preferences, SIZES, language_label};
 
+#[derive(Default)]
+pub(super) struct SettingsState {
+    pub subtitle_preferences: Preferences,
+    pub subtitles: super::player::subtitles::SettingsUi,
+    pub streaming: streaming::SettingsUi,
+}
+
 pub(super) fn view(s: &State) -> El {
     let mut content = col()
         .w_full()
@@ -51,7 +58,7 @@ struct SubtitleControls {
 }
 
 fn subtitle_controls(s: &State) -> SubtitleControls {
-    let preferences = &s.subtitle_preferences;
+    let preferences = &s.settings.subtitle_preferences;
     let mut sizes = choices();
     for &size in SIZES {
         let mut next = preferences.clone();
@@ -193,11 +200,11 @@ fn subtitle_settings(s: &State) -> El {
                 styles,
             ),
             Button::new("subtitle-default-reset", "Restore subtitle defaults")
-                .enabled(!s.subtitle_settings.busy)
+                .enabled(!s.settings.subtitles.busy)
                 .on_press(|s: &mut State| s.save_subtitle_preferences(Preferences::default())),
         ],
     );
-    if let Some(error) = &s.subtitle_settings.error {
+    if let Some(error) = &s.settings.subtitles.error {
         panel = panel.child(feedback::message(
             "subtitle-settings-error",
             "Cannot save subtitle defaults",
@@ -205,9 +212,9 @@ fn subtitle_settings(s: &State) -> El {
             Tone::Danger,
             rune::row().child(
                 Button::new("subtitle-settings-retry", "Retry saving")
-                    .enabled(!s.subtitle_settings.busy)
+                    .enabled(!s.settings.subtitles.busy)
                     .on_press(|s: &mut State| {
-                        s.save_subtitle_preferences(s.subtitle_preferences.clone());
+                        s.save_subtitle_preferences(s.settings.subtitle_preferences.clone());
                     }),
             ),
         ));
@@ -230,7 +237,7 @@ fn subtitle_choice(
     Button::new(key, title)
         .size(Size::Setting)
         .selected(selected)
-        .enabled(!s.subtitle_settings.busy)
+        .enabled(!s.settings.subtitles.busy)
         .on_press(move |s: &mut State| s.save_subtitle_preferences(preferences.clone()))
         .grow(1.0)
 }
@@ -243,7 +250,7 @@ fn color_choices(s: &State, kind: &'static str) -> El {
     };
     let mut options = choices();
     for (index, &(title, color)) in colors.iter().enumerate() {
-        let mut next = s.subtitle_preferences.clone();
+        let mut next = s.settings.subtitle_preferences.clone();
         let target = match kind {
             "text" => &mut next.text_color,
             "background" => &mut next.background_color,
@@ -264,11 +271,14 @@ fn color_choices(s: &State, kind: &'static str) -> El {
 
 fn language_trigger(s: &State, slot: Slot) -> El {
     let (key, language) = if slot == Slot::Primary {
-        ("subtitle-primary-language", &s.subtitle_preferences.primary)
+        (
+            "subtitle-primary-language",
+            &s.settings.subtitle_preferences.primary,
+        )
     } else {
         (
             "subtitle-secondary-language",
-            &s.subtitle_preferences.secondary,
+            &s.settings.subtitle_preferences.secondary,
         )
     };
     dropdown_trigger(
@@ -279,14 +289,15 @@ fn language_trigger(s: &State, slot: Slot) -> El {
         DropdownVariant::Framed,
     )
     .size(Size::Setting)
-    .enabled(!s.subtitle_settings.busy)
-    .on_press(move |s: &mut State| s.subtitle_settings.language_menu = Some(slot))
+    .enabled(!s.settings.subtitles.busy)
+    .on_press(move |s: &mut State| s.settings.subtitles.language_menu = Some(slot))
     .w_full()
 }
 
 pub(super) fn language_menu(s: &State) -> Option<El> {
     let slot = s
-        .subtitle_settings
+        .settings
+        .subtitles
         .language_menu
         .filter(|_| s.navigation.page == super::Page::Settings)?;
     let anchor = if slot == Slot::Primary {
@@ -295,16 +306,16 @@ pub(super) fn language_menu(s: &State) -> Option<El> {
         "subtitle-secondary-language"
     };
     let current = if slot == Slot::Primary {
-        &s.subtitle_preferences.primary
+        &s.settings.subtitle_preferences.primary
     } else {
-        &s.subtitle_preferences.secondary
+        &s.settings.subtitle_preferences.secondary
     };
     let menu = super::primitives::surface::dropdown(
         "subtitle-language-menu",
         anchor,
         280.0,
         300.0,
-        |s: &mut State| s.subtitle_settings.language_menu = None,
+        |s: &mut State| s.settings.subtitles.language_menu = None,
     );
     let mut options = col().w_full().gap(4.0);
     for (code, title) in std::iter::once(("", "Off")).chain(LANGUAGES.iter().copied()) {
@@ -314,13 +325,13 @@ pub(super) fn language_menu(s: &State) -> Option<El> {
             title,
             *current == language,
             move |s: &mut State| {
-                let mut next = s.subtitle_preferences.clone();
+                let mut next = s.settings.subtitle_preferences.clone();
                 if slot == Slot::Primary {
                     next.primary.clone_from(&language);
                 } else {
                     next.secondary.clone_from(&language);
                 }
-                s.subtitle_settings.language_menu = None;
+                s.settings.subtitles.language_menu = None;
                 s.save_subtitle_preferences(next);
             },
         ));
@@ -473,6 +484,7 @@ fn provider_choices(s: &State) -> El {
     ));
     for (index, addon) in s
         .addons
+        .installed
         .iter()
         .filter(|addon| {
             !addon.disabled

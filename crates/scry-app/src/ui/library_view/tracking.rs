@@ -86,10 +86,10 @@ impl State {
             }
         }
         if !missing.is_empty()
-            && !self.addons.is_empty()
-            && let Some(services) = &mut self.services
+            && !self.addons.installed.is_empty()
+            && let Some(services) = &mut self.runtime.services
         {
-            services.series_details(generation, self.addons.clone(), missing, true);
+            services.series_details(generation, self.addons.installed.clone(), missing, true);
         } else {
             self.advance_series_tracking();
         }

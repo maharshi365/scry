@@ -122,7 +122,7 @@ pub(in crate::ui) fn key(namespace: &str, kind: MediaKind, id: &str) -> MediaKey
 
 impl State {
     pub(in crate::ui) fn parent_media(&self) -> Option<Media> {
-        let meta = self.detail.as_ref()?;
+        let meta = self.detail.meta.as_ref()?;
         if meta.id.trim().is_empty() {
             return None;
         }
@@ -132,7 +132,7 @@ impl State {
             _ => return None,
         };
         Some(Media {
-            key: key(&self.detail_namespace, kind, &meta.id),
+            key: key(&self.detail.namespace, kind, &meta.id),
             title: if meta.name.trim().is_empty() {
                 meta.id.clone()
             } else {
@@ -147,7 +147,7 @@ impl State {
         if parent.key.kind != MediaKind::Series {
             return Some(parent);
         }
-        let Some(id) = &self.selected_video_id else {
+        let Some(id) = &self.detail.episodes.selected else {
             return Some(parent);
         };
         if id.trim().is_empty() {
@@ -155,6 +155,7 @@ impl State {
         }
         let title = self
             .detail
+            .meta
             .as_ref()?
             .videos
             .iter()
@@ -240,11 +241,12 @@ impl State {
             let key = parent.key.clone();
             let date = self
                 .detail
+                .meta
                 .as_ref()
                 .and_then(crate::media_metadata::meta_release_timestamp);
             self.library.generation += 1;
             self.db(Command::RegisterRelease(parent, date), true);
-            if let Some(meta) = self.detail.clone() {
+            if let Some(meta) = self.detail.meta.clone() {
                 self.register_known_runtimes(&key, &meta);
             }
             return;
@@ -254,7 +256,7 @@ impl State {
             for video in self
                 .visible_episode_indices()
                 .into_iter()
-                .filter_map(|index| self.detail.as_ref()?.videos.get(index))
+                .filter_map(|index| self.detail.meta.as_ref()?.videos.get(index))
                 .filter(|v| !v.id.trim().is_empty())
             {
                 entries.push(Media {
@@ -281,7 +283,7 @@ impl State {
         // Reject snapshots for the old page while the upsert acknowledgement is pending.
         self.library.generation += 1;
         self.db(Command::Upsert(entries), true);
-        if let Some(meta) = self.detail.clone() {
+        if let Some(meta) = self.detail.meta.clone() {
             self.register_known_runtimes(&parent.key, &meta);
         }
     }
@@ -295,7 +297,7 @@ impl State {
         };
         self.visible_episode_indices()
             .into_iter()
-            .filter_map(|index| self.detail.as_ref()?.videos.get(index))
+            .filter_map(|index| self.detail.meta.as_ref()?.videos.get(index))
             .filter(|video| !video.id.trim().is_empty())
             .map(|video| key(&parent.key.namespace, MediaKind::Episode, &video.id))
             .collect()
@@ -437,8 +439,8 @@ impl State {
 
     pub(in crate::ui) fn open_library_media(&mut self, media: &Media) {
         let target = media.parent.as_ref().unwrap_or(&media.key);
-        self.detail_namespace.clone_from(&target.namespace);
-        self.pending_episode = media.parent.as_ref().map(|_| media.key.id.clone());
+        self.detail.namespace.clone_from(&target.namespace);
+        self.detail.pending_episode = media.parent.as_ref().map(|_| media.key.id.clone());
         let meta = serde_json::from_value(serde_json::json!({
             "id": target.id, "type": if target.kind == MediaKind::Movie { "movie" } else { "series" }, "name": media.title
         }));
@@ -460,7 +462,7 @@ impl State {
             return;
         };
         self.open_library_media(&media);
-        self.library.quick_play = Some(self.detail_id);
+        self.library.quick_play = Some(self.detail.generation);
     }
 }
 
@@ -540,7 +542,7 @@ pub(super) fn detail_actions(s: &State) -> El {
                     s.mark_media_watched(b.clone(), !watched);
                 }),
             )
-            .child(super::detail::quick_actions(s, s.detail_preview)),
+            .child(super::detail::quick_actions(s, s.detail.preview)),
     );
     body
 }
@@ -803,10 +805,10 @@ mod tests {
     #[test]
     fn captured_identity_and_last_valid_sample_survive_detail_changes_and_eof() {
         let mut s = init();
-        s.detail_namespace = "provider".into();
-        s.detail = Some(meta("tt123"));
+        s.detail.namespace = "provider".into();
+        s.detail.meta = Some(meta("tt123"));
         s.library.playing = s.library_media();
-        s.detail = Some(meta("tt456"));
+        s.detail.meta = Some(meta("tt456"));
         s.player.sample.position_s = Some(95.0);
         s.player.sample.duration_s = Some(100.0);
         s.observe_library_progress();
@@ -840,11 +842,11 @@ mod tests {
         let path = directory.path().join("library.sqlite3");
         let mut s = init();
         s.library.worker = Some(Worker::start(path.clone(), Arc::new(|| {})).unwrap());
-        s.detail_namespace = "provider".into();
-        s.detail = Some(super::super::tests::series(250));
-        s.episode_offset = 200;
+        s.detail.namespace = "provider".into();
+        s.detail.meta = Some(super::super::tests::series(250));
+        s.detail.episodes.offset = 200;
         // Keep a previously selected episode registered even on another page.
-        s.selected_video_id = Some("tt123:1:1".into());
+        s.detail.episodes.selected = Some("tt123:1:1".into());
         let old_generation = s.library.generation;
         s.register_library_detail();
         assert!(s.library.generation > old_generation);
@@ -886,15 +888,15 @@ mod tests {
     #[test]
     fn movies_have_no_visible_episode_keys() {
         let mut s = init();
-        s.detail = Some(meta("tt123"));
+        s.detail.meta = Some(meta("tt123"));
         assert!(s.visible_episode_keys().is_empty());
     }
 
     #[test]
     fn episode_labels_match_the_full_canonical_visible_key() {
         let mut s = init();
-        s.detail_namespace = "provider".into();
-        s.detail = Some(
+        s.detail.namespace = "provider".into();
+        s.detail.meta = Some(
             serde_json::from_value(serde_json::json!({
                 "id": "tt123", "type": "series", "name": "Show",
                 "videos": [{"id": "custom-episode", "title": "Episode"}]
@@ -922,7 +924,7 @@ mod tests {
             let path = directory.path().join("library.sqlite3");
             let mut s = init();
             s.library.worker = Some(Worker::start(path.clone(), Arc::new(|| {})).unwrap());
-            s.detail = Some(meta("tt123"));
+            s.detail.meta = Some(meta("tt123"));
             s.library.playing = s.library_media();
             s.player.playing = true;
             s.player.sample.position_s = Some(3.0);
@@ -933,7 +935,7 @@ mod tests {
                 s.stop();
             }
             let (tx, rx) = tokio::sync::mpsc::channel(1);
-            s.events = Some(rx);
+            s.runtime.events = Some(rx);
             tx.try_send(Event::Stopped(
                 s.player.generation,
                 (outcome == "failure").then(|| "failed".into()),
@@ -959,11 +961,11 @@ mod tests {
     #[test]
     fn direct_playback_does_not_inherit_open_detail_identity() {
         let mut s = init();
-        s.detail = Some(meta("tt123"));
-        s.detail_namespace = "provider".into();
+        s.detail.meta = Some(meta("tt123"));
+        s.detail.namespace = "provider".into();
         s.library.playing = s.library_media();
         s.player.meta_id = Some(("movie".into(), "tt123".into()));
-        s.direct = TextEdit::new("https://example.com/video.mp4");
+        s.addons.direct = TextEdit::new("https://example.com/video.mp4");
         s.play_direct();
         assert!(s.library.playing.is_none());
         assert!(s.player.meta_id.is_none());
@@ -976,8 +978,8 @@ mod tests {
         let path = directory.path().join("library.sqlite3");
         let mut s = init();
         s.library.worker = Some(Worker::start(path.clone(), Arc::new(|| {})).unwrap());
-        s.detail_namespace = "provider".into();
-        s.detail = Some(meta("tt123"));
+        s.detail.namespace = "provider".into();
+        s.detail.meta = Some(meta("tt123"));
         s.library.playing = s.library_media();
         s.library.last_sample = Some((96.0, 100.0));
         s.library.watched_pending = 96.0;

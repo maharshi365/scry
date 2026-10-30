@@ -18,7 +18,7 @@ pub(super) enum Target {
 
 impl State {
     pub(super) fn open_title_menu(&mut self, point: rune::PointerPress, media: Option<Media>) {
-        self.context_menu = Some((point, media.map(Target::Title)));
+        self.shell.context_menu = Some((point, media.map(Target::Title)));
     }
 
     pub(super) fn open_season_menu(&mut self, point: rune::PointerPress, season: Option<u32>) {
@@ -30,6 +30,7 @@ impl State {
         };
         let episodes = self
             .detail
+            .meta
             .iter()
             .flat_map(|meta| &meta.videos)
             .filter(|video| video.season == season && !video.id.trim().is_empty())
@@ -47,13 +48,13 @@ impl State {
                 parent: Some(parent.key.clone()),
             })
             .collect();
-        self.season_menu_open = false;
-        self.source_menu_open = false;
-        self.source_sort_open = false;
-        let inventory = self.detail.as_ref().map_or_else(Vec::new, |meta| {
+        self.detail.episodes.menu_open = false;
+        self.detail.sources.menu_open = false;
+        self.detail.sources.sort_open = false;
+        let inventory = self.detail.meta.as_ref().map_or_else(Vec::new, |meta| {
             crate::media_metadata::episode_inventory(&parent.key, meta)
         });
-        self.context_menu = Some((
+        self.shell.context_menu = Some((
             point,
             Some(Target::Season {
                 parent,
@@ -65,14 +66,14 @@ impl State {
     }
 
     pub(super) fn refresh_page(&mut self) {
-        self.context_menu = None;
-        if let Some(services) = &self.services {
+        self.shell.context_menu = None;
+        if let Some(services) = &self.runtime.services {
             services.invalidate_cache();
         }
-        if let Some(artwork) = &mut self.artwork {
+        if let Some(artwork) = &mut self.artwork.posters {
             artwork.retry_failures();
         }
-        if let Some(artwork) = &mut self.player_artwork {
+        if let Some(artwork) = &mut self.artwork.player {
             artwork.retry_failures();
         }
         self.retry_series_details();
@@ -90,29 +91,34 @@ impl State {
                 self.refresh_library();
             }
             Page::Detail => {
-                if let Some(meta) = self.detail.clone() {
-                    self.detail_id += 1;
+                if let Some(meta) = self.detail.meta.clone() {
+                    self.detail.generation += 1;
                     self.open_detail_from(meta);
                 }
             }
             Page::Addons => {
-                if !self.config_busy
-                    && let Some(services) = &self.services
+                if !self.addons.busy
+                    && let Some(services) = &self.runtime.services
                 {
                     services.reload_addons();
-                    self.config_busy = true;
+                    self.addons.busy = true;
                 }
             }
         }
     }
 
     pub(super) fn result_media(&self, index: usize) -> Option<Media> {
-        let meta = self.metas.get(index)?;
+        let meta = self.discover.results.get(index)?;
         let namespace = self
-            .providers
-            .get(index)
-            .map(|a| a.manifest.id.as_str())
-            .or_else(|| self.catalog.as_ref().map(|(a, _)| a.manifest.id.as_str()))
+            .discover
+            .results
+            .namespace(index)
+            .or_else(|| {
+                self.discover
+                    .catalog
+                    .as_ref()
+                    .map(|(a, _)| a.manifest.id.as_str())
+            })
             .unwrap_or("unknown");
         Some(Media {
             key: super::library_view::key(
@@ -131,7 +137,7 @@ impl State {
 }
 
 pub(super) fn view(s: &State, cx: &Cx<State>) -> Option<El> {
-    let (point, item) = s.context_menu.as_ref()?;
+    let (point, item) = s.shell.context_menu.as_ref()?;
     let bounds = cx.layout("scry").unwrap_or([0.0, 0.0, 880.0, 600.0]);
     let mut menu = super::primitives::surface::Variant::Menu
         .apply(col())
@@ -139,7 +145,7 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> Option<El> {
         .w(250.0)
         .padding(6.0)
         .gap(5.0)
-        .modal(true, |s: &mut State| s.context_menu = None)
+        .modal(true, |s: &mut State| s.shell.context_menu = None)
         .focus_group()
         .absolute(
             point.x.min(bounds[2] - 258.0).max(8.0),
@@ -153,7 +159,7 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> Option<El> {
                 "context-collection",
                 "Add to a Guide collection…",
                 move |s: &mut State| {
-                    s.context_menu = None;
+                    s.shell.context_menu = None;
                     s.guide.adding = Some(media.clone());
                     s.guide.collections_open = true;
                     s.navigate(Page::Guide);
@@ -171,7 +177,7 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> Option<El> {
                 format!("context-{key}"),
                 title,
                 move |s: &mut State| {
-                    s.context_menu = None;
+                    s.shell.context_menu = None;
                     if choice >= 2 {
                         s.mark_media_watched(media.clone(), choice == 2);
                         return;
@@ -198,7 +204,7 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> Option<El> {
                 format!("context-{key}"),
                 title,
                 move |s: &mut State| {
-                    s.context_menu = None;
+                    s.shell.context_menu = None;
                     s.db(
                         Command::SetEpisodesWatched {
                             parent: parent.clone(),
@@ -230,7 +236,7 @@ fn dismiss_watching(s: &State, media: &Media) -> Option<El> {
         "context-dismiss-watching",
         "Dismiss from Currently watching",
         move |s: &mut State| {
-            s.context_menu = None;
+            s.shell.context_menu = None;
             s.db(Command::DismissWatching(key.clone()), true);
         },
     ))

@@ -1,8 +1,147 @@
-//! Catalog, search, and metadata requests initiated by the UI.
+//! Catalog and search state, snapshots, and requests.
 use super::{Page, State};
 use rune::TextEdit;
 use scry_addons::{Addon, Catalog, Meta};
 use std::sync::Arc;
+
+#[derive(Clone)]
+struct CatalogEntry {
+    meta: Meta,
+    namespace: Option<String>,
+}
+
+#[derive(Clone, Default)]
+pub(super) struct CatalogResults {
+    entries: Arc<Vec<CatalogEntry>>,
+}
+
+impl From<Vec<Meta>> for CatalogResults {
+    fn from(metas: Vec<Meta>) -> Self {
+        Self {
+            entries: Arc::new(
+                metas
+                    .into_iter()
+                    .map(|meta| CatalogEntry {
+                        meta,
+                        namespace: None,
+                    })
+                    .collect(),
+            ),
+        }
+    }
+}
+
+impl std::ops::Index<usize> for CatalogResults {
+    type Output = Meta;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.entries[index].meta
+    }
+}
+
+impl CatalogResults {
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Meta> {
+        self.entries.iter().map(|entry| &entry.meta)
+    }
+
+    pub fn get(&self, index: usize) -> Option<&Meta> {
+        self.entries.get(index).map(|entry| &entry.meta)
+    }
+
+    pub fn namespace(&self, index: usize) -> Option<&str> {
+        self.entries.get(index)?.namespace.as_deref()
+    }
+
+    pub fn replace_search(&mut self, results: Vec<crate::search::SearchResult>) {
+        self.entries = Arc::new(
+            results
+                .into_iter()
+                .map(|result| CatalogEntry {
+                    meta: result.meta,
+                    namespace: Some(result.addon.manifest.id),
+                })
+                .collect(),
+        );
+    }
+
+    #[cfg(test)]
+    pub fn to_vec(&self) -> Vec<Meta> {
+        self.iter().cloned().collect()
+    }
+}
+
+pub(super) struct DiscoverState {
+    pub request: super::request::RequestState,
+    pub search: TextEdit,
+    pub displayed_query: String,
+    pub kind: String,
+    pub catalog: Option<(Addon, Catalog)>,
+    pub paging: CatalogPaging,
+    pub menu_open: bool,
+    pub results: CatalogResults,
+    pub generation: u64,
+}
+
+impl Default for DiscoverState {
+    fn default() -> Self {
+        Self {
+            request: super::request::RequestState::default(),
+            search: TextEdit::new(""),
+            displayed_query: String::new(),
+            kind: "movie".into(),
+            catalog: None,
+            paging: CatalogPaging::default(),
+            menu_open: false,
+            results: CatalogResults::default(),
+            generation: 0,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(super) struct DiscoverSnapshot {
+    kind: String,
+    query: String,
+    catalog: Option<(Addon, Catalog)>,
+    paging: CatalogPaging,
+    results: CatalogResults,
+    request: super::request::RequestSnapshot,
+}
+
+impl DiscoverState {
+    pub fn snapshot(&self) -> DiscoverSnapshot {
+        DiscoverSnapshot {
+            kind: self.kind.clone(),
+            query: self.displayed_query.clone(),
+            catalog: self.catalog.clone(),
+            paging: self.paging.clone(),
+            results: self.results.clone(),
+            request: self.request.snapshot(),
+        }
+    }
+
+    pub fn restore(&mut self, snapshot: DiscoverSnapshot) -> bool {
+        self.kind = snapshot.kind;
+        self.displayed_query.clone_from(&snapshot.query);
+        self.search = TextEdit::new(snapshot.query);
+        self.catalog = snapshot.catalog;
+        self.paging = snapshot.paging;
+        if self.paging.pending.is_some_and(|offset| offset > 0) {
+            self.paging.pending = None;
+        }
+        self.results = snapshot.results;
+        self.menu_open = false;
+        self.request.restore(snapshot.request)
+    }
+}
 
 // Allow transient repeated pages without following a broken provider indefinitely.
 const MAX_NO_PROGRESS_PAGES: u8 = 3;
@@ -42,6 +181,7 @@ impl State {
         let mut categories = vec!["movie".to_owned(), "series".to_owned()];
         for catalog in self
             .addons
+            .installed
             .iter()
             .filter(|addon| !addon.disabled)
             .flat_map(|addon| &addon.manifest.catalogs)
@@ -54,21 +194,9 @@ impl State {
         categories
     }
 
-    pub(super) fn install(&mut self, input: String) {
-        if self.config_busy {
-            return;
-        }
-        let Some(services) = &self.services else {
-            self.error = Some("Add-on services are unavailable. Restart the app to retry.".into());
-            return;
-        };
-        self.error = None;
-        self.config_busy = true;
-        services.install(input);
-    }
-
     pub(super) fn catalogs(&self) -> Vec<(Addon, Catalog)> {
         self.addons
+            .installed
             .iter()
             .filter(|a| !a.disabled)
             .flat_map(|a| {
@@ -76,7 +204,7 @@ impl State {
                     .catalogs
                     .iter()
                     .filter(|c| {
-                        c.kind == self.kind
+                        c.kind == self.discover.kind
                             && compatible_catalog(c)
                             && !c.extra.iter().any(|e| e.name == "search" && e.is_required)
                     })
@@ -92,18 +220,19 @@ impl State {
         }
         self.leave_guide();
         self.navigation.page = Page::Discover;
-        self.kind = kind.into();
-        self.catalog = self.catalogs().into_iter().next();
-        self.search = TextEdit::new("");
+        self.discover.kind = kind.into();
+        self.discover.catalog = self.catalogs().into_iter().next();
+        self.discover.search = TextEdit::new("");
         self.fetch_catalog();
     }
 
     pub(super) fn select_catalog(&mut self, index: usize) {
-        self.catalog_menu_open = false;
+        self.discover.menu_open = false;
         let Some((addon, catalog)) = self.catalogs().into_iter().nth(index) else {
             return;
         };
         if self
+            .discover
             .catalog
             .as_ref()
             .is_some_and(|(current_addon, current)| {
@@ -116,45 +245,44 @@ impl State {
         }
         self.remember();
         self.navigation.page = Page::Discover;
-        self.catalog = Some((addon, catalog));
-        self.search = TextEdit::new("");
+        self.discover.catalog = Some((addon, catalog));
+        self.discover.search = TextEdit::new("");
         self.fetch_catalog();
     }
 
     pub(super) fn fetch_catalog(&mut self) {
-        self.catalog_menu_open = false;
-        self.displayed_query = self.search.text.trim().to_owned();
-        if !self.search.text.trim().is_empty() {
+        self.discover.menu_open = false;
+        self.discover.displayed_query = self.discover.search.text.trim().to_owned();
+        if !self.discover.search.text.trim().is_empty() {
             self.fetch_search();
             return;
         }
-        self.catalog_id += 1;
-        self.catalog_paging = CatalogPaging::default();
-        self.metas = Arc::default();
-        self.poster_visible = 0..0;
-        self.providers = Arc::default();
-        self.error = None;
-        self.warnings.clear();
-        self.status.clear();
-        let Some((addon, catalog)) = self.catalog.clone() else {
-            self.loading = false;
+        self.discover.generation += 1;
+        self.discover.paging = CatalogPaging::default();
+        self.discover.results = CatalogResults::default();
+        self.posters.visible = 0..0;
+        self.discover.request.error = None;
+        self.discover.request.warnings.clear();
+        self.discover.request.status.clear();
+        let Some((addon, catalog)) = self.discover.catalog.clone() else {
+            self.discover.request.loading = false;
             return;
         };
-        if self.search.text.trim().is_empty()
+        if self.discover.search.text.trim().is_empty()
             && catalog
                 .extra
                 .iter()
                 .any(|e| e.name == "search" && e.is_required)
         {
-            self.status = "Enter a title to search this catalog.".into();
-            self.loading = false;
+            self.discover.request.status = "Enter a title to search this catalog.".into();
+            self.discover.request.loading = false;
             return;
         }
-        self.loading = true;
-        self.catalog_paging.pending = Some(0);
-        self.status = "Loading catalog…".into();
-        if let Some(services) = &mut self.services {
-            services.catalog(self.catalog_id, addon, catalog, 0);
+        self.discover.request.loading = true;
+        self.discover.paging.pending = Some(0);
+        self.discover.request.status = "Loading catalog…".into();
+        if let Some(services) = &mut self.runtime.services {
+            services.catalog(self.discover.generation, addon, catalog, 0);
         }
     }
 
@@ -165,57 +293,57 @@ impl State {
         }
         self.leave_guide();
         self.navigation.page = Page::Discover;
-        self.detail_id += 1;
-        self.stream_id += 1;
+        self.detail.generation += 1;
+        self.runtime.streams.invalidate();
         self.fetch_catalog();
     }
 
     fn fetch_search(&mut self) {
-        self.catalog_paging = CatalogPaging::default();
-        self.poster_visible = 0..0;
-        self.catalog_id += 1;
-        self.metas = Arc::default();
-        self.providers = Arc::default();
-        self.error = None;
-        self.warnings.clear();
-        self.loading = true;
-        self.status.clear();
-        if let Some(services) = &mut self.services {
+        self.discover.paging = CatalogPaging::default();
+        self.posters.visible = 0..0;
+        self.discover.generation += 1;
+        self.discover.results = CatalogResults::default();
+        self.discover.request.error = None;
+        self.discover.request.warnings.clear();
+        self.discover.request.loading = true;
+        self.discover.request.status.clear();
+        if let Some(services) = &mut self.runtime.services {
             services.search(
-                self.catalog_id,
-                self.addons.clone(),
-                self.search.text.trim().to_owned(),
+                self.discover.generation,
+                self.addons.installed.clone(),
+                self.discover.search.text.trim().to_owned(),
             );
         }
     }
 
     pub(super) fn request_more_catalog(&mut self) {
         if self.navigation.page != Page::Discover
-            || !self.displayed_query.is_empty()
-            || !self.catalog_paging.has_more
-            || self.catalog_paging.pending.is_some()
-            || self.catalog_paging.failed
+            || !self.discover.displayed_query.is_empty()
+            || !self.discover.paging.has_more
+            || self.discover.paging.pending.is_some()
+            || self.discover.paging.failed
         {
             return;
         }
-        let near_end = self.poster_route == self.navigation.route_key
-            && !self.poster_visible.is_empty()
-            && self.poster_visible.end + self.poster_visible.len()
-                >= self.metas.len().div_ceil(self.poster_columns);
+        let near_end = self.posters.route == self.navigation.route_key
+            && !self.posters.visible.is_empty()
+            && self.posters.visible.end + self.posters.visible.len()
+                >= self.discover.results.len().div_ceil(self.posters.columns);
         if !near_end {
             return;
         }
         let Some((addon, catalog)) = self
+            .discover
             .catalog
             .clone()
             .filter(|(_, catalog)| catalog.supports_paging())
         else {
             return;
         };
-        let offset = self.catalog_paging.next_offset;
-        self.catalog_paging.pending = Some(offset);
-        if let Some(services) = &mut self.services {
-            services.catalog(self.catalog_id, addon, catalog, offset);
+        let offset = self.discover.paging.next_offset;
+        self.discover.paging.pending = Some(offset);
+        if let Some(services) = &mut self.runtime.services {
+            services.catalog(self.discover.generation, addon, catalog, offset);
         }
     }
 
@@ -225,62 +353,68 @@ impl State {
         offset: u32,
         result: Result<Vec<Meta>, String>,
     ) {
-        if generation != self.catalog_id
+        if generation != self.discover.generation
             || self.navigation.page != Page::Discover
-            || self.catalog_paging.pending != Some(offset)
+            || self.discover.paging.pending != Some(offset)
         {
             return;
         }
-        self.catalog_paging.pending = None;
-        self.loading = false;
+        self.discover.paging.pending = None;
+        self.discover.request.loading = false;
         match result {
             Ok(metas) => {
                 let count = u32::try_from(metas.len()).unwrap_or(u32::MAX);
                 let mut seen: std::collections::HashSet<_> = self
-                    .metas
+                    .discover
+                    .results
                     .iter()
                     .map(|meta| (meta.kind.clone(), meta.id.clone()))
                     .collect();
                 let mut added = 0;
-                let titles = Arc::make_mut(&mut self.metas);
+                let titles = Arc::make_mut(&mut self.discover.results.entries);
                 for meta in metas {
                     if matches!(meta.kind.as_str(), "movie" | "series")
                         && !meta.id.trim().is_empty()
                         && seen.insert((meta.kind.clone(), meta.id.clone()))
                     {
-                        titles.push(meta);
+                        titles.push(CatalogEntry {
+                            meta,
+                            namespace: None,
+                        });
                         added += 1;
                     }
                 }
-                self.catalog_paging.next_offset = offset.saturating_add(count);
-                self.catalog_paging.no_progress_pages = if added > 0 {
+                self.discover.paging.next_offset = offset.saturating_add(count);
+                self.discover.paging.no_progress_pages = if added > 0 {
                     0
                 } else {
-                    self.catalog_paging.no_progress_pages.saturating_add(1)
+                    self.discover.paging.no_progress_pages.saturating_add(1)
                 };
-                self.catalog_paging.has_more = count > 0
-                    && self.catalog_paging.no_progress_pages < MAX_NO_PROGRESS_PAGES
-                    && self.catalog_paging.next_offset > offset
+                self.discover.paging.has_more = count > 0
+                    && self.discover.paging.no_progress_pages < MAX_NO_PROGRESS_PAGES
+                    && self.discover.paging.next_offset > offset
                     && self
+                        .discover
                         .catalog
                         .as_ref()
                         .is_some_and(|(_, catalog)| catalog.supports_paging());
-                self.status.clear();
+                self.discover.request.status.clear();
                 if added == 0 {
                     self.request_more_catalog();
                 }
             }
             Err(error) => {
-                self.catalog_paging.failed = true;
-                self.status.clear();
-                self.error = Some(error);
+                self.discover.paging.failed = true;
+                self.discover.request.status.clear();
+                self.discover.request.error = Some(error);
             }
         }
     }
 
     fn open_detail(&mut self, meta: Meta) {
-        self.pending_episode = None;
-        self.detail_namespace = self
+        self.detail.pending_episode = None;
+        self.detail.namespace = self
+            .discover
             .catalog
             .as_ref()
             .map_or_else(|| "unknown".into(), |(a, _)| a.manifest.id.clone());
@@ -288,67 +422,17 @@ impl State {
     }
 
     pub(super) fn open_result(&mut self, index: usize) {
-        let Some(meta) = self.metas.get(index).cloned() else {
+        let Some(meta) = self.discover.results.get(index).cloned() else {
             return;
         };
         self.navigation.anchor = Some(format!("title-{index}"));
-        if let Some(addon) = self.providers.get(index) {
-            let namespace = addon.manifest.id.clone();
-            self.pending_episode = None;
-            self.detail_namespace = namespace;
+        if let Some(namespace) = self.discover.results.namespace(index).map(str::to_owned) {
+            self.detail.pending_episode = None;
+            self.detail.namespace = namespace;
             self.open_detail_from(meta);
         } else {
             self.open_detail(meta);
         }
-        self.detail_preview = true;
-    }
-
-    pub(super) fn open_detail_from(&mut self, meta: Meta) {
-        if self.navigation.page == Page::Detail {
-            self.detail_id += 1;
-            self.stream_id += 1;
-        }
-        self.navigate(Page::Detail);
-        self.detail = Some(meta.clone());
-        self.detail_preview = false;
-        self.selected_video_id = None;
-        self.episode_offset = 0;
-        self.episode_state_offset = None;
-        self.episode_viewport = None;
-        self.episode_search = TextEdit::new("");
-        self.episode_season = None;
-        self.season_menu_open = false;
-        self.source_menu_open = false;
-        self.source_sort_open = false;
-        self.library.snapshot = None;
-        self.streams.clear();
-        self.warnings.clear();
-        self.loading = true;
-        self.status = "Loading details…".into();
-        if let Some(services) = &mut self.services {
-            services.detail(
-                self.detail_id,
-                self.addons.clone(),
-                meta,
-                self.detail_namespace.clone(),
-            );
-        }
-    }
-
-    pub(super) fn find_streams(&mut self, kind: String, id: String) {
-        self.stream_id += 1;
-        self.source_menu_open = false;
-        self.source_sort_open = false;
-        self.stream_provider = None;
-        self.selected_video_id = Some(id.clone());
-        self.refresh_library();
-        self.streams.clear();
-        self.warnings.clear();
-        self.error = None;
-        self.loading = true;
-        self.status = "Loading streams…".into();
-        if let Some(services) = &mut self.services {
-            services.streams(self.stream_id, self.addons.clone(), kind, id);
-        }
+        self.detail.preview = true;
     }
 }

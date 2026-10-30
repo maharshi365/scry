@@ -1,11 +1,82 @@
 use super::*;
 
 #[test]
+fn history_restores_preview_but_discards_transient_detail_ui() {
+    let mut state = init();
+    scene_discover(&mut state);
+    let titles = state.discover.results.clone();
+    state.open_result(0);
+    state.detail.namespace = "preview.provider".into();
+    state.detail.episodes.search = TextEdit::new("temporary filter");
+    state.detail.episodes.viewport = Some([0.0, 0.0, 100.0, 100.0]);
+    state.detail.sources.menu_open = true;
+    state.detail.episodes.menu_open = true;
+    state.detail.request.error = Some("Temporary metadata failure".into());
+    state.detail.sources.request.error = Some("Temporary stream failure".into());
+    state.navigate(Page::Library);
+    state.travel(false);
+    assert_eq!(state.navigation.page, Page::Detail);
+    assert!(state.detail.preview);
+    assert_eq!(state.detail.namespace, "preview.provider");
+    assert_eq!(state.discover.results[0].id, titles[0].id);
+    assert!(state.detail.episodes.search.text.is_empty());
+    assert!(state.detail.episodes.viewport.is_none());
+    assert!(!state.detail.sources.menu_open);
+    assert!(!state.detail.episodes.menu_open);
+    assert!(state.detail.request.error.is_none());
+    assert!(state.detail.sources.request.error.is_none());
+}
+
+#[test]
+fn leaving_detail_rejects_late_metadata_and_stream_results() {
+    let (mut state, tx) = state_with_events();
+    state.open_detail_from(series(3));
+    let detail = state.detail.generation;
+    state.find_streams("series".into(), "tt123:1:1".into());
+    let streams = state.runtime.streams.generation;
+    state.navigate(Page::Library);
+    tx.try_send(Event::Detail(detail, Err("Late metadata error".into())))
+        .unwrap();
+    tx.try_send(Event::Streams(
+        streams,
+        vec![],
+        vec!["Late stream warning".into()],
+        true,
+    ))
+    .unwrap();
+    poll(&mut state, 0.0, &mut Tx::default());
+    assert_eq!(state.navigation.page, Page::Library);
+    assert!(state.detail.request.error.is_none());
+    assert!(state.detail.sources.request.warnings.is_empty());
+    assert!(!state.detail.request.loading);
+    assert!(!state.detail.sources.request.loading);
+}
+
+#[test]
+fn history_restarts_metadata_with_a_new_generation_and_keeps_source_order() {
+    let mut state = init();
+    state.open_detail_from(series(3));
+    state.detail.sources.sort = crate::ui::source_picker::SourceSort::Best;
+    let generation = state.detail.generation;
+    state.navigate(Page::Library);
+    let (services, _) = crate::services::Services::install_fixture().unwrap();
+    state.runtime.services = Some(services);
+    state.travel(false);
+    assert!(state.detail.generation > generation);
+    assert!(state.detail.request.loading);
+    assert_eq!(
+        state.detail.sources.sort,
+        crate::ui::source_picker::SourceSort::Best
+    );
+    assert_eq!(state.detail.meta.as_ref().unwrap().id, "tt123");
+}
+
+#[test]
 fn enter_in_search_submits_from_other_pages_and_keeps_browse_history() {
     let mut state = init();
     state.navigation.page = Page::Library;
-    state.config_busy = false;
-    state.search = TextEdit::new("Arrival");
+    state.addons.busy = false;
+    state.discover.search = TextEdit::new("Arrival");
     let mut rt = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);
     assert!(
@@ -19,15 +90,15 @@ fn enter_in_search_submits_from_other_pages_and_keeps_browse_history() {
     });
     rt.frame(0.0);
     assert_eq!(rt.state.navigation.page, Page::Discover);
-    assert_eq!(rt.state.displayed_query, "Arrival");
-    assert!(rt.state.loading);
+    assert_eq!(rt.state.discover.displayed_query, "Arrival");
+    assert!(rt.state.discover.request.loading);
     rt.update(|s, _| s.travel(false));
     assert_eq!(rt.state.navigation.page, Page::Library);
-    assert_eq!(rt.state.search.text, "");
+    assert_eq!(rt.state.discover.search.text, "");
     rt.update(|s, _| s.travel(true));
-    assert_eq!(rt.state.search.text, "Arrival");
+    assert_eq!(rt.state.discover.search.text, "Arrival");
     assert!(
-        rt.state.loading,
+        rt.state.discover.request.loading,
         "Canceled searches must restart on Forward"
     );
 }
@@ -68,13 +139,16 @@ fn focused_search_forwards_alt_history_keys_but_keeps_escape_local() {
 fn history_restores_episode_page_and_never_restores_player() {
     let mut state = init();
     state.navigation.page = Page::Detail;
-    state.detail = Some(series(250));
-    state.selected_video_id = Some("tt123:1:201".into());
-    state.episode_offset = 200;
+    state.detail.meta = Some(series(250));
+    state.detail.episodes.selected = Some("tt123:1:201".into());
+    state.detail.episodes.offset = 200;
     state.navigate(Page::Library);
     state.travel(false);
     assert_eq!(state.episode_range(), 200..250);
-    assert_eq!(state.selected_video_id.as_deref(), Some("tt123:1:201"));
+    assert_eq!(
+        state.detail.episodes.selected.as_deref(),
+        Some("tt123:1:201")
+    );
     state.navigation.page = Page::Player;
     state.navigate(Page::Addons);
     state.travel(false);
@@ -87,15 +161,15 @@ fn history_restores_episode_page_and_never_restores_player() {
 fn search_history_keeps_result_provider_and_rejects_old_search_updates() {
     let (mut state, tx) = state_with_events();
     scene_discover(&mut state);
-    let mut provider = state.addons[0].clone();
+    let mut provider = state.addons.installed[0].clone();
     provider.manifest.id = "search.provider".into();
     let meta: Meta = serde_json::from_value(
         serde_json::json!({"id":"custom-title", "type":"series", "name":"A search result"}),
     )
     .unwrap();
-    state.search = TextEdit::new("A search result");
+    state.discover.search = TextEdit::new("A search result");
     state.submit_search();
-    let generation = state.catalog_id;
+    let generation = state.discover.generation;
     tx.try_send(Event::Search(
         generation,
         vec![crate::search::SearchResult {
@@ -109,7 +183,7 @@ fn search_history_keeps_result_provider_and_rejects_old_search_updates() {
     poll(&mut state, 0.0, &mut Tx::default());
     state.choose_kind("series");
     state.travel(false);
-    assert_eq!(state.search.text, "A search result");
+    assert_eq!(state.discover.search.text, "A search result");
     tx.try_send(Event::Search(
         generation,
         vec![],
@@ -118,9 +192,9 @@ fn search_history_keeps_result_provider_and_rejects_old_search_updates() {
     ))
     .unwrap();
     poll(&mut state, 0.0, &mut Tx::default());
-    assert_eq!(state.metas.len(), 1);
-    assert!(state.warnings.is_empty());
+    assert_eq!(state.discover.results.len(), 1);
+    assert!(state.discover.request.warnings.is_empty());
     state.open_result(0);
-    assert_eq!(state.detail_namespace, "search.provider");
-    assert_eq!(state.detail.as_ref().unwrap().id, "custom-title");
+    assert_eq!(state.detail.namespace, "search.provider");
+    assert_eq!(state.detail.meta.as_ref().unwrap().id, "custom-title");
 }

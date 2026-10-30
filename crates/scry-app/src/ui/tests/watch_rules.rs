@@ -22,8 +22,8 @@ fn watched_controls_use_the_shared_specials_and_regular_release_policy() {
             (Some("2100-01-01"), false),
         ] {
             let mut s = init();
-            s.detail_namespace = "imdb".into();
-            s.detail = Some(
+            s.detail.namespace = "imdb".into();
+            s.detail.meta = Some(
                 serde_json::from_value(serde_json::json!({
                     "id":"show", "type":"series", "name":"Show", "videos":[
                         {"id":"episode", "season":season, "episode":1, "released":date}
@@ -51,9 +51,9 @@ fn show_mark_watched_updates_episode_icons_skips_future_and_needs_no_auto_track(
     let path = dir.path().join("library.db");
     let mut s = init();
     s.navigation.page = Page::Detail;
-    s.config_busy = false;
-    s.detail_namespace = "imdb".into();
-    s.detail = Some(show_meta());
+    s.addons.busy = false;
+    s.detail.namespace = "imdb".into();
+    s.detail.meta = Some(show_meta());
     s.library.worker = Some(Worker::start(path.clone(), Arc::new(|| {})).unwrap());
     s.register_library_detail();
     s.remember_series_detail();
@@ -161,7 +161,7 @@ fn next_only_home_shows_up_next_entries() {
 fn future_movie_watched_action_is_disabled() {
     let mut s = init();
     s.navigation.page = Page::Detail;
-    s.detail = Some(
+    s.detail.meta = Some(
         serde_json::from_value(serde_json::json!({
             "id":"movie", "type":"movie", "name":"Future movie", "released":"2100-01-01"
         }))
@@ -212,7 +212,7 @@ fn release_deadline_refreshes_cached_show_inventory_without_provider_data() {
     }
     let mut s = init();
     scene_discover(&mut s);
-    s.metas = Arc::new(vec![
+    s.discover.results = crate::ui::catalog::CatalogResults::from(vec![
         serde_json::from_value(serde_json::json!({"id":"tt123","type":"series","name":"Show"}))
             .unwrap(),
     ]);

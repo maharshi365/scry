@@ -102,17 +102,17 @@ mod tests {
     }
 
     fn app(s: &mut State, _: &KeyEvent, _: Focus) -> bool {
-        s.status.push_str("app");
+        s.player.status.push_str("app");
         true
     }
 
     fn screen(s: &mut State, _: &KeyEvent, _: Focus) -> bool {
-        s.status.push_str("screen");
+        s.player.status.push_str("screen");
         true
     }
 
     fn local(s: &mut State, _: &KeyEvent, _: Focus) -> bool {
-        s.status.push_str("local");
+        s.player.status.push_str("local");
         true
     }
 
@@ -134,15 +134,15 @@ mod tests {
             },
         ];
         assert!(dispatch(&mut state, &key(), Focus::Screen, &registrations));
-        assert_eq!(state.status, "local");
-        state.status.clear();
+        assert_eq!(state.player.status, "local");
+        state.player.status.clear();
         assert!(dispatch(
             &mut state,
             &key(),
             Focus::Screen,
             &registrations[..2]
         ));
-        assert_eq!(state.status, "screen");
+        assert_eq!(state.player.status, "screen");
     }
 
     #[test]
@@ -151,7 +151,7 @@ mod tests {
             if event.key != Key::Text("k".into()) {
                 return false;
             }
-            s.status.push_str("app");
+            s.player.status.push_str("app");
             true
         }
         let mut state = init();
@@ -170,8 +170,8 @@ mod tests {
             },
         ];
         assert!(dispatch(&mut state, &key(), Focus::Screen, &registrations));
-        assert_eq!(state.status, "app");
-        state.status.clear();
+        assert_eq!(state.player.status, "app");
+        state.player.status.clear();
         let unknown = KeyEvent {
             key: Key::Enter,
             mods: rune::Mods::default(),
@@ -182,7 +182,7 @@ mod tests {
             Focus::Screen,
             &registrations
         ));
-        assert!(state.status.is_empty());
+        assert!(state.player.status.is_empty());
     }
 
     #[test]

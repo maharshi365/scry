@@ -160,7 +160,7 @@ fn addon_artwork_uses_installed_manifests_and_curated_available_logos() {
             "https://torrentio.strem.fun/images/logo_v1.png"
         ]
     );
-    s.addons = vec![serde_json::from_value(serde_json::json!({
+    s.addons.installed = vec![serde_json::from_value(serde_json::json!({
         "manifest_url":"https://example.com/manifest.json",
         "disabled":true,
         "manifest":{"id":"com.stremio.torrentio.addon", "name":"Configured Torrentio", "logo":"https://example.com/custom.png"}
@@ -172,7 +172,7 @@ fn addon_artwork_uses_installed_manifests_and_curated_available_logos() {
             "https://i.imgur.com/7N6XGoO.png"
         ]
     );
-    s.addons.push(s.addons[0].clone());
+    s.addons.installed.push(s.addons.installed[0].clone());
     assert_eq!(
         visible_artwork(&s),
         vec![
@@ -188,7 +188,7 @@ fn addon_artwork_uses_installed_manifests_and_curated_available_logos() {
 fn addon_cards_show_cached_logos_and_keep_fallbacks_and_status_separate() {
     let mut s = init();
     s.navigation.page = Page::Addons;
-    s.addons = vec![
+    s.addons.installed = vec![
         serde_json::from_value(serde_json::json!({
             "manifest_url":"https://example.com/manifest.json", "disabled":true,
             "manifest":{"id":"example", "name":"Example", "logo":"https://example.com/logo.png"}
@@ -201,7 +201,7 @@ fn addon_cards_show_cached_logos_and_keep_fallbacks_and_status_separate() {
     let image = rune::Pixels::new();
     image.set(4, 2, vec![128; 32]);
     rt.update(|s, _| {
-        s.artwork = Some(crate::artwork::Artwork::player_fixture(&[
+        s.artwork.posters = Some(crate::artwork::Artwork::player_fixture(&[
             ("https://example.com/logo.png", image.clone()),
             ("https://torrentio.strem.fun/images/logo_v1.png", image),
         ]));
@@ -231,7 +231,9 @@ fn addon_cards_show_cached_logos_and_keep_fallbacks_and_status_separate() {
             .iter()
             .any(|e| e.text.as_deref() == Some("Disabled"))
     );
-    rt.update(|s, _| s.addons[0].manifest.logo = Some("https://example.com/broken.png".into()));
+    rt.update(|s, _| {
+        s.addons.installed[0].manifest.logo = Some("https://example.com/broken.png".into());
+    });
     rt.frame(0.0);
     assert!(
         rt.find("addon-logo-fallback-0").is_some(),
@@ -243,7 +245,7 @@ fn addon_cards_show_cached_logos_and_keep_fallbacks_and_status_separate() {
 fn addon_artwork_tracks_scrolling_without_starving_available_cards() {
     let mut s = init();
     s.navigation.page = Page::Addons;
-    s.addons = (0..32).map(|index| serde_json::from_value(serde_json::json!({
+    s.addons.installed = (0..32).map(|index| serde_json::from_value(serde_json::json!({
         "manifest_url":format!("https://example.com/{index}/manifest.json"),
         "manifest":{"id":format!("addon-{index}"), "name":format!("Addon {index}"), "logo":format!("https://example.com/{index}.png")}
     })).unwrap()).collect();
@@ -267,7 +269,7 @@ fn addon_artwork_tracks_scrolling_without_starving_available_cards() {
     assert!(urls.len() < 32);
     rt.update(|s, _| s.navigation.page = Page::Discover);
     rt.frame(0.0);
-    assert!(rt.state.artwork_urls.is_empty());
+    assert!(rt.state.artwork.poster_urls.is_empty());
 }
 
 #[test]
@@ -275,11 +277,11 @@ fn built_in_addons_install_immediately_without_opening_the_url_dialog() {
     for index in 0..3 {
         let mut s = init();
         let (services, requests) = crate::services::Services::install_fixture().unwrap();
-        s.services = Some(services);
+        s.runtime.services = Some(services);
         s.navigation.page = Page::Addons;
-        s.config_busy = false;
-        s.install = TextEdit::new("https://example.invalid/custom/manifest.json");
-        s.error = Some("Previous failure".into());
+        s.addons.busy = false;
+        s.addons.install = TextEdit::new("https://example.invalid/custom/manifest.json");
+        s.addons.error = Some("Previous failure".into());
         let mut rt = rune::Runtime::new(s, view, (1000.0, 1000.0), rune::Env::default());
         rt.frame(0.0);
         tap(&mut rt, &format!("supported-addon-{index}"));
@@ -295,11 +297,11 @@ fn built_in_addons_install_immediately_without_opening_the_url_dialog() {
             requests.try_recv().is_err(),
             "One click dispatches one install"
         );
-        assert!(rt.state.config_busy, "one click must start installation");
-        assert!(!rt.state.addon_install_open);
-        assert!(rt.state.error.is_none());
+        assert!(rt.state.addons.busy, "one click must start installation");
+        assert!(!rt.state.addons.install_open);
+        assert!(rt.state.addons.error.is_none());
         assert_eq!(
-            rt.state.install.text,
+            rt.state.addons.install.text,
             "https://example.invalid/custom/manifest.json"
         );
         assert!(
@@ -316,20 +318,22 @@ fn built_in_addons_install_immediately_without_opening_the_url_dialog() {
 fn custom_addons_still_require_the_url_dialog_and_explicit_install() {
     let mut s = init();
     let (services, requests) = crate::services::Services::install_fixture().unwrap();
-    s.services = Some(services);
+    s.runtime.services = Some(services);
     s.navigation.page = Page::Addons;
-    s.config_busy = false;
+    s.addons.busy = false;
     let mut rt = rune::Runtime::new(s, view, (1000.0, 800.0), rune::Env::default());
     rt.frame(0.0);
     tap(&mut rt, "add-addon");
-    assert!(rt.state.addon_install_open);
+    assert!(rt.state.addons.install_open);
     assert!(rt.find("addon-install-dialog").is_some());
-    assert!(!rt.state.config_busy);
+    assert!(!rt.state.addons.busy);
     assert!(
         requests.try_recv().is_err(),
         "Opening the dialog does not install"
     );
-    rt.update(|s, _| s.install = TextEdit::new("https://example.invalid/custom/manifest.json"));
+    rt.update(|s, _| {
+        s.addons.install = TextEdit::new("https://example.invalid/custom/manifest.json");
+    });
     tap(&mut rt, "install-addon");
     assert_eq!(
         requests.try_recv().unwrap(),
@@ -339,17 +343,17 @@ fn custom_addons_still_require_the_url_dialog_and_explicit_install() {
         requests.try_recv().is_err(),
         "One submission dispatches one install"
     );
-    assert!(rt.state.config_busy);
-    assert!(rt.state.addon_install_open);
+    assert!(rt.state.addons.busy);
+    assert!(rt.state.addons.install_open);
 }
 
 #[test]
 fn built_in_install_failure_allows_retry_and_success_updates_the_list_without_a_dialog() {
     let (mut s, tx) = state_with_events();
     let (services, requests) = crate::services::Services::install_fixture().unwrap();
-    s.services = Some(services);
+    s.runtime.services = Some(services);
     s.navigation.page = Page::Addons;
-    s.config_busy = false;
+    s.addons.busy = false;
     let mut rt = rune::Runtime::new(s, view, (1000.0, 800.0), rune::Env::default());
     rt.poll = Some(poll);
     rt.frame(0.0);
@@ -358,17 +362,20 @@ fn built_in_install_failure_allows_retry_and_success_updates_the_list_without_a_
     tx.try_send(Event::Addons(Err("Cannot fetch manifest".into())))
         .unwrap();
     rt.frame(1.0 / 60.0);
-    assert!(!rt.state.config_busy);
-    assert!(!rt.state.addon_install_open);
-    assert_eq!(rt.state.error.as_deref(), Some("Cannot fetch manifest"));
+    assert!(!rt.state.addons.busy);
+    assert!(!rt.state.addons.install_open);
+    assert_eq!(
+        rt.state.addons.error.as_deref(),
+        Some("Cannot fetch manifest")
+    );
     tap(&mut rt, "supported-addon-0");
     assert_eq!(requests.try_recv().unwrap(), crate::services::CINEMETA);
     assert!(
         requests.try_recv().is_err(),
         "Only the original request and retry dispatch"
     );
-    assert!(rt.state.config_busy);
-    assert!(rt.state.error.is_none());
+    assert!(rt.state.addons.busy);
+    assert!(rt.state.addons.error.is_none());
     let addon = serde_json::from_value(serde_json::json!({
         "manifest_url":crate::services::CINEMETA,
         "manifest":{"id":"com.linvo.cinemeta","name":"Cinemeta"}
@@ -376,8 +383,8 @@ fn built_in_install_failure_allows_retry_and_success_updates_the_list_without_a_
     .unwrap();
     tx.try_send(Event::Addons(Ok(vec![addon]))).unwrap();
     rt.frame(1.0 / 60.0);
-    assert!(!rt.state.config_busy);
-    assert!(!rt.state.addon_install_open);
+    assert!(!rt.state.addons.busy);
+    assert!(!rt.state.addons.install_open);
     assert!(rt.find("installed-addon-0").is_some());
 }
 
@@ -390,8 +397,8 @@ fn unified_addons_page_and_busy_install_spinner() {
     assert!(rt.find("supported-addon-0").is_some());
     assert!(rt.find("supported-addon-1").is_some());
     rt.update(|s, _| {
-        s.addon_install_open = true;
-        s.config_busy = true;
+        s.addons.install_open = true;
+        s.addons.busy = true;
     });
     rt.frame(0.0);
     let install = rt
@@ -410,9 +417,9 @@ fn unified_addons_page_and_busy_install_spinner() {
 #[test]
 fn installed_addons_share_the_available_list_without_duplicate_cards() {
     let mut s = init();
-    s.config_busy = false;
+    s.addons.busy = false;
     s.navigation.page = Page::Addons;
-    s.addons = vec![
+    s.addons.installed = vec![
         serde_json::from_value(serde_json::json!({
             "manifest_url": crate::services::CINEMETA,
         "manifest": {"id":"com.linvo.cinemeta", "name":"Cinemeta", "catalogs":[{"id":"top", "type":"movie"}]}
@@ -430,7 +437,7 @@ fn installed_addons_share_the_available_list_without_duplicate_cards() {
         .unwrap();
     assert_eq!(toggle.label.as_deref(), Some("Disable"));
     assert_eq!(rt.state.catalogs().len(), 1);
-    rt.update(|s, _| s.addons[0].disabled = true);
+    rt.update(|s, _| s.addons.installed[0].disabled = true);
     rt.frame(0.0);
     let toggle = rt
         .elements()
@@ -445,8 +452,8 @@ fn installed_addons_share_the_available_list_without_duplicate_cards() {
 fn install_completion_replaces_the_spinner_with_a_checkmark() {
     let (mut s, tx) = state_with_events();
     s.navigation.page = Page::Addons;
-    s.addon_install_open = true;
-    s.config_busy = true;
+    s.addons.install_open = true;
+    s.addons.busy = true;
     let mut rt = rune::Runtime::new(s, view, (1000.0, 800.0), rune::Env::default());
     rt.poll = Some(poll);
     rt.frame(0.0);
@@ -455,21 +462,21 @@ fn install_completion_replaces_the_spinner_with_a_checkmark() {
     rt.frame(1.0 / 60.0);
     assert!(rt.find("addon-install-success").is_some());
     tap(&mut rt, "addon-install-done");
-    assert!(!rt.state.addon_install_open);
+    assert!(!rt.state.addons.install_open);
 }
 
 #[test]
 fn failed_install_stops_the_spinner_and_restores_retry() {
     let (mut s, tx) = state_with_events();
-    s.addon_install_open = true;
-    s.config_busy = true;
+    s.addons.install_open = true;
+    s.addons.busy = true;
     let mut rt = rune::Runtime::new(s, view, (1000.0, 800.0), rune::Env::default());
     rt.poll = Some(poll);
     rt.frame(0.0);
     tx.try_send(Event::Addons(Err("Cannot fetch manifest".into())))
         .unwrap();
     rt.frame(1.0 / 60.0);
-    assert!(rt.state.addon_install_open);
+    assert!(rt.state.addons.install_open);
     assert!(
         rt.elements()
             .iter()

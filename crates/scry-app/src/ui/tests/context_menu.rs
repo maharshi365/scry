@@ -35,12 +35,12 @@ fn season_actions_cover_every_episode_on_all_pages_but_not_other_seasons() {
     }
     let mut s = init();
     s.navigation.page = Page::Detail;
-    s.detail_namespace = "imdb".into();
+    s.detail.namespace = "imdb".into();
     let mut videos: Vec<_> = (1..=205).map(|index| serde_json::json!({
         "id":format!("tt123:1:{index}"),"title":format!("Episode {index}"),"season":1,"episode":index,"released":"2000-01-01"
     })).collect();
     videos.push(serde_json::json!({"id":"tt123:2:1","title":"Other season","season":2,"episode":1,"released":"2000-01-01"}));
-    s.detail = Some(
+    s.detail.meta = Some(
         serde_json::from_value(
             serde_json::json!({"id":"tt123","type":"series","name":"Show","videos":videos}),
         )
@@ -92,7 +92,15 @@ fn season_actions_cover_every_episode_on_all_pages_but_not_other_seasons() {
     right_click(&mut rt, "season-option-1");
     let super::super::context_menu::Target::Season {
         season, episodes, ..
-    } = rt.state.context_menu.as_ref().unwrap().1.as_ref().unwrap()
+    } = rt
+        .state
+        .shell
+        .context_menu
+        .as_ref()
+        .unwrap()
+        .1
+        .as_ref()
+        .unwrap()
     else {
         panic!("Expected a season target")
     };
@@ -153,7 +161,7 @@ fn currently_watching_context_menu_dismisses_without_removing_saved_progress() {
     assert!(runtime.find("context-dismiss-watching").is_some());
     tap(&mut runtime, "context-dismiss-watching");
     settle_library(&mut runtime, |state| state.library.watching.is_empty());
-    assert!(runtime.state.context_menu.is_none());
+    assert!(runtime.state.shell.context_menu.is_none());
     let db = Library::open(&path).unwrap();
     assert!(
         db.list_currently_watching(scry_library::Page::default())

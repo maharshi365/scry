@@ -4,7 +4,7 @@ use scry_playback::subtitles::{Snapshot, Track};
 fn pending_external_subtitle() -> (State, tokio::sync::mpsc::Sender<Event>) {
     let (mut s, tx) = state_with_events();
     let (services, _requests) = crate::services::Services::install_fixture().unwrap();
-    s.services = Some(services);
+    s.runtime.services = Some(services);
     s.navigation.page = Page::Player;
     s.player.playing = true;
     s.player.generation = 7;
@@ -332,8 +332,11 @@ fn off_is_not_overridden_by_late_tracks_and_stale_snapshots_are_ignored() {
 fn subtitle_defaults_are_english_and_settings_edits_do_not_change_current_tracks() {
     let mut state = init();
     state.navigation.page = Page::Settings;
-    assert_eq!(state.subtitle_preferences.primary.as_deref(), Some("eng"));
-    assert!(state.subtitle_preferences.secondary.is_none());
+    assert_eq!(
+        state.settings.subtitle_preferences.primary.as_deref(),
+        Some("eng")
+    );
+    assert!(state.settings.subtitle_preferences.secondary.is_none());
     let mut rt = rune::Runtime::new(state, view, (1280.0, 820.0), rune::Env::default());
     rt.frame(0.0);
     tap(&mut rt, "subtitle-primary-language");
@@ -353,7 +356,7 @@ fn subtitle_defaults_are_english_and_settings_edits_do_not_change_current_tracks
     );
     tap(&mut rt, "subtitle-language-spa");
     assert_eq!(
-        rt.state.subtitle_preferences.primary.as_deref(),
+        rt.state.settings.subtitle_preferences.primary.as_deref(),
         Some("spa")
     );
     assert_eq!(rt.state.player.subtitles.selected, [None, None]);
@@ -371,7 +374,7 @@ fn changing_defaults_does_not_reselect_current_playback_and_toggle_restores_both
             ..Snapshot::default()
         },
     );
-    let mut preferences = state.subtitle_preferences.clone();
+    let mut preferences = state.settings.subtitle_preferences.clone();
     preferences.primary = Some("spa".into());
     state.save_subtitle_preferences(preferences);
     state.apply_subtitle_snapshot(

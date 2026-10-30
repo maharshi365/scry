@@ -1,8 +1,5 @@
 //! Navigation history and keyboard shortcuts. Player routes restore their source page.
 use super::State;
-use rune::TextEdit;
-use scry_addons::{Addon, Catalog, Meta};
-use std::sync::Arc;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(super) enum Page {
@@ -59,28 +56,10 @@ impl NavigationState {
 #[derive(Clone)]
 pub(super) struct Route {
     page: Page,
-    kind: String,
-    query: String,
-    catalog: Option<(Addon, Catalog)>,
-    catalog_paging: super::catalog::CatalogPaging,
-    metas: Arc<Vec<Meta>>,
-    providers: Arc<Vec<Addon>>,
-    detail: Option<Meta>,
-    detail_preview: bool,
-    namespace: String,
-    episode: Option<String>,
-    pending_episode: Option<String>,
-    episode_offset: usize,
-    #[expect(
-        clippy::option_option,
-        reason = "History preserves both absent selection and explicitly selected unnumbered episodes"
-    )]
-    episode_season: Option<Option<u32>>,
-    loading: bool,
+    discover: super::catalog::DiscoverSnapshot,
+    detail: super::detail::DetailSnapshot,
     key: u64,
     anchor: Option<String>,
-    status: String,
-    warnings: Vec<String>,
 }
 
 impl State {
@@ -94,22 +73,25 @@ impl State {
         }
         self.leave_guide();
         self.navigation.page = page;
-        self.context_menu = None;
-        self.addon_install_open = false;
+        self.shell.context_menu = None;
+        self.addons.install_open = false;
         self.calendar.expanded_day = None;
-        self.detail_id += 1;
-        self.stream_id += 1;
-        self.catalog_id += 1;
-        self.loading = false;
-        self.error = None;
-        self.status.clear();
+        self.detail.generation += 1;
+        self.runtime.streams.invalidate();
+        self.discover.generation += 1;
+        self.discover.request.loading = false;
+        self.detail.request.loading = false;
+        self.detail.sources.request.loading = false;
         if page == Page::Stats {
             self.refresh_stats();
         }
         if matches!(page, Page::Guide | Page::Settings) {
             self.refresh_guide();
         }
-        if page == Page::Discover && self.catalog.is_some() && self.metas.is_empty() {
+        if page == Page::Discover
+            && self.discover.catalog.is_some()
+            && self.discover.results.is_empty()
+        {
             self.fetch_catalog();
         }
         if matches!(page, Page::Library | Page::Watching | Page::Calendar) {
@@ -120,7 +102,7 @@ impl State {
     fn route(&self) -> Route {
         Route {
             page: if self.navigation.page == Page::Player {
-                if self.detail.is_some() {
+                if self.detail.meta.is_some() {
                     Page::Detail
                 } else {
                     Page::Addons
@@ -128,29 +110,15 @@ impl State {
             } else {
                 self.navigation.page
             },
-            kind: self.kind.clone(),
-            query: self.displayed_query.clone(),
-            catalog: self.catalog.clone(),
-            catalog_paging: self.catalog_paging.clone(),
-            metas: self.metas.clone(),
-            providers: self.providers.clone(),
-            detail: self.detail.clone(),
-            detail_preview: self.detail_preview,
-            namespace: self.detail_namespace.clone(),
-            episode: self.selected_video_id.clone(),
-            pending_episode: self.pending_episode.clone(),
-            episode_offset: self.episode_offset,
-            episode_season: self.episode_season,
-            loading: self.loading,
+            discover: self.discover.snapshot(),
+            detail: self.detail.snapshot(),
             key: self.navigation.route_key,
             anchor: self.navigation.anchor.clone(),
-            status: self.status.clone(),
-            warnings: self.warnings.clone(),
         }
     }
 
     pub(super) fn remember(&mut self) {
-        self.catalog_menu_open = false;
+        self.discover.menu_open = false;
         if self.navigation.back.len() == 32 {
             self.navigation.back.remove(0);
         }
@@ -171,9 +139,9 @@ impl State {
         let Some(route) = route else {
             return;
         };
-        self.catalog_menu_open = false;
-        self.context_menu = None;
-        self.addon_install_open = false;
+        self.discover.menu_open = false;
+        self.shell.context_menu = None;
+        self.addons.install_open = false;
         self.calendar.expanded_day = None;
         let current = self.route();
         if forward {
@@ -185,58 +153,35 @@ impl State {
             self.stop();
         }
         self.leave_guide();
-        self.catalog_id += 1;
-        self.detail_id += 1;
-        self.stream_id += 1;
+        self.discover.generation += 1;
+        self.detail.generation += 1;
+        self.runtime.streams.invalidate();
         self.navigation.page = route.page;
-        self.kind = route.kind;
-        self.displayed_query = route.query.clone();
-        self.search = TextEdit::new(route.query);
-        self.catalog = route.catalog;
-        self.catalog_paging = route.catalog_paging;
-        if self.catalog_paging.pending.is_some_and(|offset| offset > 0) {
-            self.catalog_paging.pending = None;
-        }
-        self.metas = route.metas;
-        self.providers = route.providers;
-        self.detail = route.detail;
-        self.detail_preview = route.detail_preview;
-        self.detail_namespace = route.namespace;
-        self.selected_video_id = route.episode;
-        self.pending_episode = route.pending_episode;
-        self.episode_offset = route.episode_offset;
-        self.episode_state_offset = None;
-        self.episode_viewport = None;
-        self.episode_search = TextEdit::new("");
-        self.episode_season = route.episode_season;
-        self.season_menu_open = false;
+        let restart_discover = self.discover.restore(route.discover);
+        let restart_detail = self.detail.restore(route.detail);
         self.navigation.route_key = route.key;
         self.navigation.anchor = route.anchor;
         self.navigation.reveal = self.navigation.anchor.clone();
-        self.error = None;
-        self.status = route.status;
-        self.warnings = route.warnings;
-        self.streams.clear();
-        self.stream_provider = None;
-        self.source_menu_open = false;
-        self.source_sort_open = false;
-        self.loading = false;
         match self.navigation.page {
             Page::Guide | Page::Settings => self.refresh_guide(),
             Page::Stats => self.refresh_stats(),
-            Page::Discover if route.loading => self.fetch_catalog(),
+            Page::Discover if restart_discover => self.fetch_catalog(),
             Page::Detail => {
-                if route.loading && self.selected_video_id.is_none() {
-                    if let (Some(services), Some(meta)) = (&mut self.services, &self.detail) {
-                        self.loading = true;
+                if restart_detail && self.detail.episodes.selected.is_none() {
+                    if let (Some(services), Some(meta)) =
+                        (&mut self.runtime.services, &self.detail.meta)
+                    {
+                        self.detail.request.loading = true;
                         services.detail(
-                            self.detail_id,
-                            self.addons.clone(),
+                            self.detail.generation,
+                            self.addons.installed.clone(),
                             meta.clone(),
-                            self.detail_namespace.clone(),
+                            self.detail.namespace.clone(),
                         );
                     }
-                } else if let (Some(meta), Some(id)) = (&self.detail, &self.selected_video_id) {
+                } else if let (Some(meta), Some(id)) =
+                    (&self.detail.meta, &self.detail.episodes.selected)
+                {
                     self.find_streams(meta.kind.clone(), id.clone());
                 }
                 self.register_library_detail();

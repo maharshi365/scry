@@ -12,6 +12,24 @@ use super::{
 use rune::{Cx, El, GrowthSpec, Tx, col, text};
 use scry_library::{Media, MediaKey, MediaKind};
 
+pub(super) struct PosterGridState {
+    pub visible: std::ops::Range<usize>,
+    pub columns: usize,
+    pub viewport: Option<[f32; 4]>,
+    pub route: u64,
+}
+
+impl Default for PosterGridState {
+    fn default() -> Self {
+        Self {
+            visible: 0..0,
+            columns: 3,
+            viewport: None,
+            route: 0,
+        }
+    }
+}
+
 struct Entry {
     title: String,
     subtitle: String,
@@ -86,7 +104,7 @@ fn entry(s: &State, index: usize) -> Entry {
             },
         };
     }
-    let meta = &s.metas[index];
+    let meta = &s.discover.results[index];
     Entry {
         title: meta.name.clone(),
         poster: meta.poster.clone(),
@@ -99,7 +117,7 @@ fn entry(s: &State, index: usize) -> Entry {
                 .and_then(|media| s.series_progress_label(&media.key))
         {
             summary
-        } else if s.displayed_query.is_empty() {
+        } else if s.discover.displayed_query.is_empty() {
             meta.year.clone()
         } else {
             format!(
@@ -126,7 +144,7 @@ pub(super) fn movie_keys(s: &State) -> Vec<MediaKey> {
             .take(200)
             .collect()
     } else {
-        (0..s.metas.len())
+        (0..s.discover.results.len())
             .filter(|index| visible(s, *index))
             .filter_map(|index| s.result_media(index).map(|m| m.key))
             .filter(|key| key.kind == MediaKind::Movie)
@@ -152,7 +170,7 @@ pub(super) fn series_keys(s: &State) -> Vec<MediaKey> {
             .filter(|(index, _)| visible(s, *index))
             .map(|(_, m)| State::poster_key(m).clone())
             .collect::<Vec<_>>(),
-        Page::Discover => (0..s.metas.len())
+        Page::Discover => (0..s.discover.results.len())
             .filter(|index| visible(s, *index))
             .filter_map(|index| s.result_media(index).map(|m| m.key))
             .collect(),
@@ -179,7 +197,7 @@ pub(super) fn artwork_urls(s: &State) -> Vec<String> {
                 .map(|m| s.library_poster(m).and_then(|p| p.poster.as_ref())),
         );
     }
-    visible_urls(s, s.metas.iter().map(|m| m.poster.as_ref()))
+    visible_urls(s, s.discover.results.iter().map(|m| m.poster.as_ref()))
 }
 
 fn visible_urls<'a>(s: &State, posters: impl Iterator<Item = Option<&'a String>>) -> Vec<String> {
@@ -196,9 +214,10 @@ fn visible_urls<'a>(s: &State, posters: impl Iterator<Item = Option<&'a String>>
 }
 
 pub(super) fn visible(s: &State, index: usize) -> bool {
-    s.poster_route == s.navigation.route_key
-        && s.poster_visible
-            .contains(&row_index(s, index, s.poster_columns))
+    s.posters.route == s.navigation.route_key
+        && s.posters
+            .visible
+            .contains(&row_index(s, index, s.posters.columns))
 }
 
 fn row_index(s: &State, index: usize, columns: usize) -> usize {
@@ -222,7 +241,7 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> El {
     let source_generation = if matches!(s.navigation.page, Page::Library | Page::Watching) {
         s.library.grid_generation
     } else {
-        s.catalog_id
+        s.discover.generation
     };
     let cards = col()
         .key(format!("{prefix}-cards-{source_generation}-{columns}"))
@@ -236,15 +255,15 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> El {
         )
         .virtual_rows_version((rows.main, rows.next, rows.watching, rows.loading))
         .on_visible_rows(move |s: &mut State, range| {
-            let pending = s.catalog_paging.pending;
-            s.poster_route = route_key;
-            s.poster_columns = columns;
-            s.poster_visible = range;
+            let pending = s.discover.paging.pending;
+            s.posters.route = route_key;
+            s.posters.columns = columns;
+            s.posters.visible = range;
             refresh_visible(s);
-            pending != s.catalog_paging.pending
+            pending != s.discover.paging.pending
         });
     scroll(viewport_key, cards).on_layout(|s: &mut State, rect| {
-        s.poster_viewport = Some(rect);
+        s.posters.viewport = Some(rect);
         refresh_visible(s);
     })
 }
@@ -258,7 +277,7 @@ fn viewport_key(s: &State) -> String {
 }
 
 pub(super) fn reveal(s: &State, anchor: String, tx: &mut Tx) {
-    let columns = s.poster_viewport.map_or(3, |rect| poster_columns(rect[2]));
+    let columns = s.posters.viewport.map_or(3, |rect| poster_columns(rect[2]));
     let row = [
         (Page::Discover, "title-", "title"),
         (Page::Library, "library-open-", "library"),
@@ -306,7 +325,7 @@ impl Rows {
             main: match s.navigation.page {
                 Page::Watching => s.library.watching.len(),
                 Page::Library => s.library.entries.as_ref().map_or(0, Vec::len),
-                _ => s.metas.len(),
+                _ => s.discover.results.len(),
             },
             next: if s.navigation.page == Page::Watching {
                 s.library.up_next.len()
@@ -315,7 +334,7 @@ impl Rows {
             },
             watching: s.navigation.page == Page::Watching,
             loading: s.navigation.page == Page::Discover
-                && s.catalog_paging.pending.is_some_and(|offset| offset > 0),
+                && s.discover.paging.pending.is_some_and(|offset| offset > 0),
             prefix: prefix(s),
         }
     }
@@ -392,10 +411,11 @@ fn prefix(s: &State) -> &'static str {
 
 fn card(s: &State, entry: &Entry, index: usize, prefix: &str) -> El {
     let selected = s.navigation.page == Page::Detail
-        && s.detail_preview
+        && s.detail.preview
         && s.detail
+            .meta
             .as_ref()
-            .zip(s.metas.get(index))
+            .zip(s.discover.results.get(index))
             .is_some_and(|(detail, meta)| detail.id == meta.id && detail.kind == meta.kind);
     let key = if entry.media.is_some() {
         format!("{prefix}-open-{index}")
@@ -425,7 +445,7 @@ fn card(s: &State, entry: &Entry, index: usize, prefix: &str) -> El {
         if let Some(media) = &item {
             s.open_library_media(media);
         } else if let Some(result) = &result
-            && let Some(index) = (0..s.metas.len()).find(|&index| {
+            && let Some(index) = (0..s.discover.results.len()).find(|&index| {
                 s.result_media(index)
                     .is_some_and(|media| media.key == result.key)
             })

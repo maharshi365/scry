@@ -20,7 +20,7 @@ impl Driver {
 }
 
 pub(super) fn poll(s: &mut State, tx: &mut Tx) -> bool {
-    let Some(mut driver) = s.profiling.take() else {
+    let Some(mut driver) = s.runtime.profiling.take() else {
         return false;
     };
     tx.wake_after(Duration::from_millis(100));
@@ -37,7 +37,7 @@ pub(super) fn poll(s: &mut State, tx: &mut Tx) -> bool {
             "play" => {
                 s.player.volume = 0;
                 if let Some(source) = command["source"].as_str() {
-                    s.startup_play = Some(source.to_owned());
+                    s.runtime.startup_play = Some(source.to_owned());
                 }
             }
             "play_stream" => {
@@ -47,7 +47,7 @@ pub(super) fn poll(s: &mut State, tx: &mut Tx) -> bool {
                         crate::services::Source::Stream(stream),
                         "Benchmark stream".into(),
                     ),
-                    Err(_) => s.error = Some("Invalid profiling stream".into()),
+                    Err(_) => s.runtime.error = Some("Invalid profiling stream".into()),
                 }
             }
             "pause" => s.command(&["cycle", "pause"]),
@@ -74,7 +74,7 @@ pub(super) fn poll(s: &mut State, tx: &mut Tx) -> bool {
                 s.navigate(Page::Guide);
             }
             "addons" => s.navigate(Page::Addons),
-            _ => s.error = Some("Unknown profiling action".into()),
+            _ => s.runtime.error = Some("Unknown profiling action".into()),
         }
     }
     let status = json!({
@@ -83,20 +83,24 @@ pub(super) fn poll(s: &mut State, tx: &mut Tx) -> bool {
         "playing": s.player.playing, "ready": s.player.ready,
         "fullscreen": s.player.fullscreen,
         "sample": s.player.sample,
-        "error": s.error,
+        "error": diagnostic_error(s),
         "guide_tuned": s.guide.tuned.is_some(),
         "guide_resolving": s.guide.resolving,
         "guide_error": s.guide.error,
-        "catalog_len": s.metas.len(),
-        "loading": s.loading,
-        "config_busy": s.config_busy,
-        "addon_count": s.addons.len(),
-        "detail_episodes": s.detail.as_ref().map_or(0, |meta| meta.videos.len()),
-        "visible_rows": s.poster_visible.len(),
-        "first_visible_row": s.poster_visible.start,
+        "catalog_len": s.discover.results.len(),
+        "loading": match s.navigation.page {
+            Page::Discover => s.discover.request.loading,
+            Page::Detail => s.detail.request.loading || s.detail.sources.request.loading,
+            _ => false,
+        },
+        "config_busy": s.addons.busy,
+        "addon_count": s.addons.installed.len(),
+        "detail_episodes": s.detail.meta.as_ref().map_or(0, |meta| meta.videos.len()),
+        "visible_rows": s.posters.visible.len(),
+        "first_visible_row": s.posters.visible.start,
         "back_len": s.navigation.back.len(), "forward_len": s.navigation.forward.len(),
-        "artwork": s.artwork.as_ref().map(crate::artwork::Artwork::stats),
-        "player_artwork": s.player_artwork.as_ref().map(crate::artwork::Artwork::stats),
+        "artwork": s.artwork.posters.as_ref().map(crate::artwork::Artwork::stats),
+        "player_artwork": s.artwork.player.as_ref().map(crate::artwork::Artwork::stats),
     });
     let path = driver.root.join("status.tmp");
     if let Ok(bytes) = serde_json::to_vec(&status)
@@ -104,15 +108,15 @@ pub(super) fn poll(s: &mut State, tx: &mut Tx) -> bool {
     {
         let _ = std::fs::rename(path, driver.root.join("status.json"));
     }
-    s.profiling = Some(driver);
+    s.runtime.profiling = Some(driver);
     changed
 }
 
 fn catalog(s: &mut State, command: &Value) {
     s.navigate(Page::Discover);
-    s.catalog = None;
+    s.discover.catalog = None;
     let count = command["count"].as_u64().unwrap_or(1000).min(10_000);
-    s.metas = std::sync::Arc::new(
+    s.discover.results = crate::ui::catalog::CatalogResults::from(
         (0..count)
             .filter_map(|index| {
                 let poster = command["artwork_base"]
@@ -126,14 +130,33 @@ fn catalog(s: &mut State, command: &Value) {
                 }))
                 .ok()
             })
-            .collect(),
+            .collect::<Vec<_>>(),
     );
-    s.loading = false;
+    s.discover.request.loading = false;
+}
+
+fn diagnostic_error(s: &State) -> Option<&str> {
+    s.runtime
+        .error
+        .as_deref()
+        .or_else(|| match s.navigation.page {
+            Page::Discover => s.discover.request.error.as_deref(),
+            Page::Detail => s
+                .detail
+                .request
+                .error
+                .as_deref()
+                .or(s.detail.sources.request.error.as_deref())
+                .or(s.player.error.as_deref()),
+            Page::Addons => s.addons.error.as_deref().or(s.player.error.as_deref()),
+            Page::Player | Page::Guide => s.player.error.as_deref(),
+            _ => None,
+        })
 }
 
 fn metadata_stress(s: &mut State) {
     super::scenes::scene_detail(s);
-    if let Some(meta) = s.detail.as_mut() {
+    if let Some(meta) = s.detail.meta.as_mut() {
         meta.videos = (1..=10_000)
             .map(|index| scry_addons::Video {
                 runtime: String::new(),

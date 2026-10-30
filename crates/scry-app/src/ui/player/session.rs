@@ -20,21 +20,21 @@ impl State {
         self.player.stats_overlay.dismiss();
         self.player.subtitles = super::subtitles::Subtitles::default();
         self.player.audio = super::audio::Audio::default();
-        if let Some(services) = &mut self.services {
+        if let Some(services) = &mut self.runtime.services {
             services.cancel_subtitles();
         }
         self.player.torrent_stats = None;
         self.player.torrent_source = false;
         self.player.sample.cache_s = None;
-        self.host.hide();
+        self.shell.host.hide();
         self.send(Control::Stop(self.player.generation));
     }
 
     pub(super) fn send(&mut self, control: Control) {
-        if let Some(services) = &self.services
+        if let Some(services) = &self.runtime.services
             && let Err(error) = services.control(control)
         {
-            self.error = Some(error.to_string());
+            self.player.error = Some(error.to_string());
         }
     }
 
@@ -47,7 +47,7 @@ impl State {
 
     pub(in crate::ui) fn play(&mut self, stream: Stream, title: String) {
         if let Err(error) = stream.validate_playback() {
-            self.error = Some(error.to_string());
+            self.player.error = Some(error.to_string());
             return;
         }
         self.save_library_progress();
@@ -74,29 +74,30 @@ impl State {
         self.library.last_save = std::time::Instant::now();
         self.player.meta_id = self
             .detail
+            .meta
             .as_ref()
             .map(|meta| (meta.kind.clone(), meta.id.clone()));
-        self.player.video_id = self.selected_video_id.clone();
+        self.player.video_id = self.detail.episodes.selected.clone();
         self.play_source(Source::Stream(stream), title);
     }
 
     pub(in crate::ui) fn play_source(&mut self, source: Source, title: String) {
-        self.error = None;
-        if let Some(error) = self.host_error.lock().ok().and_then(|e| e.clone()) {
-            self.error = Some(error);
+        self.player.error = None;
+        if let Some(error) = self.shell.host_error.lock().ok().and_then(|e| e.clone()) {
+            self.player.error = Some(error);
             return;
         }
-        match self.host.target() {
+        match self.shell.host.target() {
             Ok(target) => {
                 self.clear_player_feedback();
-                self.host.hide();
+                self.shell.host.hide();
                 if self.navigation.page != Page::Guide {
                     self.remember();
                 }
                 self.player.generation += 1;
                 self.player.playing = true;
                 self.player.ready = false;
-                let meta = self.detail.as_ref().filter(|meta| {
+                let meta = self.detail.meta.as_ref().filter(|meta| {
                     self.player
                         .meta_id
                         .as_ref()
@@ -112,14 +113,14 @@ impl State {
                 self.player.stats_overlay.dismiss();
                 self.player.subtitles = super::subtitles::Subtitles::default();
                 self.player.audio = super::audio::Audio::default();
-                self.player.subtitles.defaults = self.subtitle_preferences.clone();
+                self.player.subtitles.defaults = self.settings.subtitle_preferences.clone();
                 self.player.torrent_stats = None;
                 self.player.torrent_source = matches!(&source, Source::Stream(stream) | Source::Channel(stream, _) if stream.url.is_none() && stream.info_hash.is_some());
                 self.player.interaction.reset();
                 self.player.seek_preview = None;
                 self.player.muted = false;
                 self.player.report = None;
-                self.status = "Loading…".into();
+                self.player.status = "Loading…".into();
                 let stream = match &source {
                     Source::Stream(stream) | Source::Channel(stream, _) => Some(stream.clone()),
                     Source::Local(_) => None,
@@ -131,32 +132,33 @@ impl State {
                     )
                 });
                 self.player.subtitles.searching = true;
-                if let Some(services) = &mut self.services {
+                if let Some(services) = &mut self.runtime.services {
                     services.subtitles(
                         self.player.generation,
                         identity,
                         stream,
-                        self.addons.clone(),
+                        self.addons.installed.clone(),
                     );
                 }
                 self.send(Control::Play(self.player.generation, target, source));
             }
-            Err(error) => self.error = Some(error.to_string()),
+            Err(error) => self.player.error = Some(error.to_string()),
         }
     }
 
     pub(in crate::ui) fn play_direct(&mut self) {
-        let stream =
-            serde_json::from_value::<Stream>(serde_json::json!({"url":self.direct.text.trim()}));
+        let stream = serde_json::from_value::<Stream>(
+            serde_json::json!({"url":self.addons.direct.text.trim()}),
+        );
         let stream = match stream {
             Ok(stream) => stream,
             Err(error) => {
-                self.error = Some(error.to_string());
+                self.player.error = Some(error.to_string());
                 return;
             }
         };
         if let Err(error) = stream.validate_playback() {
-            self.error = Some(error.to_string());
+            self.player.error = Some(error.to_string());
             return;
         }
         self.save_library_progress();
@@ -171,8 +173,8 @@ impl State {
 
 impl State {
     fn next_released_episode(&self) -> Option<scry_library::Media> {
-        let meta = self.detail.as_ref().filter(|m| m.kind == "series")?;
-        let current = self.selected_video_id.as_ref()?;
+        let meta = self.detail.meta.as_ref().filter(|m| m.kind == "series")?;
+        let current = self.detail.episodes.selected.as_ref()?;
         let mut videos: Vec<_> = meta
             .videos
             .iter()
@@ -193,7 +195,7 @@ impl State {
             return None;
         }
         let parent = super::super::library_view::key(
-            &self.detail_namespace,
+            &self.detail.namespace,
             scry_library::MediaKind::Series,
             &meta.id,
         );
@@ -218,8 +220,8 @@ mod tests {
     #[test]
     fn resume_uses_episode_order_and_requires_a_known_released_next_episode() {
         let mut s = super::super::super::app::init();
-        s.detail_namespace = "provider".into();
-        s.detail = Some(
+        s.detail.namespace = "provider".into();
+        s.detail.meta = Some(
             serde_json::from_value(serde_json::json!({
                 "id":"tt123","type":"series","name":"Show","videos":[
                     {"id":"show:1:2","season":1,"episode":2,"released":"2000-01-02T00:00:00Z"},
@@ -228,12 +230,12 @@ mod tests {
             }))
             .unwrap(),
         );
-        s.selected_video_id = Some("show:1:1".into());
+        s.detail.episodes.selected = Some("show:1:1".into());
         assert_eq!(s.next_released_episode().unwrap().key.id, "show:1:2");
         assert_eq!(s.next_released_episode().unwrap().key.namespace, "imdb");
-        s.detail.as_mut().unwrap().videos[0].released = None;
+        s.detail.meta.as_mut().unwrap().videos[0].released = None;
         assert!(s.next_released_episode().is_none());
-        s.detail.as_mut().unwrap().videos[0].released = Some("2100-01-02T00:00:00Z".into());
+        s.detail.meta.as_mut().unwrap().videos[0].released = Some("2100-01-02T00:00:00Z".into());
         assert!(s.next_released_episode().is_none());
     }
 }

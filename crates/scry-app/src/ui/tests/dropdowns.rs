@@ -29,13 +29,13 @@ pub(super) fn assert_flat_panel(rt: &rune::Runtime<State>, key: &str) {
 fn runtime(width: f32, height: f32) -> rune::Runtime<State> {
     let mut s = init();
     s.navigate(Page::Detail);
-    s.config_busy = false;
-    s.detail = Some(multi_season_series());
+    s.addons.busy = false;
+    s.detail.meta = Some(multi_season_series());
     let source = serde_json::from_value(
         serde_json::json!({"url":"https://example.invalid/video", "title":"Test source"}),
     )
     .unwrap();
-    s.streams = vec![
+    s.detail.sources.streams = vec![
         ("First provider".into(), source),
         (
             "Second provider".into(),
@@ -65,7 +65,7 @@ fn dropdowns_overlay_without_moving_content_and_dismiss_without_navigation() {
             ("source-sort", "source-sort-menu"),
         ] {
             if trigger != "season-select" {
-                rt.update(|s, _| s.selected_video_id = Some("show:1:1".into()));
+                rt.update(|s, _| s.detail.episodes.selected = Some("show:1:1".into()));
                 settle(&mut rt);
             }
             let keys = if trigger == "season-select" {
@@ -90,9 +90,9 @@ fn dropdowns_overlay_without_moving_content_and_dismiss_without_navigation() {
             settle(&mut rt);
             assert_eq!(rt.state.navigation.page, Page::Detail);
             assert!(
-                !rt.state.season_menu_open
-                    && !rt.state.source_menu_open
-                    && !rt.state.source_sort_open
+                !rt.state.detail.episodes.menu_open
+                    && !rt.state.detail.sources.menu_open
+                    && !rt.state.detail.sources.sort_open
             );
             tap(&mut rt, trigger);
             settle(&mut rt);
@@ -100,9 +100,9 @@ fn dropdowns_overlay_without_moving_content_and_dismiss_without_navigation() {
             rt.pointer_up(10.0, 10.0);
             settle(&mut rt);
             assert!(
-                !rt.state.season_menu_open
-                    && !rt.state.source_menu_open
-                    && !rt.state.source_sort_open
+                !rt.state.detail.episodes.menu_open
+                    && !rt.state.detail.sources.menu_open
+                    && !rt.state.detail.sources.sort_open
             );
             for (key, bounds) in before {
                 assert_eq!(rect(&rt, key), bounds);
@@ -127,13 +127,13 @@ fn overlay_choices_keep_season_selection_and_provider_filtering_working() {
     });
     settle(&mut rt);
     assert_eq!(rt.state.active_season(), Some(2));
-    assert!(!rt.state.season_menu_open);
+    assert!(!rt.state.detail.episodes.menu_open);
     rt.update(|s, _| {
-        s.selected_video_id = Some("show:2:1".into());
+        s.detail.episodes.selected = Some("show:2:1".into());
         let source =
             serde_json::from_value(serde_json::json!({"url":"https://example.invalid/video"}))
                 .unwrap();
-        s.streams = vec![
+        s.detail.sources.streams = vec![
             ("First provider".into(), source),
             (
                 "Second provider".into(),
@@ -148,8 +148,11 @@ fn overlay_choices_keep_season_selection_and_provider_filtering_working() {
     assert!(rt.find("source-all-selected").is_some());
     tap(&mut rt, "source-provider-1");
     settle(&mut rt);
-    assert_eq!(rt.state.stream_provider.as_deref(), Some("Second provider"));
-    assert!(!rt.state.source_menu_open);
+    assert_eq!(
+        rt.state.detail.sources.provider.as_deref(),
+        Some("Second provider")
+    );
+    assert!(!rt.state.detail.sources.menu_open);
     assert!(rt.find("stream-1").is_some());
     tap(&mut rt, "source-select");
     settle(&mut rt);

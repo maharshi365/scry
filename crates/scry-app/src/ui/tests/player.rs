@@ -36,7 +36,7 @@ fn shortcuts_do_not_steal_text_input_or_run_outside_active_player() {
     let mut rt = player_runtime();
     tap(&mut rt, "search");
     key(&mut rt, rune::Key::Text(" k m".into()));
-    assert_eq!(rt.state.search.text, " k m");
+    assert_eq!(rt.state.discover.search.text, " k m");
     assert!(!rt.state.player.sample.paused);
     assert_eq!(rt.state.player.volume, 70);
     rt.update(|s, _| {
@@ -216,7 +216,7 @@ fn torrent_stats_are_source_specific_and_ignore_old_generations() {
     rt.frame(0.0);
     assert!(rt.find("player-torrent-stats").is_some());
     let (sender, receiver) = tokio::sync::mpsc::channel(4);
-    rt.state.events = Some(receiver);
+    rt.state.runtime.events = Some(receiver);
     sender
         .try_send(Event::TorrentMetrics(
             rt.state.player.generation + 1,
@@ -645,7 +645,7 @@ fn fullscreen_button_matches_shortcut_and_does_not_steal_typed_f() {
     let mut rt = player_runtime();
     tap(&mut rt, "search");
     key(&mut rt, rune::Key::Text("f".into()));
-    assert_eq!(rt.state.search.text, "f");
+    assert_eq!(rt.state.discover.search.text, "f");
     assert!(rt.find("sidebar").is_some());
     tap(&mut rt, "fullscreen");
     tap(&mut rt, "fullscreen");
@@ -673,7 +673,7 @@ fn cached_artwork_draws_a_backdrop_and_original_logo_in_both_window_modes() {
     state.player.playing = true;
     state.player.background = Some("https://example.com/background".into());
     state.player.logo = Some("https://example.com/logo".into());
-    state.player_artwork = Some(crate::artwork::Artwork::player_fixture(&[
+    state.artwork.player = Some(crate::artwork::Artwork::player_fixture(&[
         ("https://example.com/background", background),
         ("https://example.com/logo", logo),
     ]));
@@ -742,7 +742,7 @@ fn stop_and_failure_leave_fullscreen_and_reset_loading() {
     assert!(!s.player.fullscreen);
     assert!(!s.player.ready);
     assert!(!s.player.playing);
-    assert_eq!(s.error.as_deref(), Some("Failed"));
+    assert_eq!(s.player.error.as_deref(), Some("Failed"));
     events.try_send(Event::Ready(0)).unwrap();
     poll(&mut s, 0.0, &mut Tx::default());
     assert!(
@@ -757,7 +757,7 @@ fn loading_artwork_is_prefetched_and_owned_by_the_playing_title() {
 
     let mut s = init();
     s.navigation.page = Page::Detail;
-    s.detail = Some(
+    s.detail.meta = Some(
         serde_json::from_value(serde_json::json!({
             "id":"tt123", "type":"movie", "name":"A movie",
             "background":"https://example.com/backdrop.jpg",

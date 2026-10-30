@@ -61,10 +61,10 @@ fn surface(s: &State, scale: f32, compact: bool) -> El {
             s.player.interaction.video_rect = Some(rect);
             s.player.interaction.scale = scale;
             if s.player.playing && matches!(s.navigation.page, Page::Player | Page::Guide) {
-                s.host.place(rect, scale);
+                s.shell.host.place(rect, scale);
                 s.cover_player();
                 if s.player.ready {
-                    s.host.show();
+                    s.shell.host.show();
                 }
             }
         });
@@ -73,7 +73,7 @@ fn surface(s: &State, scale: f32, compact: bool) -> El {
         if let Some(image) = s
             .guide_artwork()
             .first()
-            .and_then(|url| s.artwork.as_ref()?.get(url))
+            .and_then(|url| s.artwork.posters.as_ref()?.get(url))
         {
             surface = surface.child(
                 el().absolute(0.0, 0.0)
@@ -113,7 +113,7 @@ pub(super) fn player(s: &State, scale: f32) -> El {
             .on_hover_change(|s: &mut State, inside, tx| {
                 if !inside
                     && !matches!(
-                        s.host.pointer_position(s.player.interaction.scale),
+                        s.shell.host.pointer_position(s.player.interaction.scale),
                         scry_app::platform::VideoPointer::Inside(_)
                     )
                 {
@@ -163,7 +163,7 @@ pub(super) fn player(s: &State, scale: f32) -> El {
 fn loading(s: &State) -> El {
     let image = |url: &Option<String>| {
         url.as_ref()
-            .and_then(|url| s.player_artwork.as_ref()?.get(url))
+            .and_then(|url| s.artwork.player.as_ref()?.get(url))
     };
     let mut loading = el()
         .key("player-loading")

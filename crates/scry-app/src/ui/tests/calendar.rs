@@ -177,7 +177,7 @@ fn expanded_day_loads_posters_outside_the_grid_and_renders_them() {
     assert_eq!(visible_artwork(&s), vec!["https://example.com/dialog.jpg"]);
     let image = rune::Pixels::new();
     image.set(2, 3, vec![180; 24]);
-    s.artwork = Some(crate::artwork::Artwork::player_fixture(&[(
+    s.artwork.posters = Some(crate::artwork::Artwork::player_fixture(&[(
         "https://example.com/dialog.jpg",
         image,
     )]));
@@ -192,7 +192,7 @@ fn expanded_day_loads_posters_outside_the_grid_and_renders_them() {
 fn month_calendar_scrolls_a_busy_day_without_moving_its_neighbour() {
     let mut s = init();
     s.navigation.page = Page::Calendar;
-    s.config_busy = false;
+    s.addons.busy = false;
     s.calendar.anchor = chrono::NaiveDate::from_ymd_opt(2026, 10, 19).unwrap();
     let date = s.calendar.anchor;
     for i in 0..12 {
@@ -239,7 +239,7 @@ fn month_calendar_scrolls_a_busy_day_without_moving_its_neighbour() {
 #[test]
 fn startup_opens_watching_and_addon_install_uses_a_dialog() {
     let mut s = init();
-    s.config_busy = false;
+    s.addons.busy = false;
     let mut rt = rune::Runtime::new(s, view, (1280.0, 820.0), rune::Env::default());
     rt.frame(0.0);
     assert_eq!(rt.state.navigation.page, Page::Watching);
@@ -250,7 +250,7 @@ fn startup_opens_watching_and_addon_install_uses_a_dialog() {
     }
     tap(&mut rt, "add-addon");
     assert!(
-        rt.state.addon_install_open,
+        rt.state.addons.install_open,
         "{:?}",
         rt.elements()
             .iter()
@@ -266,7 +266,7 @@ fn startup_opens_watching_and_addon_install_uses_a_dialog() {
         rect(&rt, "manifest-frame")[3],
         super::super::design::tokens::control::DIALOG_HEIGHT
     );
-    assert!(rt.state.install.text.is_empty());
+    assert!(rt.state.addons.install.text.is_empty());
     tap(&mut rt, "addon-dialog-close");
 }
 
@@ -310,8 +310,8 @@ fn expanded_day_scrolls_all_releases_and_opens_movies() {
     }
     tap(&mut rt, "calendar-dialog-release-0");
     assert_eq!(rt.state.navigation.page, Page::Detail);
-    assert_eq!(rt.state.detail.as_ref().unwrap().kind, "movie");
-    assert!(rt.state.pending_episode.is_none());
+    assert_eq!(rt.state.detail.meta.as_ref().unwrap().kind, "movie");
+    assert!(rt.state.detail.pending_episode.is_none());
 }
 
 #[test]
@@ -333,6 +333,7 @@ fn right_click_actions_persist_and_page_refresh_is_available() {
     rt.frame(1.0 / 60.0);
     assert!(
         rt.state
+            .shell
             .context_menu
             .as_ref()
             .is_some_and(|(_, item)| item.is_some())
@@ -362,8 +363,8 @@ fn right_click_actions_persist_and_page_refresh_is_available() {
 fn episode_context_menu_uses_its_parent_canonical_namespace() {
     let mut s = init();
     s.navigation.page = Page::Detail;
-    s.detail_namespace = "provider".into();
-    s.detail=Some(serde_json::from_value(serde_json::json!({"id":"tt123","type":"series","name":"Show","videos":[{"id":"custom-episode","season":1,"episode":1,"title":"Pilot"}]})).unwrap());
+    s.detail.namespace = "provider".into();
+    s.detail.meta=Some(serde_json::from_value(serde_json::json!({"id":"tt123","type":"series","name":"Show","videos":[{"id":"custom-episode","season":1,"episode":1,"title":"Pilot"}]})).unwrap());
     let expected = s.visible_episode_keys()[0].clone();
     let mut rt = rune::Runtime::new(s, view, (1280.0, 820.0), rune::Env::default());
     for _ in 0..30 {
@@ -373,8 +374,15 @@ fn episode_context_menu_uses_its_parent_canonical_namespace() {
     rt.secondary_down(r[0] + 10.0, r[1] + 10.0);
     rt.secondary_up(r[0] + 10.0, r[1] + 10.0);
     rt.frame(1.0 / 60.0);
-    let super::super::context_menu::Target::Title(item) =
-        rt.state.context_menu.as_ref().unwrap().1.as_ref().unwrap()
+    let super::super::context_menu::Target::Title(item) = rt
+        .state
+        .shell
+        .context_menu
+        .as_ref()
+        .unwrap()
+        .1
+        .as_ref()
+        .unwrap()
     else {
         panic!("Expected a title menu")
     };

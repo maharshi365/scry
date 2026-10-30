@@ -94,10 +94,10 @@ impl State {
             self.calendar.releases.clear();
             self.calendar.release_times.clear();
         }
-        if let Some(services) = &mut self.services {
+        if let Some(services) = &mut self.runtime.services {
             services.calendar(
                 self.calendar.generation,
-                self.addons.clone(),
+                self.addons.installed.clone(),
                 self.calendar.series.clone(),
             );
         }

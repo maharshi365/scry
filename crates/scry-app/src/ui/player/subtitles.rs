@@ -91,7 +91,7 @@ fn overlay(s: &mut State) -> &mut HoverOverlay {
 
 pub(in crate::ui) fn scene(s: &mut State) {
     s.navigation.page = Page::Player;
-    s.config_busy = false;
+    s.addons.busy = false;
     s.player.playing = true;
     s.player.ready = true;
     s.player.title = "Subtitle controls".into();
@@ -362,7 +362,7 @@ impl State {
         if !self.player.playing {
             return;
         }
-        let path = match self.host.pick_subtitle() {
+        let path = match self.shell.host.pick_subtitle() {
             Ok(Some(path)) => path,
             Ok(None) => return,
             Err(_) => {
@@ -411,6 +411,7 @@ impl State {
             language: language.clone(),
         };
         let error = match self
+            .runtime
             .services
             .as_ref()
             .map(|services| services.control(control))
@@ -468,7 +469,7 @@ impl State {
             self.player.subtitles.pending = None;
             self.set_subtitle(slot, Some(id));
         }
-        if self.subtitle_settings.busy {
+        if self.settings.subtitles.busy {
             return;
         }
         for slot in [Slot::Primary, Slot::Secondary] {
@@ -633,15 +634,15 @@ impl State {
     }
 
     pub(in crate::ui) fn save_subtitle_preferences(&mut self, preferences: Preferences) {
-        if self.subtitle_settings.busy || preferences.validate().is_err() {
+        if self.settings.subtitles.busy || preferences.validate().is_err() {
             return;
         }
-        self.subtitle_preferences = preferences.clone();
-        self.subtitle_settings.error = None;
-        if let Some(services) = &self.services {
+        self.settings.subtitle_preferences = preferences.clone();
+        self.settings.subtitles.error = None;
+        if let Some(services) = &self.runtime.services {
             match services.save_subtitle_preferences(preferences) {
-                Ok(()) => self.subtitle_settings.busy = true,
-                Err(error) => self.subtitle_settings.error = Some(error.to_string()),
+                Ok(()) => self.settings.subtitles.busy = true,
+                Err(error) => self.settings.subtitles.error = Some(error.to_string()),
             }
         }
     }
@@ -695,7 +696,7 @@ impl State {
             source.subtitle.lang.clone(),
         ));
         self.player.subtitles.error = None;
-        if let Some(services) = &mut self.services {
+        if let Some(services) = &mut self.runtime.services {
             services.subtitle_file(self.player.generation, request, source.subtitle);
         } else {
             self.apply_subtitle_load_failed(
@@ -790,7 +791,7 @@ mod tests {
             state.player.subtitles.pending =
                 Some((Slot::Primary, 1, "Download".into(), "eng".into()));
             if closed {
-                state.services = Some(crate::services::Services::install_fixture()?.0);
+                state.runtime.services = Some(crate::services::Services::install_fixture()?.0);
             }
             state.apply_subtitle_file(
                 0,

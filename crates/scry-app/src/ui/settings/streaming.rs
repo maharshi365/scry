@@ -19,7 +19,7 @@ pub(in crate::ui) struct SettingsUi {
 }
 
 pub(super) fn view(s: &State) -> El {
-    let settings = &s.streaming_settings;
+    let settings = &s.settings.streaming;
     let mut sizes = choices();
     for &cache_gib in CACHE_SIZES_GIB {
         sizes = sizes.child(
@@ -54,10 +54,11 @@ pub(super) fn view(s: &State) -> El {
                     .enabled(!settings.busy)
                     .on_press(|s: &mut State| {
                         let preferences = s
-                            .streaming_settings
+                            .settings
+                            .streaming
                             .pending
                             .clone()
-                            .unwrap_or_else(|| s.streaming_settings.preferences.clone());
+                            .unwrap_or_else(|| s.settings.streaming.preferences.clone());
                         s.save_streaming_preferences(preferences);
                     }),
             ),
@@ -73,19 +74,19 @@ pub(super) fn view(s: &State) -> El {
 
 impl State {
     pub(in crate::ui) fn save_streaming_preferences(&mut self, preferences: Preferences) {
-        if self.streaming_settings.busy || preferences.validate().is_err() {
+        if self.settings.streaming.busy || preferences.validate().is_err() {
             return;
         }
-        self.streaming_settings.error = None;
-        if let Some(services) = &self.services {
-            self.streaming_settings.pending = Some(preferences.clone());
+        self.settings.streaming.error = None;
+        if let Some(services) = &self.runtime.services {
+            self.settings.streaming.pending = Some(preferences.clone());
             match services.save_streaming_preferences(preferences) {
-                Ok(()) => self.streaming_settings.busy = true,
-                Err(error) => self.streaming_settings.error = Some(error.to_string()),
+                Ok(()) => self.settings.streaming.busy = true,
+                Err(error) => self.settings.streaming.error = Some(error.to_string()),
             }
         } else {
-            self.streaming_settings.preferences = preferences;
-            self.streaming_settings.pending = None;
+            self.settings.streaming.preferences = preferences;
+            self.settings.streaming.pending = None;
         }
     }
 }

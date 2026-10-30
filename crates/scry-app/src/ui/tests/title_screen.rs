@@ -4,16 +4,19 @@ use super::*;
 fn late_details_keep_the_episode_selected_while_metadata_was_loading() {
     let (mut s, tx) = state_with_events();
     s.open_detail_from(series(3));
-    let generation = s.detail_id;
+    let generation = s.detail.generation;
     s.select_episode(1);
-    let old_streams = s.stream_id;
+    let old_streams = s.runtime.streams.generation;
     tx.try_send(Event::Detail(generation, Ok((series(3), "imdb".into()))))
         .unwrap();
     poll(&mut s, 0.0, &mut Tx::default());
-    assert_eq!(s.selected_video_id.as_deref(), Some("tt123:1:2"));
-    assert!(s.loading, "The selected episode still needs its streams");
+    assert_eq!(s.detail.episodes.selected.as_deref(), Some("tt123:1:2"));
     assert!(
-        s.stream_id > old_streams,
+        s.detail.sources.request.loading,
+        "The selected episode still needs its streams"
+    );
+    assert!(
+        s.runtime.streams.generation > old_streams,
         "Restart streams for the resolved metadata"
     );
 }
@@ -23,7 +26,7 @@ fn quick_preview_is_compact_and_chips_share_rows_when_they_fit() {
     let mut s = init();
     scene_discover(&mut s);
     s.open_result(0);
-    let meta = s.detail.as_mut().unwrap();
+    let meta = s.detail.meta.as_mut().unwrap();
     meta.genres = vec!["Drama".into(), "Horror".into()];
     meta.cast = vec!["First Actor".into(), "Second Actor".into()];
     meta.director = vec!["Director A".into(), "Director B".into()];
@@ -59,11 +62,11 @@ fn changing_preview_title_rejects_the_previous_titles_late_metadata() {
     let (mut s, tx) = state_with_events();
     scene_discover(&mut s);
     s.open_result(0);
-    let stale = s.detail_id;
-    let stale_streams = s.stream_id;
-    let old = s.detail.clone().unwrap();
+    let stale = s.detail.generation;
+    let stale_streams = s.runtime.streams.generation;
+    let old = s.detail.meta.clone().unwrap();
     s.open_result(1);
-    let selected = s.detail.as_ref().unwrap().id.clone();
+    let selected = s.detail.meta.as_ref().unwrap().id.clone();
     tx.try_send(Event::Detail(stale, Ok((old, "scene.catalog".into()))))
         .unwrap();
     tx.try_send(Event::Streams(
@@ -78,10 +81,10 @@ fn changing_preview_title_rejects_the_previous_titles_late_metadata() {
     ))
     .unwrap();
     poll(&mut s, 0.0, &mut Tx::default());
-    assert_eq!(s.detail.as_ref().unwrap().id, selected);
-    assert!(s.streams.is_empty());
+    assert_eq!(s.detail.meta.as_ref().unwrap().id, selected);
+    assert!(s.detail.sources.streams.is_empty());
     assert!(
-        s.loading,
+        s.detail.request.loading,
         "The selected title is still waiting for its own metadata"
     );
 }
@@ -109,8 +112,8 @@ fn paging_beyond_the_first_episode_page_loads_its_watched_marker() {
     }
     let mut s = init();
     s.navigation.page = Page::Detail;
-    s.detail_namespace = "imdb".into();
-    s.detail = Some(series(250));
+    s.detail.namespace = "imdb".into();
+    s.detail.meta = Some(series(250));
     s.library.worker = Some(crate::library_worker::Worker::start(path, Arc::new(|| {})).unwrap());
     s.register_library_detail();
     let mut rt = rune::Runtime::new(s, view, (1280.0, 820.0), rune::Env::default());
@@ -143,12 +146,12 @@ fn provider_metadata_drives_backdrop_logo_facts_and_episode_thumbnail() {
     image.set(2, 2, vec![180; 16]);
     let mut s = init();
     s.navigation.page = Page::Detail;
-    s.detail = Some(meta);
-    s.player_artwork = Some(crate::artwork::Artwork::player_fixture(&[
+    s.detail.meta = Some(meta);
+    s.artwork.player = Some(crate::artwork::Artwork::player_fixture(&[
         ("https://example.com/background.jpg", image.clone()),
         ("https://example.com/logo.png", image.clone()),
     ]));
-    s.artwork = Some(crate::artwork::Artwork::player_fixture(&[(
+    s.artwork.posters = Some(crate::artwork::Artwork::player_fixture(&[(
         "https://example.com/episode.jpg",
         image,
     )]));
@@ -186,7 +189,7 @@ fn catalog_preview_opens_the_picker_and_history_restores_the_preview() {
         for _ in 0..30 {
             rt.frame(1.0 / 60.0);
         }
-        assert!(rt.state.detail_preview);
+        assert!(rt.state.detail.preview);
         assert!(rt.find("title-preview").is_some());
         assert!(rt.find("title-0").is_some());
         let panel = rect(&rt, "title-preview");
@@ -215,14 +218,14 @@ fn catalog_preview_opens_the_picker_and_history_restores_the_preview() {
         for _ in 0..30 {
             rt.frame(1.0 / 60.0);
         }
-        assert!(!rt.state.detail_preview);
+        assert!(!rt.state.detail.preview);
         assert!(rt.find("source-picker").is_some());
         assert!(rect(&rt, "source-picker")[2] > 250.0);
         tap(&mut rt, "detail-back");
         for _ in 0..30 {
             rt.frame(1.0 / 60.0);
         }
-        assert!(rt.state.detail_preview);
+        assert!(rt.state.detail.preview);
         assert!(rt.find("title-preview").is_some());
     }
 }
@@ -231,19 +234,22 @@ fn catalog_preview_opens_the_picker_and_history_restores_the_preview() {
 fn tv_picker_returns_from_sources_without_changing_season() {
     let mut s = init();
     s.navigation.page = Page::Detail;
-    s.detail = Some(multi_season_series());
+    s.detail.meta = Some(multi_season_series());
     let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);
     assert!(rt.find("episodes").is_some());
     assert_eq!(rt.state.visible_episode_indices(), [4, 2]);
     tap(&mut rt, "episode-2");
-    assert_eq!(rt.state.selected_video_id.as_deref(), Some("show:1:2"));
+    assert_eq!(
+        rt.state.detail.episodes.selected.as_deref(),
+        Some("show:1:2")
+    );
     assert!(rt.find("source-picker").is_some());
-    let stale = rt.state.stream_id;
+    let stale = rt.state.runtime.streams.generation;
     tap(&mut rt, "detail-back");
-    assert!(rt.state.stream_id > stale);
+    assert!(rt.state.runtime.streams.generation > stale);
     assert_eq!(rt.state.active_season(), Some(1));
-    assert!(rt.state.selected_video_id.is_none());
+    assert!(rt.state.detail.episodes.selected.is_none());
     assert!(rt.find("episode-2").is_some());
 }
 
@@ -259,19 +265,19 @@ fn app_fullscreen_hides_topbar_on_every_route_and_escape_keeps_the_route() {
     ] {
         let mut s = init();
         s.navigation.page = page;
-        s.detail = Some(series(3));
+        s.detail.meta = Some(series(3));
         let mut rt = rune::Runtime::new(s, view, (1280.0, 820.0), rune::Env::default());
         rt.on_key = Some(on_key);
         rt.frame(0.0);
         tap(&mut rt, "app-fullscreen");
-        assert!(rt.state.app_fullscreen);
+        assert!(rt.state.shell.fullscreen);
         assert!(rt.find("app-exit-fullscreen").is_some());
         rt.key(rune::KeyEvent {
             key: rune::Key::Escape,
             mods: rune::Mods::default(),
         });
         rt.frame(0.0);
-        assert!(!rt.state.app_fullscreen);
+        assert!(!rt.state.shell.fullscreen);
         assert_eq!(rt.state.navigation.page, page);
         assert!(rt.find("topbar").is_some());
     }
@@ -288,12 +294,12 @@ fn f11_works_in_search_and_app_fullscreen_survives_stopping_playback() {
         mods: rune::Mods::default(),
     });
     rt.frame(0.0);
-    assert!(rt.state.app_fullscreen);
+    assert!(rt.state.shell.fullscreen);
     rt.update(|s, _| {
         s.player.playing = true;
         s.stop();
     });
-    assert!(rt.state.app_fullscreen);
+    assert!(rt.state.shell.fullscreen);
     tap(&mut rt, "app-exit-fullscreen");
-    assert!(!rt.state.app_fullscreen);
+    assert!(!rt.state.shell.fullscreen);
 }

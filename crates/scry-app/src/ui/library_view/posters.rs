@@ -16,14 +16,14 @@ impl State {
         &mut self,
         items: Vec<(Media, Option<scry_library::Progress>)>,
     ) {
-        let relayout = self.library.up_next.len().div_ceil(self.poster_columns)
-            != items.len().div_ceil(self.poster_columns);
+        let relayout = self.library.up_next.len().div_ceil(self.posters.columns)
+            != items.len().div_ceil(self.posters.columns);
         self.library.up_next = items;
         self.library.up_next_loaded = true;
         self.sync_library_posters();
         if self.navigation.page == crate::ui::Page::Watching && relayout {
             self.library.grid_generation += 1;
-            self.poster_visible = 0..0;
+            self.posters.visible = 0..0;
         }
         self.refresh_artwork();
     }
@@ -33,13 +33,13 @@ impl State {
             .entries
             .as_ref()
             .map_or(0, Vec::len)
-            .div_ceil(self.poster_columns)
-            != items.len().div_ceil(self.poster_columns);
+            .div_ceil(self.posters.columns)
+            != items.len().div_ceil(self.posters.columns);
         self.library.entries = Some(items);
         self.sync_library_posters();
         if self.navigation.page == crate::ui::Page::Library && relayout {
             self.library.grid_generation += 1;
-            self.poster_visible = 0..0;
+            self.posters.visible = 0..0;
         }
         self.refresh_artwork();
     }
@@ -48,8 +48,8 @@ impl State {
         &mut self,
         items: Vec<(Media, scry_library::Progress)>,
     ) {
-        let relayout = self.library.watching.len().div_ceil(self.poster_columns)
-            != items.len().div_ceil(self.poster_columns);
+        let relayout = self.library.watching.len().div_ceil(self.posters.columns)
+            != items.len().div_ceil(self.posters.columns);
         self.library.watching = items;
         self.library.watching_watched.retain(|key| {
             self.library
@@ -60,7 +60,7 @@ impl State {
         self.sync_library_posters();
         if self.navigation.page == crate::ui::Page::Watching && relayout {
             self.library.grid_generation += 1;
-            self.poster_visible = 0..0;
+            self.posters.visible = 0..0;
         }
         self.refresh_artwork();
     }
@@ -113,9 +113,15 @@ impl State {
             };
             let known = self
                 .detail
+                .meta
                 .iter()
-                .filter(|_| key.namespace == "imdb" || key.namespace == self.detail_namespace)
-                .chain(self.metas.iter().filter(|_| key.namespace == "imdb"))
+                .filter(|_| key.namespace == "imdb" || key.namespace == self.detail.namespace)
+                .chain(
+                    self.discover
+                        .results
+                        .iter()
+                        .filter(|_| key.namespace == "imdb"),
+                )
                 .chain(
                     self.library
                         .series
@@ -175,7 +181,10 @@ impl State {
                 posters.cache.contains_key(key)
             }
         });
-        if self.library.posters.busy || self.services.is_none() || self.addons.is_empty() {
+        if self.library.posters.busy
+            || self.runtime.services.is_none()
+            || self.addons.installed.is_empty()
+        {
             return;
         }
         // A full series metadata request also supplies its poster. Let that
@@ -191,11 +200,11 @@ impl State {
         if missing.is_empty() {
             return;
         }
-        if let Some(services) = &mut self.services {
+        if let Some(services) = &mut self.runtime.services {
             self.library.posters.busy = true;
             services.library_posters(
                 self.library.posters.generation,
-                self.addons.clone(),
+                self.addons.installed.clone(),
                 missing,
             );
         }

@@ -30,7 +30,7 @@ fn channel(id: &str) -> Channel {
 
 fn state() -> State {
     let mut state = super::super::app::init();
-    state.config_busy = false;
+    state.addons.busy = false;
     state.navigation.page = Page::Guide;
     state.guide.data.channels = vec![channel("office"), channel("himym")];
     state.guide.selected = Some("office".into());
@@ -39,6 +39,35 @@ fn state() -> State {
 
 fn stream(value: serde_json::Value) -> Stream {
     serde_json::from_value(value).unwrap()
+}
+
+#[test]
+fn detail_owned_stream_results_cannot_complete_an_active_guide_tune() {
+    let mut state = state();
+    let slot = state.guide.data.channels[0].slots[0].clone();
+    state.guide.tuned = Some(("office".into(), slot));
+    state.guide.resolving = true;
+    let generation = state
+        .runtime
+        .streams
+        .start(crate::ui::request::StreamOwner::Detail);
+    let (tx, rx) = tokio::sync::mpsc::channel(1);
+    state.runtime.events = Some(rx);
+    tx.try_send(crate::services::Event::Streams(
+        generation,
+        vec![(
+            "Provider".into(),
+            stream(serde_json::json!({"url":"https://example.invalid/video"})),
+        )],
+        vec![],
+        true,
+    ))
+    .unwrap();
+    crate::ui::events::poll(&mut state, 0.0, &mut Tx::default());
+    assert!(state.guide.resolving);
+    assert!(state.guide.alternatives.is_empty());
+    assert!(!state.player.playing);
+    assert_eq!(state.guide.tuned.as_ref().unwrap().0, "office");
 }
 
 #[test]
@@ -216,7 +245,7 @@ fn settings_use_aligned_horizontal_choices_without_repeated_channel_controls() {
     for viewport in [(1280.0, 820.0), (880.0, 600.0)] {
         let mut state = state();
         state.navigation.page = Page::Settings;
-        state.addons = vec![serde_json::from_value(serde_json::json!({"manifest_url":"https://example.com/manifest.json","manifest":{"id":"streams","name":"Streams","resources":["stream"]}})).unwrap()];
+        state.addons.installed = vec![serde_json::from_value(serde_json::json!({"manifest_url":"https://example.com/manifest.json","manifest":{"id":"streams","name":"Streams","resources":["stream"]}})).unwrap()];
         let mut runtime = rune::Runtime::new(
             state,
             super::super::shell::view,
@@ -336,9 +365,9 @@ fn leaving_guide_invalidates_pending_tunes_and_clears_source_candidates() {
     state.guide.alternatives.push(stream(
         serde_json::json!({"url":"https://example.com/video"}),
     ));
-    let generation = state.stream_id;
+    let generation = state.runtime.streams.generation;
     state.navigate(Page::Watching);
-    assert!(state.stream_id > generation);
+    assert!(state.runtime.streams.generation > generation);
     assert!(state.guide.tuned.is_none());
     assert!(!state.guide.resolving);
     assert!(state.guide.alternatives.is_empty());
@@ -406,9 +435,13 @@ fn stale_source_results_cannot_replace_a_new_channel_tune() {
     let mut state = state();
     state.guide.resolving = true;
     state.guide.tuned = Some(("office".into(), channel("office").slots.remove(0)));
-    state.stream_id = 20;
+    state.runtime.streams.generation = 19;
+    state
+        .runtime
+        .streams
+        .start(crate::ui::request::StreamOwner::Guide);
     let (sender, events) = tokio::sync::mpsc::channel(4);
-    state.events = Some(events);
+    state.runtime.events = Some(events);
     sender
         .try_send(crate::services::Event::Streams(
             19,
@@ -464,7 +497,7 @@ fn playback_restart_after_joining_does_not_seek_again_or_reset_watched_observati
     state.player.playing = true;
     state.guide.tuned = Some(("office".into(), channel("office").slots.remove(0)));
     let (sender, events) = tokio::sync::mpsc::channel(4);
-    state.events = Some(events);
+    state.runtime.events = Some(events);
     sender.try_send(crate::services::Event::Ready(4)).unwrap();
     super::super::events::poll(&mut state, 0.0, &mut Tx::default());
     assert!(state.player.ready);

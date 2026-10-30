@@ -143,7 +143,7 @@ impl State {
         } else {
             None
         };
-        self.host.cover(controls, overlay, interaction.scale);
+        self.shell.host.cover(controls, overlay, interaction.scale);
     }
 
     fn poll_player_overlays(&mut self, active: bool, tx: &mut rune::Tx) -> bool {
@@ -152,7 +152,11 @@ impl State {
         let overlay_was = self.player.stats_overlay.is_open();
         if active {
             let now = Instant::now();
-            match self.host.pointer_position(self.player.interaction.scale) {
+            match self
+                .shell
+                .host
+                .pointer_position(self.player.interaction.scale)
+            {
                 VideoPointer::Inside(point) => {
                     self.player.stats_overlay.pointer(Some(point), now, tx);
                     self.player.subtitles.overlay.pointer(Some(point), now, tx);
@@ -187,7 +191,7 @@ impl State {
             || audio_changed
             || audio_was != self.player.audio.overlay.is_open()
             || subtitles_was != self.player.subtitles.overlay.is_open();
-        if let Some(services) = &self.services {
+        if let Some(services) = &self.runtime.services {
             services.observe_stream_stats(
                 (active && self.player.stats_overlay.is_open() && self.player.torrent_source)
                     .then_some(self.player.generation),
@@ -197,7 +201,7 @@ impl State {
     }
 
     pub(in crate::ui) fn poll_player_interaction(&mut self, tx: &mut rune::Tx) -> bool {
-        let clicks = self.host.video_clicks();
+        let clicks = self.shell.host.video_clicks();
         let active = self.player.playing
             && (self.navigation.page == super::Page::Player
                 || self.navigation.page == super::Page::Guide && self.player.fullscreen);
@@ -214,7 +218,7 @@ impl State {
         let now = Instant::now();
         let mut acted = false;
         let was = (self.player.interaction.visible, self.player.fullscreen);
-        self.player.interaction.double_click = self.host.double_click_interval();
+        self.player.interaction.double_click = self.shell.host.double_click_interval();
         for click in clicks {
             if self.player.audio.overlay.is_open() {
                 self.player.audio.overlay.dismiss();
@@ -237,7 +241,7 @@ impl State {
         }
         if self.player.fullscreen {
             let interaction = &mut self.player.interaction;
-            let pointer = match self.host.pointer_position(interaction.scale) {
+            let pointer = match self.shell.host.pointer_position(interaction.scale) {
                 VideoPointer::Unavailable => None,
                 VideoPointer::Outside => Some(None),
                 VideoPointer::Inside(point) => Some(Some(point)),

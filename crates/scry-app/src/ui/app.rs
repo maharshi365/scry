@@ -13,9 +13,21 @@ use super::{
     shortcuts::{Focus, Registration, Scope, dispatch},
 };
 use crate::services::Services;
-use rune::{App, AppSpec, TextEdit};
+use rune::{App, AppSpec};
 use scry_app::platform::{Host, VideoHost};
 use std::sync::{Arc, Mutex};
+
+#[derive(Default)]
+pub(super) struct AppRuntime {
+    pub error: Option<String>,
+    pub streams: super::request::StreamRequest,
+    pub services: Option<Services>,
+    pub events: Option<tokio::sync::mpsc::Receiver<crate::services::Event>>,
+    pub startup_play: Option<String>,
+    pub quit: Option<rune::AppHandle<State>>,
+    #[cfg(feature = "profiling")]
+    pub profiling: Option<super::profiling::Driver>,
+}
 
 const SHORTCUTS: &[Registration] = &[
     Registration {
@@ -57,14 +69,14 @@ pub(super) fn on_key(s: &mut State, event: &rune::KeyEvent, tx: &mut rune::Tx) -
             s.player.interaction.keyboard = true;
         }
     }
-    if event.key == rune::Key::Escape && (s.context_menu.is_some() || s.addon_install_open) {
-        s.context_menu = None;
-        s.addon_install_open = false;
+    if event.key == rune::Key::Escape && (s.shell.context_menu.is_some() || s.addons.install_open) {
+        s.shell.context_menu = None;
+        s.addons.install_open = false;
         return true;
     }
-    let fullscreen = (s.player.fullscreen, s.app_fullscreen);
+    let fullscreen = (s.player.fullscreen, s.shell.fullscreen);
     let handled = dispatch(s, event, Focus::Screen, SHORTCUTS);
-    if (s.player.fullscreen, s.app_fullscreen) != fullscreen {
+    if (s.player.fullscreen, s.shell.fullscreen) != fullscreen {
         tx.instant();
     }
     handled
@@ -72,9 +84,9 @@ pub(super) fn on_key(s: &mut State, event: &rune::KeyEvent, tx: &mut rune::Tx) -
 
 pub(super) fn on_input_key(s: &mut State, event: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
     // Escape belongs to the editor, even when no feature handles it.
-    let fullscreen = s.app_fullscreen;
+    let fullscreen = s.shell.fullscreen;
     let handled = dispatch(s, event, Focus::TextInput, SHORTCUTS) || event.key == rune::Key::Escape;
-    if s.app_fullscreen != fullscreen {
+    if s.shell.fullscreen != fullscreen {
         tx.instant();
     }
     handled
@@ -89,73 +101,27 @@ impl State {
             include_bytes!(concat!(env!("OUT_DIR"), "/skry.rgba")).to_vec(),
         );
         Self {
-            #[cfg(feature = "profiling")]
-            profiling: None,
-            native_navigation: scry_app::platform::NavigationInput::default(),
-            logo,
-            artwork: None,
-            artwork_urls: Vec::new(),
-            player_artwork: None,
-            player_artwork_urls: Vec::new(),
-            poster_visible: 0..0,
-            poster_columns: 3,
-            poster_viewport: None,
-            poster_route: 0,
+            runtime: AppRuntime::default(),
+            shell: super::shell::ShellState {
+                host,
+                host_error,
+                native_navigation: scry_app::platform::NavigationInput::default(),
+                logo,
+                fullscreen: false,
+                context_menu: None,
+            },
+            artwork: super::artwork::ArtworkState::default(),
+            posters: super::poster_grid::PosterGridState::default(),
             library: LibraryUi::default(),
             calendar: super::calendar::CalendarUi::default(),
             stats: super::stats::StatsUi::default(),
             guide: super::guide::GuideUi::default(),
-            context_menu: None,
-            addon_install_open: false,
-            addon_install_complete: false,
-            addon_layout: super::addons::AddonLayout::default(),
-            detail_namespace: String::new(),
-            pending_episode: None,
-            host,
-            host_error,
-            services: None,
-            events: None,
             navigation: super::navigation::NavigationState::default(),
             player: super::player::state::PlayerState::default(),
-            subtitle_preferences: scry_playback::subtitles::Preferences::default(),
-            subtitle_settings: super::player::subtitles::SettingsUi::default(),
-            streaming_settings: super::settings::streaming::SettingsUi::default(),
-            addons: Vec::new(),
-            config_busy: true,
-            install: TextEdit::new(""),
-            direct: TextEdit::new(""),
-            search: TextEdit::new(""),
-            displayed_query: String::new(),
-            kind: "movie".into(),
-            catalog: None,
-            catalog_paging: super::catalog::CatalogPaging::default(),
-            catalog_menu_open: false,
-            metas: Arc::default(),
-            providers: Arc::default(),
-            detail: None,
-            detail_preview: false,
-            app_fullscreen: false,
-            selected_video_id: None,
-            episode_offset: 0,
-            episode_viewport: None,
-            episode_state_offset: None,
-            episode_search: TextEdit::new(""),
-            episode_season: None,
-            season_menu_open: false,
-            streams: Vec::new(),
-            stream_provider: None,
-            stream_sort: super::source_picker::SourceSort::Provider,
-            source_menu_open: false,
-            source_sort_open: false,
-            warnings: Vec::new(),
-            error: None,
-            status: String::new(),
-            loading: false,
-            catalog_id: 0,
-            detail_id: 0,
-            stream_id: 0,
-            startup_play: None,
-            quit: None,
+            settings: super::settings::SettingsState::default(),
+            addons: super::addons::AddonsState::default(),
+            discover: super::catalog::DiscoverState::default(),
+            detail: super::detail::DetailState::default(),
         }
     }
 }
@@ -166,8 +132,8 @@ pub(super) fn init() -> State {
 
 impl Drop for State {
     fn drop(&mut self) {
-        self.events.take();
-        if let Some(mut services) = self.services.take() {
+        self.runtime.events.take();
+        if let Some(mut services) = self.runtime.services.take() {
             services.shutdown();
         }
     }
@@ -185,15 +151,15 @@ pub(super) fn headless() -> bool {
 fn setup(s: &mut State, wake: rune::Waker) {
     #[cfg(feature = "profiling")]
     {
-        s.profiling = super::profiling::Driver::start(wake.clone());
+        s.runtime.profiling = super::profiling::Driver::start(wake.clone());
     }
-    s.native_navigation.connect(wake.clone());
+    s.shell.native_navigation.connect(wake.clone());
     if headless() {
-        s.config_busy = false;
+        s.addons.busy = false;
         return;
     }
-    s.artwork = crate::artwork::Artwork::start(&wake).ok();
-    s.player_artwork = crate::artwork::Artwork::start_player(&wake).ok();
+    s.artwork.posters = crate::artwork::Artwork::start(&wake).ok();
+    s.artwork.player = crate::artwork::Artwork::start_player(&wake).ok();
     match Services::start(wake.clone()) {
         Ok((services, events)) => {
             let path = services.data_dir().join(scry_library::DATABASE_NAME);
@@ -204,14 +170,14 @@ fn setup(s: &mut State, wake: rune::Waker) {
                 Ok(worker) => s.library.worker = Some(worker),
                 Err(_) => s.library.error = Some("Cannot start the local library".into()),
             }
-            s.services = Some(services);
-            s.subtitle_settings.busy = true;
-            s.streaming_settings.busy = true;
-            s.events = Some(events);
+            s.runtime.services = Some(services);
+            s.settings.subtitles.busy = true;
+            s.settings.streaming.busy = true;
+            s.runtime.events = Some(events);
         }
         Err(error) => {
-            s.config_busy = false;
-            s.error = Some(error.to_string());
+            s.addons.busy = false;
+            s.runtime.error = Some(error.to_string());
         }
     }
 }
@@ -260,9 +226,9 @@ fn run_app() -> anyhow::Result<()> {
     app.args(rune_args)
         .init(move || {
             let mut state = State::new(host, error);
-            state.native_navigation = native_navigation;
-            state.startup_play = startup_play;
-            state.quit = Some(quit);
+            state.shell.native_navigation = native_navigation;
+            state.runtime.startup_play = startup_play;
+            state.runtime.quit = Some(quit);
             state
         })
         .on_window(move |window| {
@@ -278,23 +244,23 @@ fn run_app() -> anyhow::Result<()> {
             }
         })
         .on_close(|s, tx| {
-            if s.app_fullscreen {
+            if s.shell.fullscreen {
                 s.toggle_app_fullscreen();
             }
             s.set_fullscreen(false);
             s.save_library_progress();
             let finish_library = s.take_library_shutdown();
-            s.host.hide();
-            s.events.take();
-            if let Some(mut services) = s.services.take() {
-                let quit = s.quit.clone();
+            s.shell.host.hide();
+            s.runtime.events.take();
+            if let Some(mut services) = s.runtime.services.take() {
+                let quit = s.runtime.quit.clone();
                 services.shutdown_then(move || {
                     finish_library();
                     if let Some(quit) = quit {
                         quit.quit();
                     }
                 });
-            } else if let Some(quit) = s.quit.clone() {
+            } else if let Some(quit) = s.runtime.quit.clone() {
                 std::thread::spawn(move || {
                     finish_library();
                     quit.quit();

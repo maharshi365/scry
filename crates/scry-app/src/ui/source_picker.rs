@@ -11,6 +11,38 @@ use super::{
 use rune::{Cx, El, col, el, row, text};
 use scry_addons::Stream;
 
+pub(super) struct SourcesState {
+    pub request: super::request::RequestState,
+    pub streams: Vec<(String, Stream)>,
+    pub provider: Option<String>,
+    pub sort: SourceSort,
+    pub menu_open: bool,
+    pub sort_open: bool,
+}
+
+impl Default for SourcesState {
+    fn default() -> Self {
+        Self {
+            request: super::request::RequestState::default(),
+            streams: Vec::new(),
+            provider: None,
+            sort: SourceSort::Provider,
+            menu_open: false,
+            sort_open: false,
+        }
+    }
+}
+
+impl SourcesState {
+    pub fn reset(&mut self) {
+        self.streams.clear();
+        self.provider = None;
+        self.menu_open = false;
+        self.sort_open = false;
+        self.request = super::request::RequestState::default();
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum SourceSort {
     Original,
@@ -76,7 +108,7 @@ fn filter(
 
 fn providers(s: &State) -> Vec<(String, usize)> {
     let mut providers: Vec<(String, usize)> = Vec::new();
-    for (addon, _) in &s.streams {
+    for (addon, _) in &s.detail.sources.streams {
         if let Some((_, count)) = providers.iter_mut().find(|(name, _)| name == addon) {
             *count += 1;
         } else {
@@ -87,17 +119,21 @@ fn providers(s: &State) -> Vec<(String, usize)> {
 }
 
 fn visible_sources(s: &State) -> Vec<(usize, &String, &Stream)> {
-    let sources = s
-        .streams
-        .iter()
-        .enumerate()
-        .filter_map(|(index, (addon, stream))| {
-            s.stream_provider
-                .as_ref()
-                .is_none_or(|provider| provider == addon)
-                .then_some((index, addon, stream))
-        });
-    match s.stream_sort {
+    let sources =
+        s.detail
+            .sources
+            .streams
+            .iter()
+            .enumerate()
+            .filter_map(|(index, (addon, stream))| {
+                s.detail
+                    .sources
+                    .provider
+                    .as_ref()
+                    .is_none_or(|provider| provider == addon)
+                    .then_some((index, addon, stream))
+            });
+    match s.detail.sources.sort {
         SourceSort::Best => super::source_ranking::rank_sources(
             sources,
             |(_, addon, stream)| (addon.as_str(), *stream),
@@ -113,7 +149,7 @@ fn visible_sources(s: &State) -> Vec<(usize, &String, &Stream)> {
 }
 
 pub(super) fn provider_menu(s: &State, cx: &Cx<State>) -> Option<El> {
-    if !s.source_menu_open {
+    if !s.detail.sources.menu_open {
         return None;
     }
     let anchor = cx.layout("source-select")?;
@@ -125,21 +161,21 @@ pub(super) fn provider_menu(s: &State, cx: &Cx<State>) -> Option<El> {
     let mut filters = col().key("source-filters").w_full().gap(6.0).child(filter(
         "source-all",
         "All add-ons".into(),
-        s.stream_provider.is_none(),
+        s.detail.sources.provider.is_none(),
         |s| {
-            s.stream_provider = None;
-            s.source_menu_open = false;
+            s.detail.sources.provider = None;
+            s.detail.sources.menu_open = false;
         },
     ));
     for (index, (provider, _)) in providers.into_iter().enumerate() {
-        let selected = s.stream_provider.as_ref() == Some(&provider);
+        let selected = s.detail.sources.provider.as_ref() == Some(&provider);
         filters = filters.child(filter(
             format!("source-provider-{index}"),
             provider.clone(),
             selected,
             move |s| {
-                s.stream_provider = Some(provider.clone());
-                s.source_menu_open = false;
+                s.detail.sources.provider = Some(provider.clone());
+                s.detail.sources.menu_open = false;
             },
         ));
     }
@@ -149,7 +185,7 @@ pub(super) fn provider_menu(s: &State, cx: &Cx<State>) -> Option<El> {
             "source-select",
             anchor[2],
             f32::from(visible) * (super::design::tokens::control::HEIGHT + 6.0),
-            |s: &mut State| s.source_menu_open = false,
+            |s: &mut State| s.detail.sources.menu_open = false,
         )
         .child(filters),
     )
@@ -157,13 +193,13 @@ pub(super) fn provider_menu(s: &State, cx: &Cx<State>) -> Option<El> {
 
 fn sort_option(key: &str, title: &str, order: SourceSort, selected: bool) -> El {
     menu_choice(key, title, selected, move |s: &mut State| {
-        s.stream_sort = order;
-        s.source_sort_open = false;
+        s.detail.sources.sort = order;
+        s.detail.sources.sort_open = false;
     })
 }
 
 pub(super) fn sort_menu(s: &State, cx: &Cx<State>) -> Option<El> {
-    if !s.source_sort_open {
+    if !s.detail.sources.sort_open {
         return None;
     }
     cx.layout("source-sort")?;
@@ -173,7 +209,7 @@ pub(super) fn sort_menu(s: &State, cx: &Cx<State>) -> Option<El> {
             "source-sort",
             180.0,
             3.0 * (super::design::tokens::control::HEIGHT + 6.0),
-            |s: &mut State| s.source_sort_open = false,
+            |s: &mut State| s.detail.sources.sort_open = false,
         )
         .child(
             col()
@@ -183,19 +219,19 @@ pub(super) fn sort_menu(s: &State, cx: &Cx<State>) -> Option<El> {
                     "source-best",
                     "Best available",
                     SourceSort::Best,
-                    s.stream_sort == SourceSort::Best,
+                    s.detail.sources.sort == SourceSort::Best,
                 ))
                 .child(sort_option(
                     "source-original",
                     "Original order",
                     SourceSort::Original,
-                    s.stream_sort == SourceSort::Original,
+                    s.detail.sources.sort == SourceSort::Original,
                 ))
                 .child(sort_option(
                     "source-provider-sort",
                     "Provider",
                     SourceSort::Provider,
-                    s.stream_sort == SourceSort::Provider,
+                    s.detail.sources.sort == SourceSort::Provider,
                 )),
         ),
     )
@@ -203,10 +239,10 @@ pub(super) fn sort_menu(s: &State, cx: &Cx<State>) -> Option<El> {
 
 fn header(s: &State) -> El {
     let t = theme();
-    let video = s.detail.as_ref().and_then(|meta| {
+    let video = s.detail.meta.as_ref().and_then(|meta| {
         meta.videos
             .iter()
-            .find(|video| Some(&video.id) == s.selected_video_id.as_ref())
+            .find(|video| Some(&video.id) == s.detail.episodes.selected.as_ref())
     });
     let mut controls = row().w_full().center_y().gap(8.0);
     if let Some(video) = video {
@@ -218,9 +254,9 @@ fn header(s: &State) -> El {
                 DropdownVariant::Transparent,
             )
             .on_press(|s: &mut State| {
-                s.source_menu_open = false;
-                s.source_sort_open = false;
-                s.season_menu_open = !s.season_menu_open;
+                s.detail.sources.menu_open = false;
+                s.detail.sources.sort_open = false;
+                s.detail.episodes.menu_open = !s.detail.episodes.menu_open;
             })
             .on_secondary_press(move |s: &mut State, point, _| {
                 s.open_season_menu(point, season);
@@ -231,13 +267,13 @@ fn header(s: &State) -> El {
     }
     let sort = dropdown_trigger(
         "source-sort",
-        s.stream_sort.title(),
+        s.detail.sources.sort.title(),
         DropdownVariant::Transparent,
     )
     .on_press(|s: &mut State| {
-        s.season_menu_open = false;
-        s.source_menu_open = false;
-        s.source_sort_open = !s.source_sort_open;
+        s.detail.episodes.menu_open = false;
+        s.detail.sources.menu_open = false;
+        s.detail.sources.sort_open = !s.detail.sources.sort_open;
     })
     .label("Sort sources");
     controls = controls.child(el().grow(1.0)).child(sort);
@@ -281,13 +317,17 @@ fn header(s: &State) -> El {
             row().key("source-controls").w_full().child(
                 dropdown_trigger(
                     "source-select",
-                    s.stream_provider.as_deref().unwrap_or("All add-ons"),
+                    s.detail
+                        .sources
+                        .provider
+                        .as_deref()
+                        .unwrap_or("All add-ons"),
                     DropdownVariant::Framed,
                 )
                 .on_press(|s: &mut State| {
-                    s.season_menu_open = false;
-                    s.source_sort_open = false;
-                    s.source_menu_open = !s.source_menu_open;
+                    s.detail.episodes.menu_open = false;
+                    s.detail.sources.sort_open = false;
+                    s.detail.sources.menu_open = !s.detail.sources.menu_open;
                 })
                 .w_full(),
             ),
@@ -301,7 +341,7 @@ fn source_list(s: &State) -> El {
     let t = theme();
     let sources = visible_sources(s);
     let mut list = col().key("detail-body").w_full().gap(8.0);
-    for (index, message) in s.warnings.iter().enumerate() {
+    for (index, message) in s.detail.sources.request.warnings.iter().enumerate() {
         list = list.child(
             SurfaceVariant::Plain
                 .apply(col())
@@ -317,16 +357,20 @@ fn source_list(s: &State) -> El {
         );
     }
     if sources.is_empty() {
-        let (title, message) = if s.loading {
+        let (title, message) = if s.detail.request.loading || s.detail.sources.request.loading {
             (
                 "Finding streams…",
                 "Sources will appear as add-ons respond.",
             )
-        } else if s.detail.as_ref().is_some_and(|meta| meta.kind == "series")
-            && s.selected_video_id.is_none()
+        } else if s
+            .detail
+            .meta
+            .as_ref()
+            .is_some_and(|meta| meta.kind == "series")
+            && s.detail.episodes.selected.is_none()
         {
             ("Select an episode", "Choose an episode to see its streams.")
-        } else if s.stream_provider.is_some() && !s.streams.is_empty() {
+        } else if s.detail.sources.provider.is_some() && !s.detail.sources.streams.is_empty() {
             (
                 "No sources from this add-on",
                 "Choose All add-ons to see the other sources.",
@@ -427,6 +471,7 @@ fn source_card(s: &State, index: usize, addon: &str, stream: &Stream) -> El {
         let chosen = stream.clone();
         let title = s
             .detail
+            .meta
             .as_ref()
             .map(|meta| meta.name.clone())
             .unwrap_or_default();

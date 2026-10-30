@@ -22,19 +22,23 @@ pub(super) fn discover(s: &State, cx: &Cx<State>) -> El {
         .min_w(0.0)
         .child(detail_header(
             "discover-header",
-            &if s.displayed_query.is_empty() {
-                super::catalog::category_label(&s.kind)
+            &if s.discover.displayed_query.is_empty() {
+                super::catalog::category_label(&s.discover.kind)
             } else {
-                format!("Results for “{}”", s.displayed_query)
+                format!("Results for “{}”", s.discover.displayed_query)
             },
             &format!(
                 "{} titles loaded{}",
-                s.metas.len(),
-                if s.loading { " / loading" } else { "" }
+                s.discover.results.len(),
+                if s.discover.request.loading {
+                    " / loading"
+                } else {
+                    ""
+                }
             ),
             catalog_selector(s),
         ));
-    if s.addons.is_empty() {
+    if s.addons.installed.is_empty() {
         body = body.child(
             super::primitives::surface::Variant::Setup
                 .apply(col())
@@ -46,18 +50,18 @@ pub(super) fn discover(s: &State, cx: &Cx<State>) -> El {
                     s.navigate(super::Page::Addons);
                 })),
         );
-    } else if s.metas.is_empty() && !s.loading {
+    } else if s.discover.results.is_empty() && !s.discover.request.loading {
         body = body.child(label(
             "No supported titles found. Try searching for a movie or TV show.",
         ));
     }
-    if s.catalog_paging.failed {
+    if s.discover.paging.failed {
         body = body.child(action("catalog-retry", "Retry loading titles", |s| {
-            if s.metas.is_empty() {
+            if s.discover.results.is_empty() {
                 s.fetch_catalog();
             } else {
-                s.catalog_paging.failed = false;
-                s.error = None;
+                s.discover.paging.failed = false;
+                s.discover.request.error = None;
                 s.request_more_catalog();
             }
         }));
@@ -68,8 +72,8 @@ pub(super) fn discover(s: &State, cx: &Cx<State>) -> El {
 fn catalog_selector(s: &State) -> El {
     let mut actions = row();
     if s.navigation.page == super::Page::Discover
-        && s.displayed_query.is_empty()
-        && let Some((_, catalog)) = &s.catalog
+        && s.discover.displayed_query.is_empty()
+        && let Some((_, catalog)) = &s.discover.catalog
     {
         let name = if catalog.name.is_empty() {
             &catalog.id
@@ -83,25 +87,29 @@ fn catalog_selector(s: &State) -> El {
         };
         actions = actions.child(
             dropdown_trigger("catalog-select", title, DropdownVariant::Framed)
-                .on_press(|s: &mut State| s.catalog_menu_open = !s.catalog_menu_open),
+                .on_press(|s: &mut State| s.discover.menu_open = !s.discover.menu_open),
         );
     }
     actions
 }
 
 pub(super) fn catalog_menu(s: &State, cx: &Cx<State>) -> Option<El> {
-    if !s.catalog_menu_open || s.navigation.page != super::Page::Discover {
+    if !s.discover.menu_open || s.navigation.page != super::Page::Discover {
         return None;
     }
     let anchor = cx.layout("catalog-select")?;
     let catalogs = s.catalogs();
     let mut choices = col().w_full().gap(tokens::layout::COPY_GAP);
     for (index, (addon, catalog)) in catalogs.iter().enumerate() {
-        let selected = s.catalog.as_ref().is_some_and(|(current_addon, current)| {
-            current_addon.manifest_url == addon.manifest_url
-                && current.id == catalog.id
-                && current.kind == catalog.kind
-        });
+        let selected = s
+            .discover
+            .catalog
+            .as_ref()
+            .is_some_and(|(current_addon, current)| {
+                current_addon.manifest_url == addon.manifest_url
+                    && current.id == catalog.id
+                    && current.kind == catalog.kind
+            });
         let name = if catalog.name.is_empty() {
             &catalog.id
         } else {
@@ -124,7 +132,7 @@ pub(super) fn catalog_menu(s: &State, cx: &Cx<State>) -> Option<El> {
             "catalog-select",
             anchor[2].max(tokens::layout::CONTROL_MIN_WIDTH),
             f32::from(visible) * (tokens::control::HEIGHT + tokens::layout::COPY_GAP),
-            |s: &mut State| s.catalog_menu_open = false,
+            |s: &mut State| s.discover.menu_open = false,
         )
         .child(choices),
     )
