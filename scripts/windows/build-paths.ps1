@@ -1,5 +1,5 @@
 # Resolve Cargo's existing location, including config and CARGO_TARGET_DIR overrides.
-$ScryRepository = Split-Path $PSScriptRoot -Parent
+$ScryRepository = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 
 function Get-ScryBuildDirectory {
     Push-Location $ScryRepository
@@ -12,5 +12,6 @@ function Get-ScryBuildDirectory {
 
 function Get-ScryExecutable([switch]$Release) {
     $profile = if ($Release) { 'release' } else { 'debug' }
-    return Join-Path (Get-ScryBuildDirectory) "$profile/scry.exe"
+    $name = if ($IsWindows) { 'scry.exe' } else { 'scry' }
+    return Join-Path (Get-ScryBuildDirectory) "$profile/$name"
 }

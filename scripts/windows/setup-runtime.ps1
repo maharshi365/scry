@@ -1,6 +1,7 @@
 param([string]$SevenZip = "7z")
 $ErrorActionPreference = "Stop"
-$root = Split-Path $PSScriptRoot -Parent
+if (-not $IsWindows) { throw 'This runtime is for Windows. On macOS, use bash scripts/macos/setup.sh.' }
+$root = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $runtime = Join-Path $root "runtime"
 $archive = Join-Path $runtime "mpv-dev-x86_64-20261021.7z"
 $url = "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261021/mpv-dev-x86_64-20261021-git-e471496c56.7z"

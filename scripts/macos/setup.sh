@@ -9,7 +9,7 @@ if ! command -v rustup >/dev/null; then
     brew install rustup
 fi
 source "$(dirname "$0")/env.sh"
-brew install mpv powershell
+brew install mpv
 rustup update stable
 rustup default stable
 cd "$(dirname "$0")/../.."
