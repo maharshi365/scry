@@ -6,6 +6,22 @@ use scry_library::{
 };
 
 #[test]
+fn sidebar_shows_the_build_version() {
+    let mut rt = rune::Runtime::new(init(), view, (880.0, 600.0), rune::Env::default());
+    rt.frame(0.0);
+    let expected = format!(
+        "SCRY / {}",
+        option_env!("SCRY_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+    );
+    assert!(
+        rt.elements()
+            .iter()
+            .any(|element| element.text.as_deref() == Some(expected.as_str())),
+        "The sidebar must identify the installed build as {expected}"
+    );
+}
+
+#[test]
 fn settings_tabs_do_not_repeat_the_tab_heading_or_explainer() {
     use super::super::settings::SettingsTab;
     for (tab, title, explainer) in [

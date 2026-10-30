@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  desktop:
+    uses: ./.github/workflows/build-desktop.yml
+    with:
+      sha: ${{ github.sha }}
+  publish:
+    name: Draft GitHub release
+    needs: desktop
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: scry-*
+          path: dist
+          merge-multiple: true
+      - name: Verify downloads and tag
+        working-directory: dist
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          archives=(Scry-*.zip Scry-*.dmg)
+          checksums=(Scry-*.sha256)
+          test "${#archives[@]}" -eq 2
+          test "${#checksums[@]}" -eq 2
+          sha256sum --check --strict -- *.sha256
+          test -f "Scry-${TAG#v}-windows-x64.zip"
+          test -f "Scry-${TAG#v}-macos-arm64.dmg"
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" dist/* --verify-tag --draft --title "Scry $TAG" --notes 'Unsigned preview builds. Windows: extract the ZIP and run scry.exe. macOS (Apple Silicon): requires Homebrew mpv (brew install mpv); drag Scry from the DMG to Applications. Developer signing and notarization are not configured. Review runtime redistribution licensing before publishing this draft.'

@@ -267,7 +267,13 @@ fn sidebar(s: &State) -> El {
             .w_full(),
         );
     }
-    sidebar.child(eyebrow(concat!("SCRY / ", env!("CARGO_PKG_VERSION"))).px(10.0))
+    sidebar.child(
+        eyebrow(format!(
+            "SCRY / {}",
+            option_env!("SCRY_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+        ))
+        .px(10.0),
+    )
 }
 
 fn nav_action(

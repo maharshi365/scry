@@ -1,0 +1,37 @@
+name: Test builds
+
+on:
+  push:
+    branches: [master, main, dev]
+    paths-ignore: ['**/*.md']
+  pull_request:
+    paths-ignore: ['**/*.md']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: builds-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    uses: ./.github/workflows/build-desktop.yml
+    with:
+      sha: ${{ github.sha }}
+  summary:
+    needs: desktop
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download instructions
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Scry builds
+          Download the platform artifact from this run. Artifacts expire after 14 days.
+
+          - **Windows x64:** extract the ZIP and run `scry.exe`. Keep `libmpv-2.dll` beside it. SmartScreen may warn because this build is unsigned.
+          - **macOS Apple Silicon:** install mpv with `brew install mpv`, then open the DMG and drag Scry to Applications. This build is not Developer ID signed or notarized. If macOS blocks it, remove quarantine only if you trust this build: `xattr -dr com.apple.quarantine /Applications/Scry.app`.
+
+          Each download includes a SHA-256 checksum. No signing credentials are needed.
+          EOF
