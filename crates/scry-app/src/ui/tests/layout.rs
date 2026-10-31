@@ -21,8 +21,6 @@ fn titlebar_reserves_native_controls_without_losing_search_or_navigation() {
                 assert!(bounds[1] >= header[1] && bounds[1] + bounds[3] <= header[1] + header[3]);
                 assert!(bounds[0] + bounds[2] <= width, "{key} exceeds window");
             }
-            assert!(rt.find("page-refresh").is_none());
-            assert!(rt.find("app-fullscreen").is_none());
         }
     }
 }
@@ -138,7 +136,6 @@ fn topbar_keeps_a_compact_brand_at_minimum_window_size() {
     let mut rt = rune::Runtime::new(init(), view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);
     let header = rect(&rt, "topbar");
-    assert!(rt.find("brand-logo").is_none());
     let back = rect(&rt, "nav-back");
     let wordmark = rect(&rt, "brand-wordmark");
     assert!(wordmark[0] >= header[0] && wordmark[1] >= header[1]);

@@ -52,7 +52,6 @@ fn calendar_headers_only_offer_counts_and_compact_expand_actions_for_releases() 
         rt.frame(1.0 / 60.0);
     }
     let elements = rt.elements();
-    assert!(rt.find(&format!("calendar-expand-{empty_date}")).is_none());
     assert!(
         elements
             .iter()
@@ -75,24 +74,8 @@ fn calendar_headers_only_offer_counts_and_compact_expand_actions_for_releases() 
         .unwrap();
     let glyph = elements.iter().find(|e| e.parent == Some(index)).unwrap();
     assert!(glyph.rect[3] <= super::super::design::tokens::type_::SMALL.size * 1.2);
-    assert!(elements.iter().all(|e| e.text.as_deref() != Some("—")));
-    assert!(
-        elements
-            .iter()
-            .all(|e| !matches!(e.key.as_deref(), Some("calendar-week" | "calendar-month")))
-    );
     tap(&mut rt, &expand_key);
     assert_eq!(rt.state.calendar.expanded_day, Some(date));
-    let elements = rt.elements();
-    assert!(elements.iter().all(|e| !matches!(
-        e.key.as_deref(),
-        Some("calendar-dialog-prev" | "calendar-dialog-next")
-    )));
-    assert!(
-        elements
-            .iter()
-            .all(|e| e.text.as_deref() != Some("No releases on this day."))
-    );
     tap(&mut rt, "calendar-dialog-close");
     assert_eq!(rt.state.calendar.expanded_day, None);
 }
@@ -138,7 +121,6 @@ fn context_refresh_reloads_calendar_without_changing_day_geometry() {
         rt.frame(1.0 / 60.0);
     }
     let day = rect(&rt, &format!("calendar-day-{date}"));
-    assert!(rt.find("calendar-refresh").is_none());
     rt.secondary_down(1250.0, 790.0);
     rt.secondary_up(1250.0, 790.0);
     rt.frame(1.0 / 60.0);

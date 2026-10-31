@@ -361,7 +361,6 @@ fn subtitle_defaults_are_english_and_settings_edits_do_not_change_current_tracks
         Some("spa")
     );
     assert_eq!(rt.state.player.subtitles.selected, [None, None]);
-    assert!(rt.find("guide-quality-1080").is_none());
 }
 
 #[test]

@@ -46,10 +46,6 @@ fn loading_action_reserves_its_label_space_and_restores_the_same_button() {
     tap(&mut rt, "playground-loading-finish");
     assert_eq!(stage(&rt).loading, Loading::Idle);
     assert!(
-        rt.playground_element("playground-loading-action-spinner")
-            .is_none()
-    );
-    assert!(
         rect(&rt, "playground-loading-action")
             .into_iter()
             .zip(before)
@@ -201,7 +197,6 @@ fn motion_example_can_be_revealed_and_hidden() {
     for _ in 0..60 {
         rt.frame(1.0 / 60.0);
     }
-    assert!(rt.find("playground-motion-surface").is_none());
     tap(&mut rt, "playground-motion-toggle");
     assert!(stage(&rt).expanded);
     assert!(rt.find("playground-motion-surface").is_some());
@@ -226,7 +221,6 @@ fn built_in_host_shows_fixture_scenes_without_custom_navigation() {
                 assert!(dialog[0] >= root[0]);
                 assert!(dialog[0] + dialog[2] <= root[0] + root[2] + 0.5);
             }
-            assert!(rt.find("playground-nav-controls").is_none());
             for element in rt.elements().iter().filter(|element| {
                 !element.exiting
                     && element

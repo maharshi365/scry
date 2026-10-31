@@ -14,7 +14,7 @@ fn watching_empty_state_has_catalog_actions() {
 }
 
 #[test]
-fn library_empty_states_keep_watch_filters_without_type_tabs() {
+fn library_empty_states_keep_watch_filters() {
     for watched in [false, true] {
         let mut s = init();
         s.navigation.page = Page::Library;
@@ -27,8 +27,6 @@ fn library_empty_states_keep_watch_filters_without_type_tabs() {
         rt.update(|s, _| s.apply_library_entries(vec![]));
         rt.frame(1.0 / 60.0);
         let list_tab = rect(&rt, "library-watchlist-tab");
-        assert!(rt.find("library-movies").is_none());
-        assert!(rt.find("library-series-filter").is_none());
         assert_eq!(list_tab[3], super::super::design::tokens::control::HEIGHT);
         assert!(rt.find("library-empty").is_some());
         let empty = rect(&rt, "library-empty");

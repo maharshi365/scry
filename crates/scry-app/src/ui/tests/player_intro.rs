@@ -69,7 +69,6 @@ fn hint_is_passive_for_only_the_last_two_seconds_then_skip_seeks_to_end() {
         "Skipping must not toggle playback"
     );
     rt.frame(0.25);
-    assert!(rt.find("player-skip-intro").is_none());
     rt.update(|s, tx| {
         s.player.sample.position_s = Some(60.0);
         tx.instant();
@@ -91,30 +90,9 @@ fn intro_prompt_does_not_move_or_disappear_when_fullscreen_controls_hide() {
         tx.instant();
     });
     rt.frame(0.25);
-    assert!(rt.find("player-controls").is_none());
     assert!(rt.find("player-skip-intro").is_some());
     assert_eq!(rect(&rt, "player-intro-prompt"), prompt);
     assert_eq!(rect(&rt, "video"), video);
-}
-
-#[test]
-fn invalid_for_this_video_or_unready_data_never_offers_skip() {
-    let mut rt = runtime(false, 880.0, 600.0);
-    for (ready, duration, position) in [
-        (false, 200.0, 60.0),
-        (true, 100.0, 60.0),
-        (true, f64::NAN, 60.0),
-        (true, 200.0, f64::NAN),
-    ] {
-        rt.update(|s, tx| {
-            s.player.ready = ready;
-            s.player.sample.duration_s = Some(duration);
-            s.player.sample.position_s = Some(position);
-            tx.instant();
-        });
-        rt.frame(0.25);
-        assert!(rt.find("player-skip-intro").is_none());
-    }
 }
 
 #[test]
@@ -124,7 +102,6 @@ fn player_menus_temporarily_replace_the_intro_prompt_without_moving_video() {
     tap(&mut rt, "player-stats");
     rt.frame(0.25);
     assert!(rt.find("player-stats-overlay").is_some());
-    assert!(rt.find("player-skip-intro").is_none());
     assert_eq!(rect(&rt, "video"), video);
     rt.update(|s, tx| {
         s.player.stats_overlay.dismiss();

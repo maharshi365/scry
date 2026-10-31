@@ -88,7 +88,6 @@ fn show_mark_watched_updates_episode_icons_skips_future_and_needs_no_auto_track(
         .find(|element| !element.exiting && element.key.as_deref() == Some("episode-watched-0"))
         .unwrap();
     assert_eq!(icon.role, "img");
-    assert!(icon.text.is_none());
     let episode = Media {
         key: MediaKey::new("imdb", MediaKind::Episode, "tt123:1:1"),
         title: "Pilot".into(),

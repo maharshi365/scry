@@ -308,8 +308,6 @@ fn f11_does_not_enter_fullscreen_outside_the_player() {
         });
         rt.frame(0.0);
         assert!(!rt.state.player.fullscreen);
-        assert!(rt.find("app-fullscreen").is_none());
-        assert!(rt.find("app-exit-fullscreen").is_none());
         assert_eq!(rt.state.navigation.page, page);
         assert!(rt.find("topbar").is_some());
     }

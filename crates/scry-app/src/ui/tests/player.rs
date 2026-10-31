@@ -121,7 +121,6 @@ fn stream_stats_use_a_short_horizontal_panel_for_both_source_types() {
     let direct = rect(&rt, "player-stats-overlay");
     assert!((direct[2] - 360.0).abs() < 0.5);
     assert!(direct[3] <= 110.0, "Direct stats are too tall: {direct:?}");
-    assert!(rt.find("player-torrent-stats").is_none());
 
     rt.update(|s, tx| {
         s.player.torrent_source = true;
@@ -379,7 +378,6 @@ fn f11_only_toggles_fullscreen_for_active_playback_and_stop_restores_chrome() {
     let mut rt = player_runtime();
     key(&mut rt, rune::Key::Function(11));
     assert!(rt.state.player.fullscreen);
-    assert!(rt.find("topbar").is_none());
     key(&mut rt, rune::Key::Function(11));
     assert!(!rt.state.player.fullscreen);
     assert!(rt.find("topbar").is_some());

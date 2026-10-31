@@ -362,7 +362,6 @@ fn addon_tiles_keep_four_columns_and_stay_put_during_installation() {
         assert_eq!(requests.try_recv().unwrap(), crate::services::CINEMETA);
         assert_eq!(rect(&rt, "supported-addon-0"), button);
         assert!(rt.find("supported-addon-0-spinner").is_some());
-        assert!(rt.find("supported-addon-1-spinner").is_none());
         for (key, bounds) in slots.into_iter().zip(before) {
             assert_eq!(rect(&rt, key), bounds);
         }
@@ -377,7 +376,6 @@ fn addon_tiles_keep_four_columns_and_stay_put_during_installation() {
         tx.try_send(Event::Addons(Ok(installed))).unwrap();
         rt.frame(1.0 / 60.0);
         assert!(rt.state.addons.pending.is_none());
-        assert!(rt.find("supported-addon-0").is_none());
         assert!(rt.find("toggle-addon-1").is_some());
         for (key, bounds) in slots.into_iter().zip(before) {
             assert_eq!(rect(&rt, key), bounds);

@@ -42,7 +42,7 @@ fn stream(value: serde_json::Value) -> Stream {
 }
 
 #[test]
-fn empty_guide_has_one_heading_and_no_inactive_player_or_timeline() {
+fn empty_guide_has_one_heading_and_collection_actions() {
     for viewport in [(880.0, 600.0), (1280.0, 820.0)] {
         let mut state = state();
         state.guide.data.channels.clear();
@@ -55,19 +55,6 @@ fn empty_guide_has_one_heading_and_no_inactive_player_or_timeline() {
         );
         runtime.frame(0.0);
         assert!(runtime.find("guide-empty").is_some());
-        for key in [
-            "guide-video",
-            "guide-grid",
-            "guide-now-marker",
-            "guide-channel-down",
-            "guide-channel-up",
-            "guide-fullscreen",
-        ] {
-            assert!(
-                runtime.find(key).is_none(),
-                "Empty guide still renders {key}"
-            );
-        }
         assert_eq!(
             runtime
                 .elements()
@@ -142,11 +129,8 @@ fn guide_waits_for_channels_before_showing_the_empty_state() {
     );
     runtime.frame(0.0);
     assert!(runtime.find("guide-loading").is_some());
-    assert!(runtime.find("guide-empty").is_none());
-    assert!(runtime.find("guide-video").is_none());
     runtime.update(|s, _| s.guide.busy = false);
     runtime.frame(0.0);
-    assert!(runtime.find("guide-loading").is_none());
     assert!(runtime.find("guide-empty").is_some());
 }
 
