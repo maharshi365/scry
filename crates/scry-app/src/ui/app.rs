@@ -35,10 +35,6 @@ const SHORTCUTS: &[Registration] = &[
         handle: super::guide::shortcut,
     },
     Registration {
-        scope: Scope::Local,
-        handle: super::shell::shortcut,
-    },
-    Registration {
         scope: Scope::Screen,
         handle: super::player::shortcuts::handle,
     },
@@ -74,9 +70,9 @@ pub(super) fn on_key(s: &mut State, event: &rune::KeyEvent, tx: &mut rune::Tx) -
         s.addons.install_open = false;
         return true;
     }
-    let fullscreen = (s.player.fullscreen, s.shell.fullscreen);
+    let fullscreen = s.player.fullscreen;
     let handled = dispatch(s, event, Focus::Screen, SHORTCUTS);
-    if (s.player.fullscreen, s.shell.fullscreen) != fullscreen {
+    if s.player.fullscreen != fullscreen {
         tx.instant();
     }
     handled
@@ -84,9 +80,9 @@ pub(super) fn on_key(s: &mut State, event: &rune::KeyEvent, tx: &mut rune::Tx) -
 
 pub(super) fn on_input_key(s: &mut State, event: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
     // Escape belongs to the editor, even when no feature handles it.
-    let fullscreen = s.shell.fullscreen;
+    let fullscreen = s.player.fullscreen;
     let handled = dispatch(s, event, Focus::TextInput, SHORTCUTS) || event.key == rune::Key::Escape;
-    if s.shell.fullscreen != fullscreen {
+    if s.player.fullscreen != fullscreen {
         tx.instant();
     }
     handled
@@ -94,12 +90,6 @@ pub(super) fn on_input_key(s: &mut State, event: &rune::KeyEvent, tx: &mut rune:
 
 impl State {
     pub(super) fn new(host: Host, host_error: Arc<Mutex<Option<String>>>) -> Self {
-        let logo = rune::Pixels::new();
-        logo.set(
-            128,
-            128,
-            include_bytes!(concat!(env!("OUT_DIR"), "/scry.rgba")).to_vec(),
-        );
         Self {
             runtime: AppRuntime::default(),
             shell: super::shell::ShellState {
@@ -107,8 +97,6 @@ impl State {
                 window: scry_app::platform::Window::default(),
                 host_error,
                 native_navigation: scry_app::platform::NavigationInput::default(),
-                logo,
-                fullscreen: false,
                 context_menu: None,
             },
             artwork: super::artwork::ArtworkState::default(),
@@ -250,9 +238,6 @@ fn run_app() -> anyhow::Result<()> {
             }
         })
         .on_close(|s, tx| {
-            if s.shell.fullscreen {
-                s.toggle_app_fullscreen();
-            }
             s.set_fullscreen(false);
             s.save_library_progress();
             let finish_library = s.take_library_shutdown();

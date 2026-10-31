@@ -10,17 +10,19 @@ fn titlebar_reserves_native_controls_without_losing_search_or_navigation() {
             let mut rt = rune::Runtime::new(init(), view, (width, 600.0), rune::Env::default());
             rt.set_titlebar_inset(inset);
             rt.frame(0.0);
-            let logo = rect(&rt, "brand-logo");
-            assert!(logo[0] >= inset + 14.0, "Header overlaps native controls");
+            let wordmark = rect(&rt, "brand-wordmark");
+            assert!(
+                wordmark[0] >= inset + 14.0,
+                "Header overlaps native controls"
+            );
             let header = rect(&rt, "topbar");
-            for key in ["search-frame", "nav-back", "nav-forward", "app-fullscreen"] {
+            for key in ["search-frame", "nav-back", "nav-forward"] {
                 let bounds = rect(&rt, key);
                 assert!(bounds[1] >= header[1] && bounds[1] + bounds[3] <= header[1] + header[3]);
                 assert!(bounds[0] + bounds[2] <= width, "{key} exceeds window");
             }
-            tap(&mut rt, "app-fullscreen");
-            assert!(rt.state.shell.fullscreen);
-            assert!(rt.find("topbar").is_none());
+            assert!(rt.find("page-refresh").is_none());
+            assert!(rt.find("app-fullscreen").is_none());
         }
     }
 }
@@ -65,7 +67,7 @@ fn topbar_controls_share_height_and_alignment_while_searching() {
         let mut rt = rune::Runtime::new(init(), view, (width, 600.0), rune::Env::default());
         rt.frame(0.0);
         let search = rect(&rt, "search-frame");
-        for key in ["nav-back", "nav-forward", "page-refresh"] {
+        for key in ["nav-back", "nav-forward"] {
             let bounds = rect(&rt, key);
             assert!((bounds[3] - search[3]).abs() < 0.5, "{key} height");
             assert!((bounds[1] - search[1]).abs() < 0.5, "{key} alignment");
@@ -136,15 +138,13 @@ fn topbar_keeps_a_compact_brand_at_minimum_window_size() {
     let mut rt = rune::Runtime::new(init(), view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);
     let header = rect(&rt, "topbar");
-    let logo = rect(&rt, "brand-logo");
-    assert_eq!([logo[2], logo[3]], [28.0, 28.0]);
-    assert!(logo[0] >= header[0] && logo[1] >= header[1]);
-    assert!(logo[1] + logo[3] <= header[1] + header[3]);
+    assert!(rt.find("brand-logo").is_none());
     let back = rect(&rt, "nav-back");
     let wordmark = rect(&rt, "brand-wordmark");
-    assert!(wordmark[0] >= logo[0] + logo[2]);
+    assert!(wordmark[0] >= header[0] && wordmark[1] >= header[1]);
+    assert!(wordmark[1] + wordmark[3] <= header[1] + header[3]);
     assert!(back[0] - (wordmark[0] + wordmark[2]) <= 24.0);
-    assert!((logo[1] + logo[3] / 2.0 - (back[1] + back[3] / 2.0)).abs() < 1.0);
+    assert!((wordmark[1] + wordmark[3] / 2.0 - (back[1] + back[3] / 2.0)).abs() < 1.0);
     assert!(rect(&rt, "nav-watching")[1] >= header[1] + header[3] + 14.0);
     assert_eq!(rect(&rt, "sidebar")[1], header[1] + header[3]);
 }

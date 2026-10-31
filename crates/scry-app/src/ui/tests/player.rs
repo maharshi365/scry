@@ -341,33 +341,53 @@ fn video_double_click_enters_and_exits_fullscreen_without_pausing() {
 }
 
 #[test]
-fn fullscreen_video_single_click_toggles_but_controls_do_not_trigger_video_gestures() {
+fn video_single_click_toggles_in_both_window_modes_but_controls_do_not_trigger_video_gestures() {
     let mut rt = player_runtime();
-    key(&mut rt, rune::Key::Text("f".into()));
-    for paused in [true, false] {
-        tap(&mut rt, "video");
-        assert_eq!(rt.state.player.sample.paused, !paused);
-        let action = rt
-            .state
-            .player
-            .interaction
-            .finish_click(std::time::Instant::now() + std::time::Duration::from_secs(1))
-            .unwrap();
-        rt.state.player_action(action);
-        assert_eq!(rt.state.player.sample.paused, paused);
+    for fullscreen in [false, true] {
+        if fullscreen {
+            key(&mut rt, rune::Key::Text("f".into()));
+        }
+        for paused in [true, false] {
+            tap(&mut rt, "video");
+            assert_eq!(rt.state.player.sample.paused, !paused);
+            let action = rt
+                .state
+                .player
+                .interaction
+                .finish_click(std::time::Instant::now() + std::time::Duration::from_secs(1))
+                .unwrap();
+            rt.state.player_action(action);
+            assert_eq!(rt.state.player.sample.paused, paused);
+        }
+        tap(&mut rt, "mute");
+        tap(&mut rt, "player-volume");
+        tap(&mut rt, "player-timeline");
+        assert!(
+            rt.state
+                .player
+                .interaction
+                .finish_click(std::time::Instant::now() + std::time::Duration::from_secs(1))
+                .is_none()
+        );
+        assert!(!rt.state.player.sample.paused);
+        assert_eq!(rt.state.player.fullscreen, fullscreen);
     }
-    tap(&mut rt, "mute");
-    tap(&mut rt, "player-volume");
-    tap(&mut rt, "player-timeline");
-    assert!(
-        rt.state
-            .player
-            .interaction
-            .finish_click(std::time::Instant::now() + std::time::Duration::from_secs(1))
-            .is_none()
-    );
-    assert!(!rt.state.player.sample.paused);
+}
+
+#[test]
+fn f11_only_toggles_fullscreen_for_active_playback_and_stop_restores_chrome() {
+    let mut rt = player_runtime();
+    key(&mut rt, rune::Key::Function(11));
     assert!(rt.state.player.fullscreen);
+    assert!(rt.find("topbar").is_none());
+    key(&mut rt, rune::Key::Function(11));
+    assert!(!rt.state.player.fullscreen);
+    assert!(rt.find("topbar").is_some());
+    key(&mut rt, rune::Key::Function(11));
+    rt.update(|s, _| s.stop());
+    rt.frame(0.0);
+    assert!(!rt.state.player.fullscreen);
+    assert!(rt.find("topbar").is_some());
 }
 
 #[test]
@@ -376,15 +396,12 @@ fn completed_video_click_requests_a_redraw_for_the_new_pause_state() {
     s.navigation.page = Page::Player;
     s.player.playing = true;
     s.player.fullscreen = true;
-    s.player.interaction.click(
-        scry_app::platform::VideoClick {
-            at: std::time::Instant::now()
-                .checked_sub(std::time::Duration::from_secs(1))
-                .unwrap(),
-            position: [100.0, 100.0],
-        },
-        true,
-    );
+    s.player.interaction.click(scry_app::platform::VideoClick {
+        at: std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_secs(1))
+            .unwrap(),
+        position: [100.0, 100.0],
+    });
     assert!(s.poll_player_interaction(&mut Tx::default()));
     assert!(s.player.sample.paused);
 }

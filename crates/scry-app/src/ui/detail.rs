@@ -155,18 +155,10 @@ fn back_button(s: &State) -> El {
 }
 
 fn hero(s: &State, compact: bool) -> El {
-    let mut navigation = input_group()
+    let navigation = input_group()
         .w_full()
         .child(back_button(s))
         .child(el().grow(1.0));
-    if s.shell.fullscreen {
-        navigation = navigation.child(icon_action(
-            "app-exit-fullscreen",
-            "Exit app fullscreen (F11)",
-            &icons::EXIT_FULLSCREEN,
-            State::toggle_app_fullscreen,
-        ));
-    }
     let mut info = col()
         .w_full()
         .gap(tokens::layout::SECTION_GAP)

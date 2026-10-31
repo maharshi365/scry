@@ -284,7 +284,7 @@ fn tv_picker_returns_from_sources_without_changing_season() {
 }
 
 #[test]
-fn app_fullscreen_hides_topbar_on_every_route_and_escape_keeps_the_route() {
+fn f11_does_not_enter_fullscreen_outside_the_player() {
     for page in [
         Page::Watching,
         Page::Discover,
@@ -292,6 +292,9 @@ fn app_fullscreen_hides_topbar_on_every_route_and_escape_keeps_the_route() {
         Page::Addons,
         Page::Calendar,
         Page::Detail,
+        Page::Guide,
+        Page::Settings,
+        Page::Stats,
     ] {
         let mut s = init();
         s.navigation.page = page;
@@ -299,22 +302,21 @@ fn app_fullscreen_hides_topbar_on_every_route_and_escape_keeps_the_route() {
         let mut rt = rune::Runtime::new(s, view, (1280.0, 820.0), rune::Env::default());
         rt.on_key = Some(on_key);
         rt.frame(0.0);
-        tap(&mut rt, "app-fullscreen");
-        assert!(rt.state.shell.fullscreen);
-        assert!(rt.find("app-exit-fullscreen").is_some());
         rt.key(rune::KeyEvent {
-            key: rune::Key::Escape,
+            key: rune::Key::Function(11),
             mods: rune::Mods::default(),
         });
         rt.frame(0.0);
-        assert!(!rt.state.shell.fullscreen);
+        assert!(!rt.state.player.fullscreen);
+        assert!(rt.find("app-fullscreen").is_none());
+        assert!(rt.find("app-exit-fullscreen").is_none());
         assert_eq!(rt.state.navigation.page, page);
         assert!(rt.find("topbar").is_some());
     }
 }
 
 #[test]
-fn f11_works_in_search_and_app_fullscreen_survives_stopping_playback() {
+fn f11_in_search_does_not_hide_the_topbar() {
     let mut rt = rune::Runtime::new(init(), view, (1280.0, 820.0), rune::Env::default());
     rt.on_key = Some(on_key);
     rt.frame(0.0);
@@ -324,12 +326,6 @@ fn f11_works_in_search_and_app_fullscreen_survives_stopping_playback() {
         mods: rune::Mods::default(),
     });
     rt.frame(0.0);
-    assert!(rt.state.shell.fullscreen);
-    rt.update(|s, _| {
-        s.player.playing = true;
-        s.stop();
-    });
-    assert!(rt.state.shell.fullscreen);
-    tap(&mut rt, "app-exit-fullscreen");
-    assert!(!rt.state.shell.fullscreen);
+    assert!(!rt.state.player.fullscreen);
+    assert!(rt.find("topbar").is_some());
 }

@@ -46,7 +46,7 @@ fn surface(s: &State, scale: f32, compact: bool) -> El {
                     at: std::time::Instant::now(),
                     position: [f64::from(drag.x), f64::from(drag.y)],
                 };
-                if let Some(action) = s.player.interaction.click(click, s.player.fullscreen) {
+                if let Some(action) = s.player.interaction.click(click) {
                     if matches!(action, PlayerAction::ToggleFullscreen) && s.player.fullscreen {
                         s.set_fullscreen(false);
                     } else {

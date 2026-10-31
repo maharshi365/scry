@@ -2,7 +2,7 @@
 use super::{
     Page, State,
     addons::addons,
-    controls::{icon_action, input},
+    controls::input,
     design::{
         icons,
         tokens::{self, control, type_},
@@ -25,42 +25,7 @@ pub(super) struct ShellState {
     pub window: scry_app::platform::Window,
     pub host_error: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     pub native_navigation: scry_app::platform::NavigationInput,
-    pub logo: rune::Pixels,
-    pub fullscreen: bool,
     pub context_menu: Option<(rune::PointerPress, Option<super::context_menu::Target>)>,
-}
-
-pub(super) fn shortcut(
-    s: &mut State,
-    event: &rune::KeyEvent,
-    focus: super::shortcuts::Focus,
-) -> bool {
-    use super::shortcuts::{Binding, KeyMatch, Modifiers, resolve};
-    let bindings = [
-        Binding {
-            key: KeyMatch::Function(11),
-            modifiers: Modifiers::Plain,
-            in_text: true,
-            action: true,
-        },
-        Binding {
-            key: KeyMatch::Escape,
-            modifiers: Modifiers::Plain,
-            in_text: false,
-            action: false,
-        },
-    ];
-    match resolve(&bindings, event, focus) {
-        Some(true) => {
-            s.toggle_app_fullscreen();
-            true
-        }
-        Some(false) if s.shell.fullscreen && !s.player.fullscreen => {
-            s.toggle_app_fullscreen();
-            true
-        }
-        _ => false,
-    }
 }
 
 pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
@@ -125,9 +90,7 @@ fn window_chrome(s: &State, cx: &mut Cx<State>, content: El) -> El {
         .on_secondary_press(|s: &mut State, p, _| {
             s.shell.context_menu = Some((p, None));
         });
-    if !s.shell.fullscreen {
-        root = root.child(topbar(s, cx.titlebar_inset()));
-    }
+    root = root.child(topbar(s, cx.titlebar_inset()));
     root = root
         .child(body.child(content))
         .children(super::stats::toast(s));
@@ -256,17 +219,6 @@ fn sidebar(s: &State) -> El {
         );
     }
     sidebar = sidebar.child(utilities);
-    if s.shell.fullscreen {
-        sidebar = sidebar.child(
-            icon_action(
-                "app-exit-fullscreen",
-                "Exit app fullscreen (F11)",
-                &icons::EXIT_FULLSCREEN,
-                State::toggle_app_fullscreen,
-            )
-            .w_full(),
-        );
-    }
     sidebar.child(
         eyebrow(super::formatting::build_version(
             option_env!("SCRY_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")),
@@ -303,13 +255,6 @@ fn topbar(s: &State, native_inset: f32) -> El {
     super::primitives::titlebar::titlebar(native_inset)
         .key("topbar")
         .child(
-            el().key("brand-logo")
-                .label("Scry")
-                .w(28.0)
-                .h(28.0)
-                .pixels(&s.shell.logo),
-        )
-        .child(
             text("SCRY")
                 .key("brand-wordmark")
                 .font(type_::BRAND)
@@ -337,18 +282,6 @@ fn topbar(s: &State, native_inset: f32) -> El {
                 ))
                 .child(search_status),
         )
-        .child(icon_action(
-            "page-refresh",
-            "Refresh current page",
-            &icons::REFRESH,
-            State::refresh_page,
-        ))
-        .child(icon_action(
-            "app-fullscreen",
-            "App fullscreen (F11)",
-            &icons::FULLSCREEN,
-            State::toggle_app_fullscreen,
-        ))
 }
 
 fn history_button(key: &str, enabled: bool, forward: bool) -> El {

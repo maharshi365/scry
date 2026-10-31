@@ -30,6 +30,7 @@ const BINDINGS: &[Binding<PlayerAction>] = &[
     plain(KeyMatch::Text("-"), PlayerAction::SubtitleSize(-1)),
     plain(KeyMatch::Text("="), PlayerAction::SubtitleSize(1)),
     plain(KeyMatch::Text("f"), PlayerAction::ToggleFullscreen),
+    plain(KeyMatch::Function(11), PlayerAction::ToggleFullscreen),
     plain(KeyMatch::Left, PlayerAction::SeekRelative(-5)),
     plain(KeyMatch::Right, PlayerAction::SeekRelative(5)),
     plain(KeyMatch::Up, PlayerAction::ChangeVolume(5)),

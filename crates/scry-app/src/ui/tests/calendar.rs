@@ -142,7 +142,13 @@ fn context_refresh_reloads_calendar_without_changing_day_geometry() {
     rt.secondary_down(1250.0, 790.0);
     rt.secondary_up(1250.0, 790.0);
     rt.frame(1.0 / 60.0);
+    // Allow the pointer-anchored menu to fit inside the window before clicking.
+    rt.frame(1.0 / 60.0);
     tap(&mut rt, "context-refresh");
+    assert!(
+        rt.state.shell.context_menu.is_none(),
+        "refresh was not activated"
+    );
     assert!(rt.state.calendar.loading);
     for _ in 0..30 {
         rt.frame(1.0 / 60.0);

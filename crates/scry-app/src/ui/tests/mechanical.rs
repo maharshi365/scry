@@ -82,7 +82,7 @@ fn screens_fit_with_the_fonts_shipped_in_the_app() {
                     element.rect
                 );
             }
-            for key in ["nav-settings", "page-refresh", "search-frame"] {
+            for key in ["nav-settings", "nav-back", "search-frame"] {
                 let target = rect(&rt, key);
                 assert!(target[2] > 0.0 && target[3] >= tokens::control::HEIGHT);
             }

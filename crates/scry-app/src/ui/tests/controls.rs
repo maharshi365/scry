@@ -192,13 +192,15 @@ fn shared_progress_bars_bound_values_and_keep_accessible_percentages() {
 fn icon_only_actions_have_action_names_not_glyph_labels() {
     let mut rt = rune::Runtime::new(init(), view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);
-    let refresh = rt
+    rt.update(|s, _| s.navigate(Page::Discover));
+    rt.frame(0.0);
+    let back = rt
         .elements()
         .into_iter()
-        .find(|e| e.key.as_deref() == Some("page-refresh"))
+        .find(|e| e.key.as_deref() == Some("nav-back"))
         .unwrap();
-    assert_eq!(refresh.label.as_deref(), Some("Refresh current page"));
-    assert!(refresh.focusable);
+    assert_eq!(back.label.as_deref(), Some("Back (Alt+Left)"));
+    assert!(back.focusable);
 }
 
 #[test]

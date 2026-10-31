@@ -136,11 +136,6 @@ pub(in crate::ui) static DOWN: Icon = Icon {
     view: 24.0,
     body: include_str!("../../../assets/icons/rune/chevron-down.svg"),
 };
-pub(in crate::ui) static REFRESH: Icon = Icon {
-    name: "refresh",
-    view: 24.0,
-    body: include_str!("../../../assets/icons/rune/refresh-cw.svg"),
-};
 pub(in crate::ui) static CLOSE: Icon = Icon {
     name: "close",
     view: 24.0,
@@ -211,7 +206,6 @@ mod tests {
             source!(LEFT, "arrow-left"),
             source!(RIGHT, "arrow-right"),
             source!(DOWN, "chevron-down"),
-            source!(REFRESH, "refresh-cw"),
             source!(CLOSE, "x"),
             source!(CHECK, "check"),
             source!(ADD, "plus"),

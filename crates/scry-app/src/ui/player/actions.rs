@@ -86,14 +86,11 @@ impl State {
         if self.player.fullscreen == fullscreen {
             return;
         }
-        match self
-            .shell
-            .window
-            .set_fullscreen(if fullscreen || self.shell.fullscreen {
-                scry_app::platform::Fullscreen::Fullscreen
-            } else {
-                scry_app::platform::Fullscreen::Windowed
-            }) {
+        match self.shell.window.set_fullscreen(if fullscreen {
+            scry_app::platform::Fullscreen::Fullscreen
+        } else {
+            scry_app::platform::Fullscreen::Windowed
+        }) {
             Ok(()) => {
                 self.clear_player_feedback();
                 self.player.fullscreen = fullscreen;
@@ -103,21 +100,6 @@ impl State {
                 self.player.stats_overlay.dismiss();
                 self.player.interaction.reset();
             }
-            Err(error) => self.player.error = Some(error.to_string()),
-        }
-    }
-
-    pub(in crate::ui) fn toggle_app_fullscreen(&mut self) {
-        let fullscreen = !self.shell.fullscreen;
-        match self
-            .shell
-            .window
-            .set_fullscreen(if fullscreen || self.player.fullscreen {
-                scry_app::platform::Fullscreen::Fullscreen
-            } else {
-                scry_app::platform::Fullscreen::Windowed
-            }) {
-            Ok(()) => self.shell.fullscreen = fullscreen,
             Err(error) => self.player.error = Some(error.to_string()),
         }
     }
