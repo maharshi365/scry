@@ -108,6 +108,10 @@ fn filter(
 
 fn providers(s: &State) -> Vec<(String, usize)> {
     let mut providers: Vec<(String, usize)> = Vec::new();
+    let local = s.local_sources().len();
+    if local > 0 {
+        providers.push(("My Media".into(), local));
+    }
     for (addon, _) in &s.detail.sources.streams {
         if let Some((_, count)) = providers.iter_mut().find(|(name, _)| name == addon) {
             *count += 1;
@@ -331,7 +335,30 @@ fn header(s: &State) -> El {
 fn source_list(s: &State) -> El {
     let t = theme();
     let sources = visible_sources(s);
+    let local_sources = if s
+        .detail
+        .sources
+        .provider
+        .as_deref()
+        .is_none_or(|provider| provider == "My Media")
+    {
+        s.local_sources()
+    } else {
+        Vec::new()
+    };
     let mut list = col().key("detail-body").w_full().gap(8.0);
+    for (n, path) in local_sources.iter().enumerate() {
+        let path = path.clone();
+        let title = format!(
+            "My Media · {}",
+            path.file_name().unwrap_or_default().to_string_lossy()
+        );
+        list = list.child(
+            super::primitives::button::Button::new(format!("local-source-{n}"), title)
+                .on_press(move |s: &mut State| s.play_local_media(&path))
+                .w_full(),
+        );
+    }
     for (index, message) in s.detail.sources.request.warnings.iter().enumerate() {
         list = list.child(
             SurfaceVariant::Plain
@@ -347,7 +374,7 @@ fn source_list(s: &State) -> El {
                 ),
         );
     }
-    if sources.is_empty() {
+    if sources.is_empty() && local_sources.is_empty() {
         let (title, message) = if s.detail.request.loading || s.detail.sources.request.loading {
             (
                 "Finding streams…",

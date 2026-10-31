@@ -54,6 +54,7 @@ fn page_content(s: &State, cx: &mut Cx<State>) -> El {
         Page::Calendar => super::calendar::view(s, cx),
         Page::Guide => super::guide::view(s, cx),
         Page::Library => library_view::view(s, cx),
+        Page::MyMedia => super::my_media::view(s),
         Page::Addons => addons(s),
         Page::Settings => super::settings::view(s),
         Page::Stats => super::stats::view(s),
@@ -197,6 +198,16 @@ fn sidebar(s: &State) -> El {
                     .w_full(),
                 );
             }
+            links = links.child(
+                nav_action(
+                    "nav-my-media",
+                    "My Media",
+                    &icons::LIBRARY,
+                    s.navigation.page == Page::MyMedia,
+                    |s| s.navigate(Page::MyMedia),
+                )
+                .w_full(),
+            );
         }
     }
     sidebar = sidebar.child(scroll("sidebar-pages", links));

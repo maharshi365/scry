@@ -81,6 +81,7 @@ impl State {
         match self.navigation.page {
             Page::Guide | Page::Settings => self.refresh_guide(),
             Page::Stats => self.refresh_stats(),
+            Page::MyMedia => self.media_command(crate::services::my_media::Command::Scan),
             Page::Discover => self.fetch_catalog(),
             Page::Calendar => self.refresh_calendar(),
             Page::Library | Page::Watching => {

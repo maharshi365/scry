@@ -302,6 +302,17 @@ pub(super) fn quick_actions(s: &State, compact: bool) -> El {
 
 impl State {
     pub(super) fn open_detail_from(&mut self, meta: scry_addons::Meta) {
+        let meta = if self.detail.namespace == "org.scry.local" {
+            self.my_media
+                .index
+                .items
+                .iter()
+                .find(|item| item.id == meta.id)
+                .and_then(|item| item.meta().ok())
+                .unwrap_or(meta)
+        } else {
+            meta
+        };
         self.library.resume_request = None;
         if self.navigation.page == super::Page::Detail {
             self.detail.generation += 1;

@@ -98,6 +98,29 @@ fn request_library_updates(s: &mut State, tx: &mut Tx) -> bool {
 )]
 fn apply(s: &mut State, event: Event) {
     match event {
+        Event::MediaOrders(token, id, result) => s.apply_media_orders(token, &id, result),
+        Event::MyMedia(result, status, done) => {
+            s.my_media.busy = !done;
+            s.my_media.status = status;
+            match result {
+                Ok(index) => {
+                    s.my_media.index = index;
+                    s.my_media.error = None;
+                }
+                Err(error) => s.my_media.error = Some(error),
+            }
+        }
+        Event::MediaCandidates(token, result) => {
+            if token == s.my_media.search_generation {
+                s.my_media.search = super::my_media::MatchSearch::Complete;
+                match result {
+                    Ok(candidates) => {
+                        s.my_media.candidates = candidates;
+                    }
+                    Err(error) => s.my_media.error = Some(error),
+                }
+            }
+        }
         Event::TorrentCacheCleared(result) => {
             s.settings.streaming.clearing = false;
             s.settings.streaming.cache_error = result.is_err();

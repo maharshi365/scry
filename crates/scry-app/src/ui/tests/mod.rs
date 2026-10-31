@@ -23,6 +23,7 @@ mod episodes;
 mod layout;
 mod library;
 mod mechanical;
+mod my_media;
 mod navigation;
 mod patterns;
 mod playback;

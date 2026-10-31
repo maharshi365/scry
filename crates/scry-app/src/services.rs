@@ -2,6 +2,7 @@
 mod addon_storage;
 pub(crate) mod introdb;
 mod metadata;
+pub(crate) mod my_media;
 #[cfg(test)]
 #[expect(
     clippy::unwrap_used,
@@ -66,6 +67,13 @@ impl LibraryPoster {
 
 #[derive(Debug)]
 pub enum Event {
+    MyMedia(Result<crate::local_media::Index, String>, String, bool),
+    MediaCandidates(u64, Result<Vec<Meta>, String>),
+    MediaOrders(
+        u64,
+        String,
+        Result<Vec<crate::local_media::Ordering>, String>,
+    ),
     IntroSegments(u64, Option<introdb::Segment>),
     StreamingPreferences(Result<streaming_settings::Preferences, String>),
     TorrentCacheCleared(Result<(), String>),
@@ -156,6 +164,7 @@ pub enum Control {
 }
 
 pub struct Services {
+    my_media: Option<mpsc::Sender<my_media::Command>>,
     intro_lookup: Option<introdb::Lookup>,
     streaming_settings: mpsc::Sender<streaming_settings::Preferences>,
     subtitle_settings: mpsc::Sender<scry_playback::subtitles::Preferences>,
@@ -198,6 +207,7 @@ impl Services {
         // Tests provide completion events explicitly; dispatch alone is not success.
         Ok((
             Self {
+                my_media: None,
                 intro_lookup: None,
                 streaming_settings,
                 subtitle_settings,
@@ -305,6 +315,7 @@ impl Services {
                 ));
             })?;
         let services = Self {
+            my_media: Some(my_media::start(&runtime, data.clone(), inbox.clone())),
             intro_lookup: Some(introdb::Lookup::start(&runtime, &data, inbox.clone())?),
             streaming_settings,
             subtitle_settings,
@@ -603,6 +614,12 @@ impl Services {
         }
         let (client, inbox) = (self.client.clone(), self.inbox.clone());
         self.detail_task = Some(self.runtime.spawn(async move {
+            if namespace == "org.scry.local" {
+                inbox
+                    .send(Event::Detail(generation, Ok((meta, namespace))))
+                    .await;
+                return;
+            }
             let found = metadata::fetch_from(
                 &client,
                 &addons,
@@ -1039,6 +1056,7 @@ impl Services {
     }
 
     pub fn shutdown_then(&mut self, finished: impl FnOnce() + Send + 'static) {
+        self.my_media.take();
         self.intro_lookup.take();
         for task in self.watch_tasks.drain(..) {
             task.abort();

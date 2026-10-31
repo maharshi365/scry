@@ -8,6 +8,7 @@ pub(super) enum Page {
     Guide,
     Discover,
     Library,
+    MyMedia,
     Addons,
     Settings,
     Stats,

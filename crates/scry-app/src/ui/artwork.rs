@@ -63,6 +63,9 @@ pub(super) fn visible_artwork(s: &State) -> Vec<String> {
     if s.navigation.page == Page::Guide {
         return s.guide_artwork();
     }
+    if s.navigation.page == Page::MyMedia {
+        return super::my_media::artwork_urls(s);
+    }
     if s.navigation.page == Page::Addons {
         return super::addons::artwork_urls(s);
     } else if (s.navigation.page == Page::Detail && s.detail.preview)

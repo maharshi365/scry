@@ -102,6 +102,7 @@ impl State {
             artwork: super::artwork::ArtworkState::default(),
             posters: super::poster_grid::PosterGridState::default(),
             library: LibraryUi::default(),
+            my_media: super::my_media::MediaUi::default(),
             calendar: super::calendar::CalendarUi::default(),
             stats: super::stats::StatsUi::default(),
             guide: super::guide::GuideUi::default(),
@@ -267,6 +268,8 @@ fn run_app() -> anyhow::Result<()> {
 
 type Scene = (&'static str, fn(&mut State));
 const SCENES: &[Scene] = &[
+    ("my-media", super::my_media::scene),
+    ("my-media-ordering", super::my_media::scene_ordering),
     ("guide-empty", super::guide::scene_empty),
     ("guide-empty-movies", super::guide::scene_empty_movies),
     ("movies-empty", super::scenes::scene_movies_empty),

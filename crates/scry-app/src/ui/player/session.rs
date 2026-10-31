@@ -53,6 +53,11 @@ impl State {
             self.player.error = Some(error.to_string());
             return;
         }
+        self.play_media_source(Source::Stream(stream), title);
+    }
+
+    pub(in crate::ui) fn play_media_source(&mut self, source: Source, title: String) {
+        self.library.resume_request = None;
         self.save_library_progress();
         self.library.playing = self.library_media();
         self.library.watched_pending = 0.0;
@@ -81,13 +86,16 @@ impl State {
             .as_ref()
             .map(|meta| (meta.kind.clone(), meta.id.clone()));
         self.player.video_id = self.detail.episodes.selected.clone();
-        let candidate = self
-            .library
-            .playing
-            .clone()
-            .map(|media| (media, stream.clone()));
+        let candidate = match &source {
+            Source::Stream(stream) => self
+                .library
+                .playing
+                .clone()
+                .map(|media| (media, stream.clone())),
+            _ => None,
+        };
         let generation = self.player.generation;
-        self.play_source(Source::Stream(stream), title);
+        self.play_source(source, title);
         if self.player.generation != generation {
             self.library.stream_candidate =
                 candidate.map(

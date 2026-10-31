@@ -14,6 +14,7 @@ mod events;
 mod formatting;
 mod guide;
 mod library_view;
+mod my_media;
 mod navigation;
 mod player;
 mod playground;
@@ -42,6 +43,7 @@ pub struct State {
     artwork: artwork::ArtworkState,
     posters: poster_grid::PosterGridState,
     library: LibraryUi,
+    my_media: my_media::MediaUi,
     calendar: calendar::CalendarUi,
     stats: stats::StatsUi,
     guide: guide::GuideUi,
