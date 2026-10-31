@@ -209,7 +209,7 @@ impl From<VideoFields> for Video {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Stream {
     #[serde(default)]
@@ -232,7 +232,7 @@ pub struct Stream {
 #[derive(Clone)]
 pub struct Client(http_cache::HttpCache);
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Subtitle {
     pub id: String,
     pub lang: String,

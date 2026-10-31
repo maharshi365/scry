@@ -137,6 +137,30 @@ fn library_actions_use_add_and_remove_library_labels() {
 }
 
 #[test]
+fn currently_watching_can_open_the_picker_without_resuming() {
+    let mut state = init();
+    state.library.watching.push((
+        Media {
+            key: MediaKey::new("test", MediaKind::Movie, "continue"),
+            title: "Continue".into(),
+            parent: None,
+        },
+        scry_library::Progress {
+            position_seconds: 30.0,
+            duration_seconds: 120.0,
+        },
+    ));
+    let mut runtime = rune::Runtime::new(state, view, (1280.0, 820.0), rune::Env::default());
+    runtime.frame(0.0);
+    right_click(&mut runtime, "watching-open-0");
+    tap(&mut runtime, "context-choose-stream");
+    assert_eq!(runtime.state.navigation.page, Page::Detail);
+    assert_eq!(runtime.state.detail.meta.as_ref().unwrap().id, "continue");
+    assert!(runtime.state.library.resume_request.is_none());
+    assert!(runtime.state.library.playing.is_none());
+}
+
+#[test]
 fn currently_watching_context_menu_dismisses_without_removing_saved_progress() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("library.db");

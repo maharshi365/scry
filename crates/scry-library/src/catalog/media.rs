@@ -5,7 +5,7 @@ use diesel::{prelude::*, upsert::excluded};
 
 use crate::{
     Library, Media, MediaKey, MediaKind, Page, Progress,
-    schema::{effective_watched, media, watchlist},
+    storage::schema::{effective_watched, media, watchlist},
 };
 
 #[derive(Queryable, Selectable, QueryableByName)]
@@ -193,7 +193,7 @@ impl Library {
     pub fn add_to_watchlist(&mut self, key: &MediaKey) -> Result<()> {
         let connection = &mut *self.connection.borrow_mut();
         let id = media_id(connection, key)?;
-        crate::watchlist::set(connection, id, true)
+        crate::collections::watchlist::set(connection, id, true)
     }
 
     /// # Errors
@@ -201,7 +201,7 @@ impl Library {
     pub fn remove_from_watchlist(&mut self, key: &MediaKey) -> Result<()> {
         let connection = &mut *self.connection.borrow_mut();
         let id = media_id(connection, key)?;
-        crate::watchlist::set(connection, id, false)
+        crate::collections::watchlist::set(connection, id, false)
     }
 
     /// # Errors
@@ -209,7 +209,7 @@ impl Library {
     pub fn is_in_watchlist(&self, key: &MediaKey) -> Result<bool> {
         let connection = &mut *self.connection.borrow_mut();
         let id = media_id(connection, key)?;
-        crate::watchlist::contains(connection, id)
+        crate::collections::watchlist::contains(connection, id)
     }
 
     /// # Errors
@@ -266,7 +266,7 @@ impl Library {
         page: Page,
     ) -> Result<Vec<Media>> {
         let connection = &mut *self.connection.borrow_mut();
-        let complete = crate::watch_status::completion_sql("m.media_id", "unixepoch()");
+        let complete = crate::playback::watch_status::completion_sql("m.media_id", "unixepoch()");
         let records = diesel::sql_query(format!(
             "SELECT m.* FROM media m JOIN watchlist s ON s.media_id=m.media_id LEFT JOIN watched v ON v.media_id=m.media_id WHERE m.kind IN ('movie','series') AND (? IS NULL OR m.kind=?) AND (CASE WHEN m.kind='series' THEN ({complete}) ELSE COALESCE(v.watched,0) END)=? ORDER BY m.media_id DESC LIMIT ? OFFSET ?"
         ))

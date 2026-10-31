@@ -4,9 +4,13 @@ use diesel::{dsl::max, prelude::*, upsert::excluded};
 use crate::{
     COMPLETION_THRESHOLD, Library, Media, MediaKey, MediaKind, MediaState, Page, Progress,
     WATCHED_THRESHOLD, WatchedState,
-    media::{MediaProgressRecord, hydrate_progress, media_id, upsert_media},
-    schema::{effective_watched, episode_releases, media, progress, viewing, watched},
-    watch_status::{ReleaseScope, can_mark_stored_watched, clear_future_watches},
+    catalog::media::{MediaProgressRecord, hydrate_progress, media_id, upsert_media},
+    playback::{
+        up_next,
+        watch_status::{ReleaseScope, can_mark_stored_watched, clear_future_watches},
+    },
+    stats::metrics as stats,
+    storage::schema::{effective_watched, episode_releases, media, progress, viewing, watched},
 };
 
 fn store_release(connection: &mut SqliteConnection, id: i64, date: Option<i64>) -> Result<()> {
@@ -57,7 +61,7 @@ fn set_watched(connection: &mut SqliteConnection, id: i64, value: bool) -> Resul
         return Ok(());
     }
     let was_watched = watched_state(connection, id)?.watched;
-    crate::stats::watched_at(connection, id, value, was_watched)?;
+    stats::watched_at(connection, id, value, was_watched)?;
     diesel::insert_into(watched::table)
         .values((watched::media_id.eq(id), watched::is_watched.eq(value)))
         .on_conflict(watched::media_id)
@@ -66,14 +70,14 @@ fn set_watched(connection: &mut SqliteConnection, id: i64, value: bool) -> Resul
         .execute(connection)?;
     diesel::delete(progress::table.find(id)).execute(connection)?;
     diesel::delete(viewing::table.find(id)).execute(connection)?;
-    crate::stats::finish_run(connection, id)?;
+    stats::finish_run(connection, id)?;
     Ok(())
 }
 
 fn update_watched(connection: &mut SqliteConnection, id: i64, automatic: bool) -> Result<()> {
     let state = watched_state(connection, id)?;
     let value = state.watched || (automatic && can_mark_stored_watched(connection, id)?);
-    crate::stats::watched_at(connection, id, value, state.watched)?;
+    stats::watched_at(connection, id, value, state.watched)?;
     diesel::insert_into(watched::table)
         .values((watched::media_id.eq(id), watched::is_watched.eq(value)))
         .on_conflict(watched::media_id)
@@ -152,7 +156,7 @@ fn record_sample(
     );
     let sample = Progress::new(position, duration).context("invalid playback sample")?;
     let id = media_id(connection, key)?;
-    crate::stats::runtime(connection, id, duration)?;
+    stats::runtime(connection, id, duration)?;
     save_progress(
         connection,
         id,
@@ -177,7 +181,7 @@ fn record_sample(
         .execute(connection)?;
     }
     let total = activate(connection, id, watched_delta)?;
-    crate::stats::record(connection, id, watched_delta, duration)?;
+    stats::record(connection, id, watched_delta, duration)?;
     update_watched(connection, id, total > duration * WATCHED_THRESHOLD)
 }
 
@@ -213,7 +217,7 @@ impl Library {
             .immediate_transaction(|connection| {
                 upsert_media(connection, item)?;
                 if let Some(inventory) = inventory {
-                    crate::up_next::sync_episode_releases(connection, &item.key, inventory)?;
+                    up_next::sync_episode_releases(connection, &item.key, inventory)?;
                 }
                 let id = media_id(connection, &item.key)?;
                 if item.key.kind != MediaKind::Series {
@@ -324,7 +328,7 @@ impl Library {
             .immediate_transaction(|connection| {
                 upsert_media(connection, parent)?;
                 if let Some(inventory) = inventory {
-                    crate::up_next::sync_episode_releases(connection, &parent.key, inventory)?;
+                    up_next::sync_episode_releases(connection, &parent.key, inventory)?;
                 }
                 for item in episodes {
                     upsert_media(connection, item)?;
@@ -354,7 +358,7 @@ impl Library {
             .borrow_mut()
             .immediate_transaction(|connection| {
                 let id = media_id(connection, key)?;
-                crate::stats::runtime(connection, id, sample.duration_seconds)?;
+                stats::runtime(connection, id, sample.duration_seconds)?;
                 save_progress(
                     connection,
                     id,
@@ -426,7 +430,7 @@ impl Library {
         if sample.position_seconds <= sample.duration_seconds * COMPLETION_THRESHOLD {
             let connection = &mut *self.connection.borrow_mut();
             let id = media_id(connection, key)?;
-            crate::stats::finish_run(connection, id)?;
+            stats::finish_run(connection, id)?;
             return Ok(());
         }
         if let Some(next) = next {
@@ -447,7 +451,7 @@ impl Library {
                 diesel::update(viewing::table.find(id))
                     .set(viewing::active.eq(false))
                     .execute(connection)?;
-                crate::stats::finish_run(connection, id)?;
+                stats::finish_run(connection, id)?;
                 diesel::update(progress::table.find(id))
                     .set(progress::position_seconds.eq(0.0))
                     .execute(connection)?;

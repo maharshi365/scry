@@ -75,7 +75,7 @@ impl Library {
     }
 }
 
-pub(super) fn validate(connection: &mut SqliteConnection) -> Result<()> {
+pub(crate) fn validate(connection: &mut SqliteConnection) -> Result<()> {
     diesel::sql_query("SELECT payload, etag, fetched_at FROM skip_segments LIMIT 0")
         .load::<SkipSegmentsRecord>(connection)?;
     Ok(())

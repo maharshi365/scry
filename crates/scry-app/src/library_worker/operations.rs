@@ -161,6 +161,16 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
                 series: library.list_calendar_titles()?,
             });
         }
+        Command::SavedStream { generation, key } => {
+            return Ok(Event::SavedStream {
+                generation,
+                stream: library.saved_stream(&key)?,
+            });
+        }
+        Command::SaveStream(item, stream) => {
+            library.upsert_media(&item)?;
+            library.save_stream(&item.key, &stream)?;
+        }
         Command::SavePlayback(item, position, duration, delta) => {
             library.record_media_playback(&item, position, duration, delta)?;
         }

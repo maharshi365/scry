@@ -68,6 +68,7 @@ impl LibraryPoster {
 pub enum Event {
     IntroSegments(u64, Option<introdb::Segment>),
     StreamingPreferences(Result<streaming_settings::Preferences, String>),
+    TorrentCacheCleared(Result<(), String>),
     SubtitlePreferences(Result<scry_playback::subtitles::Preferences, String>),
     SubtitlePreferencesSaved(Result<(), String>),
     Subtitles(u64, scry_playback::subtitles::Snapshot),
@@ -248,6 +249,17 @@ impl Services {
         self.streaming_settings
             .try_send(preferences)
             .map_err(|_| anyhow::anyhow!("Streaming settings are busy; try again"))
+    }
+
+    pub fn clear_torrent_cache(&self) {
+        let folder = self.data.join("torrent-cache");
+        let inbox = self.inbox.clone();
+        self.runtime.spawn(async move {
+            let result = Torrents::clear_cache(folder)
+                .await
+                .map_err(|_| "Cannot clear the torrent cache. Stop playback and try again.".into());
+            inbox.send(Event::TorrentCacheCleared(result)).await;
+        });
     }
 
     pub fn cancel_streams(&mut self) {

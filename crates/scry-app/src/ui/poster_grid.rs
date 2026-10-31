@@ -473,6 +473,7 @@ fn card(s: &State, entry: &Entry, index: usize, prefix: &str, reduced_motion: bo
             progress,
         ),
     };
+    let resume = prefix == "watching";
     gallery::card(
         &key,
         gallery::Content {
@@ -490,7 +491,11 @@ fn card(s: &State, entry: &Entry, index: usize, prefix: &str, reduced_motion: bo
     .on_press(move |s: &mut State| {
         s.navigation.anchor = Some(key.clone());
         if let Some(media) = &item {
-            s.open_library_media(media);
+            if s.navigation.page == Page::Watching && resume {
+                s.resume_library_media(media);
+            } else {
+                s.open_library_media(media);
+            }
         } else if let Some(result) = &result
             && let Some(index) = (0..s.discover.results.len()).find(|&index| {
                 s.result_media(index)

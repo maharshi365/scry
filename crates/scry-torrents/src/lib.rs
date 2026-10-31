@@ -43,6 +43,13 @@ struct Server {
 }
 
 impl Torrents {
+    /// Remove downloaded torrent entries, retaining unrelated files and settings.
+    /// # Errors
+    /// Returns an error if the cache is in use, contains unsafe paths, or cannot be cleared.
+    pub async fn clear_cache(folder: PathBuf) -> Result<()> {
+        tokio::task::spawn_blocking(move || cache::clear(&folder)).await?
+    }
+
     /// Opens a persistent torrent cache with a 2 GiB budget.
     ///
     /// # Errors

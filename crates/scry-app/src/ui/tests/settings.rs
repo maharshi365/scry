@@ -94,6 +94,45 @@ fn settings_tabs_show_only_the_selected_page_and_dismiss_language_menus_before_s
 }
 
 #[test]
+fn clear_cache_is_available_beside_sizes_but_disabled_during_playback_or_clearing() {
+    for (playing, clearing, enabled) in [
+        (false, false, true),
+        (true, false, false),
+        (false, true, false),
+    ] {
+        let mut state = init();
+        state.navigation.page = Page::Settings;
+        state.player.playing = playing;
+        state.settings.streaming.clearing = clearing;
+        let mut rt = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
+        rt.frame(0.0);
+        let control = rt
+            .elements()
+            .into_iter()
+            .find(|element| element.key.as_deref() == Some("streaming-cache-clear"))
+            .unwrap();
+        assert_eq!(control.focusable, enabled);
+        assert!(rt.find("streaming-cache-2").is_some());
+    }
+}
+
+#[test]
+fn cache_clear_completion_reports_the_result_without_changing_the_budget() {
+    for result in [Ok(()), Err("Cache is in use".into())] {
+        let (mut state, tx) = state_with_events();
+        state.settings.streaming.preferences.cache_gib = 10;
+        state.settings.streaming.clearing = true;
+        let failed = result.is_err();
+        tx.try_send(Event::TorrentCacheCleared(result)).unwrap();
+        poll(&mut state, 0.0, &mut Tx::default());
+        assert!(!state.settings.streaming.clearing);
+        assert_eq!(state.settings.streaming.cache_error, failed);
+        assert!(state.settings.streaming.cache_message.is_some());
+        assert_eq!(state.settings.streaming.preferences.cache_gib, 10);
+    }
+}
+
+#[test]
 fn streaming_cache_choices_apply_without_changing_current_playback() {
     let mut state = init();
     state.navigation.page = Page::Settings;
@@ -169,6 +208,10 @@ fn streaming_cache_controls_fit_small_and_wide_settings_pages() {
         let mut rt = rune::Runtime::new(state, view, (width, height), rune::Env::default());
         rt.frame(0.0);
         let panel = rect(&rt, "streaming-settings");
+        let clear = rect(&rt, "streaming-cache-clear");
+        assert!(clear[0] >= panel[0]);
+        assert!(clear[0] + clear[2] <= panel[0] + panel[2]);
+        assert!(clear[1] + clear[3] <= height);
         for cache_gib in [2, 5, 10, 20] {
             let choice = rect(&rt, &format!("streaming-cache-{cache_gib}"));
             assert!(choice[0] >= panel[0]);

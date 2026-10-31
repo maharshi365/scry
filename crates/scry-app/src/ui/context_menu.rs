@@ -140,6 +140,17 @@ pub(super) fn view(s: &State) -> Option<El> {
     let (point, item) = s.shell.context_menu.as_ref()?;
     let mut menu = col().w_full().gap(5.0);
     if let Some(Target::Title(media)) = item {
+        if s.navigation.page == Page::Watching {
+            let media = media.clone();
+            menu = menu.child(menu_item(
+                "context-choose-stream",
+                "Choose another stream",
+                move |s: &mut State| {
+                    s.shell.context_menu = None;
+                    s.open_library_media(&media);
+                },
+            ));
+        }
         menu = menu.children(dismiss_watching(s, media));
         if matches!(media.key.kind, MediaKind::Movie | MediaKind::Series) {
             let media = media.clone();

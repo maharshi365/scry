@@ -3,6 +3,7 @@ mod movie_runtimes;
 mod movie_status;
 mod posters;
 mod progress;
+mod resume;
 pub(super) mod series_status;
 mod tracking;
 mod watch_actions;
@@ -18,6 +19,7 @@ use super::{
     },
 };
 use crate::library_worker::{Command, Event as DbEvent, Snapshot, Worker};
+pub(in crate::ui) use resume::StreamCandidate;
 #[cfg(test)]
 use rune::TextEdit;
 use rune::{El, col, row};
@@ -25,6 +27,9 @@ use scry_library::{Media, MediaKey, MediaKind};
 use std::{collections::VecDeque, time::Instant};
 
 pub(super) struct LibraryUi {
+    pub(in crate::ui) resume_request: Option<resume::ResumeRequest>,
+    pub(in crate::ui) stream_candidate: Option<StreamCandidate>,
+    pub(in crate::ui) replaying: Option<Media>,
     pub worker: Option<Worker>,
     pub snapshot: Option<Snapshot>,
     pub error: Option<String>,
@@ -63,6 +68,9 @@ pub(super) struct LibraryUi {
 impl Default for LibraryUi {
     fn default() -> Self {
         Self {
+            resume_request: None,
+            stream_candidate: None,
+            replaying: None,
             worker: None,
             snapshot: None,
             error: None,
@@ -405,7 +413,9 @@ impl State {
                     self.library.tracking.busy = false;
                     self.movie_runtimes_failed();
                 }
+                event @ DbEvent::SavedStream { .. } => self.apply_saved_stream(event),
                 DbEvent::RequestError(error) => {
+                    self.library.resume_request = None;
                     self.library.error = Some(error);
                     self.library.tracking.busy = false;
                     self.movie_runtimes_failed();
@@ -435,6 +445,7 @@ impl State {
     }
 
     pub(in crate::ui) fn open_library_media(&mut self, media: &Media) {
+        self.library.resume_request = None;
         let target = media.parent.as_ref().unwrap_or(&media.key);
         self.detail.namespace.clone_from(&target.namespace);
         self.detail.pending_episode = media.parent.as_ref().map(|_| media.key.id.clone());

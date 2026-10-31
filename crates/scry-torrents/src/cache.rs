@@ -128,6 +128,26 @@ fn is_hash(name: &str) -> bool {
     name.len() == 40 && name.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
+pub(crate) fn clear(root: &Path) -> Result<()> {
+    let cache = Cache::open(root, DEFAULT_BUDGET)?;
+    let mut entries = Vec::new();
+    for (count, item) in fs::read_dir(&cache.root)?.enumerate() {
+        if count >= MAX_ENTRIES {
+            bail!("Torrent cache has too many entries");
+        }
+        let item = item?;
+        if item.file_name().to_str().is_some_and(is_hash) && item.file_type()?.is_dir() {
+            let path = item.path();
+            entry_size(&path)?;
+            entries.push(path);
+        }
+    }
+    for path in entries {
+        fs::remove_dir_all(path)?;
+    }
+    Ok(())
+}
+
 fn check_directory(path: &Path) -> Result<()> {
     if !fs::symlink_metadata(path)?.is_dir() {
         bail!("Invalid torrent cache directory");
@@ -171,6 +191,25 @@ fn entry_size(root: &Path) -> Result<u64> {
 )]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clearing_removes_only_owned_entries_and_refuses_an_active_cache() {
+        let root = tempfile::tempdir().unwrap();
+        let cache = Cache::open(root.path(), 1024).unwrap();
+        let entry = cache.entry(&format!("{:040x}", 1)).unwrap();
+        fs::write(entry.join("data/video"), [1; 20]).unwrap();
+        fs::write(cache.root.join("keep.txt"), "unrelated").unwrap();
+        assert!(super::clear(root.path()).is_err());
+        assert!(entry.exists());
+        drop(cache);
+        super::clear(root.path()).unwrap();
+        assert!(!entry.exists());
+        assert_eq!(
+            fs::read_to_string(root.path().join("v1/keep.txt")).unwrap(),
+            "unrelated"
+        );
+        super::clear(root.path()).unwrap();
+    }
 
     fn retained_entries(cache: &Cache) -> Vec<PathBuf> {
         fs::read_dir(&cache.root)

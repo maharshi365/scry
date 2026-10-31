@@ -3,6 +3,11 @@ use scry_library::{Media, MediaKey, Progress, WatchedState};
 
 #[derive(Clone, Debug)]
 pub enum Command {
+    SavedStream {
+        generation: u64,
+        key: MediaKey,
+    },
+    SaveStream(Media, String),
     Guide {
         generation: u64,
         action: scry_library::guide::GuideAction,
@@ -115,6 +120,10 @@ pub struct Snapshot {
 
 #[derive(Debug)]
 pub enum Event {
+    SavedStream {
+        generation: u64,
+        stream: Option<String>,
+    },
     Guide {
         generation: u64,
         data: scry_library::guide::Snapshot,
@@ -200,7 +209,8 @@ impl Command {
     pub(super) fn acknowledges_mutation(&self) -> bool {
         matches!(
             self,
-            Self::SetEpisodesWatched { .. }
+            Self::SaveStream(..)
+                | Self::SetEpisodesWatched { .. }
                 | Self::SavePlayback(..)
                 | Self::FinishPlayback(..)
                 | Self::Upsert(..)

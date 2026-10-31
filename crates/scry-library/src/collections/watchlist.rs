@@ -3,8 +3,8 @@ use diesel::prelude::*;
 
 use crate::{
     Library, Media,
-    media::{media_id, upsert_media, validate_media},
-    schema::watchlist,
+    catalog::media::{media_id, upsert_media, validate_media},
+    storage::schema::watchlist,
 };
 
 pub(crate) fn contains(connection: &mut SqliteConnection, id: i64) -> Result<bool> {

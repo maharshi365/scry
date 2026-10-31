@@ -147,6 +147,7 @@ impl State {
     }
 
     pub(super) fn select_season(&mut self, season: Option<u32>) {
+        self.library.resume_request = None;
         self.detail.episodes.menu_open = false;
         if !self.seasons().contains(&season) || self.active_season() == season {
             return;
@@ -180,6 +181,7 @@ impl State {
     }
 
     pub(super) fn select_episode(&mut self, index: usize) {
+        self.library.resume_request = None;
         self.navigation.anchor = Some(format!("episode-{index}"));
         if let Some(meta) = &self.detail.meta
             && let Some(video) = meta.videos.get(index)
@@ -190,6 +192,7 @@ impl State {
     }
 
     pub(super) fn show_episodes(&mut self) {
+        self.library.resume_request = None;
         self.library.quick_play = None;
         self.detail.episodes.selected = None;
         self.runtime.streams.invalidate();

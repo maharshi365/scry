@@ -3,7 +3,7 @@
 use anyhow::{Result, ensure};
 use diesel::{connection::SimpleConnection, prelude::*, sql_types::BigInt};
 
-use crate::{Library, MediaKey, MediaKind, Progress, SeriesProgress, media::media_id};
+use crate::{Library, MediaKey, MediaKind, Progress, SeriesProgress, catalog::media::media_id};
 
 const ELIGIBLE: &str = "COALESCE(r.released_at <= {now}, 0)";
 const RETAINED: &str = "r.released_at IS NULL OR r.released_at <= {now}";

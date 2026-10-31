@@ -78,7 +78,7 @@ fn adding_the_cache_to_an_existing_database_preserves_library_data() -> anyhow::
             path.to_str()
                 .ok_or_else(|| anyhow::anyhow!("invalid fixture path"))?,
         )?;
-        raw.batch_execute("DROP TABLE skip_segments; INSERT INTO addons VALUES ('fixture', 0, 'https://example.invalid/manifest.json', '{}'); PRAGMA user_version=6;")?;
+        raw.batch_execute("DROP TABLE skip_segments; DROP TABLE saved_streams; INSERT INTO addons VALUES ('fixture', 0, 'https://example.invalid/manifest.json', '{}'); PRAGMA user_version=6;")?;
     }
     let db = Library::open(&path)?;
     assert_eq!(

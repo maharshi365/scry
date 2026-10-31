@@ -19,7 +19,7 @@ fn upgrade_saved_watch_history(version: i64) -> anyhow::Result<()> {
     {
         let mut connection =
             SqliteConnection::establish(path.to_str().context("test database path is not UTF-8")?)?;
-        connection.batch_execute(include_str!("../src/schema.sql"))?;
+        connection.batch_execute(include_str!("../src/storage/schema.sql"))?;
         connection.batch_execute(
             "CREATE VIEW effective_watched AS
              SELECT m.media_id, CASE WHEN m.kind='series' THEN
@@ -93,7 +93,7 @@ fn version_one_upgrade_corrects_completion_and_preserves_watch_history() -> anyh
             SqliteConnection::establish(path.to_str().context("test database path is not UTF-8")?)?;
         // Version one required dates and treated every released episode watched as complete.
         connection.batch_execute(
-            &include_str!("../src/schema.sql")
+            &include_str!("../src/storage/schema.sql")
                 .replace("released_at BIGINT,", "released_at BIGINT NOT NULL,"),
         )?;
         connection.batch_execute(

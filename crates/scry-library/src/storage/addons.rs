@@ -1,7 +1,7 @@
 use anyhow::{Result, ensure};
 use diesel::prelude::*;
 
-use crate::{Library, schema::addons};
+use crate::{Library, storage::schema::addons};
 
 /// Stored separately from network types so the database has no HTTP dependency.
 #[derive(Clone, Debug, PartialEq, Eq, Queryable, Selectable)]

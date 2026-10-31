@@ -9,7 +9,7 @@ fn existing_watched_history_uses_known_runtime_without_inventing_dates() -> anyh
     {
         let mut connection =
             SqliteConnection::establish(path.to_str().context("test database path")?)?;
-        connection.batch_execute(include_str!("../src/schema.sql"))?;
+        connection.batch_execute(include_str!("../src/storage/schema.sql"))?;
         connection.batch_execute("CREATE VIEW effective_watched AS SELECT m.media_id,COALESCE(w.watched,0) AS watched FROM media m LEFT JOIN watched w USING(media_id);")?;
         connection.batch_execute("INSERT INTO media VALUES (1,'test','movie','one','One',NULL); INSERT INTO watched VALUES (1,1); INSERT INTO progress VALUES (1,80,100); PRAGMA user_version=4;")?;
     }

@@ -80,7 +80,7 @@ pub(super) fn count(connection: &mut SqliteConnection, query: &str) -> Result<i6
         .value)
 }
 
-pub(super) fn validate(connection: &mut SqliteConnection) -> Result<()> {
+pub(crate) fn validate(connection: &mut SqliteConnection) -> Result<()> {
     // Resolve every stats column at startup without scanning history.
     count(
         connection,
@@ -91,7 +91,7 @@ pub(super) fn validate(connection: &mut SqliteConnection) -> Result<()> {
 
 // Called inside the same transaction as resume/watched state. No samples are
 // stored: one bucket per title/hour, one total per title, one row per session.
-pub(super) fn record(
+pub(crate) fn record(
     connection: &mut SqliteConnection,
     id: i64,
     delta: f64,
@@ -137,13 +137,13 @@ pub(super) fn record(
     Ok(())
 }
 
-pub(super) fn runtime(connection: &mut SqliteConnection, id: i64, seconds: f64) -> Result<()> {
+pub(crate) fn runtime(connection: &mut SqliteConnection, id: i64, seconds: f64) -> Result<()> {
     diesel::sql_query("INSERT INTO media_runtime(media_id,seconds) VALUES (?,?) ON CONFLICT(media_id) DO UPDATE SET seconds=excluded.seconds")
         .bind::<BigInt,_>(id).bind::<Double,_>(seconds).execute(connection)?;
     Ok(())
 }
 
-pub(super) fn watched_at(
+pub(crate) fn watched_at(
     connection: &mut SqliteConnection,
     id: i64,
     watched: bool,
@@ -160,7 +160,7 @@ pub(super) fn watched_at(
     Ok(())
 }
 
-pub(super) fn finish_run(connection: &mut SqliteConnection, id: i64) -> Result<()> {
+pub(crate) fn finish_run(connection: &mut SqliteConnection, id: i64) -> Result<()> {
     diesel::sql_query("UPDATE stats_titles SET run_seconds=0,run_completed=0 WHERE media_id=?")
         .bind::<BigInt, _>(id)
         .execute(connection)?;
@@ -187,8 +187,8 @@ impl Library {
             .bind::<Text, _>(after.map_or("", |key| key.namespace.as_str()))
             .bind::<Text, _>(after.map_or("", |key| key.id.as_str()))
             .bind::<BigInt, _>(i64::from(page.limit))
-            .load::<crate::media::MediaRecord>(connection)?;
-        crate::media::hydrate(connection, records)
+            .load::<crate::catalog::media::MediaRecord>(connection)?;
+        crate::catalog::media::hydrate(connection, records)
     }
 
     /// Store known runtimes without changing watched state. Missing titles are skipped.
@@ -208,11 +208,11 @@ impl Library {
             .borrow_mut()
             .immediate_transaction(|connection| {
                 for (key, seconds) in runtimes {
-                    if let Some(id) = crate::schema::media::table
-                        .filter(crate::schema::media::namespace.eq(&key.namespace))
-                        .filter(crate::schema::media::kind.eq(key.kind.as_str()))
-                        .filter(crate::schema::media::external_id.eq(&key.id))
-                        .select(crate::schema::media::media_id)
+                    if let Some(id) = crate::storage::schema::media::table
+                        .filter(crate::storage::schema::media::namespace.eq(&key.namespace))
+                        .filter(crate::storage::schema::media::kind.eq(key.kind.as_str()))
+                        .filter(crate::storage::schema::media::external_id.eq(&key.id))
+                        .select(crate::storage::schema::media::media_id)
                         .first::<i64>(connection)
                         .optional()?
                     {

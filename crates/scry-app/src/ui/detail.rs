@@ -309,6 +309,7 @@ pub(super) fn quick_actions(s: &State, compact: bool) -> El {
 
 impl State {
     pub(super) fn open_detail_from(&mut self, meta: scry_addons::Meta) {
+        self.library.resume_request = None;
         if self.navigation.page == super::Page::Detail {
             self.detail.generation += 1;
             self.runtime.streams.invalidate();

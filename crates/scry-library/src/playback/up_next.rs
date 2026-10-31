@@ -1,8 +1,8 @@
 use crate::{
     EpisodeRelease, Library, Media, MediaKey, MediaKind, Page, Progress,
-    media::{MediaProgressRecord, hydrate_progress, media_id, upsert_media},
-    schema::{episode_releases, media, series_inventory, watched},
-    watch_status::{ReleaseScope, clear_future_watches},
+    catalog::media::{MediaProgressRecord, hydrate_progress, media_id, upsert_media},
+    playback::watch_status::{ReleaseScope, clear_future_watches},
+    storage::schema::{episode_releases, media, series_inventory, watched},
 };
 use anyhow::{Context, Result, ensure};
 use diesel::{prelude::*, upsert::excluded};

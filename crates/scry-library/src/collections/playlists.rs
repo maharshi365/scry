@@ -5,8 +5,8 @@ use diesel::{dsl::max, prelude::*};
 
 use crate::{
     Library, Media, MediaKey, Page, Playlist,
-    media::{MediaRecord, hydrate, media_id},
-    schema::{media, playlist_items, playlists},
+    catalog::media::{MediaRecord, hydrate, media_id},
+    storage::schema::{media, playlist_items, playlists},
 };
 
 fn playlist_exists(connection: &mut SqliteConnection, id: i64) -> Result<()> {

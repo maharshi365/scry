@@ -1,8 +1,8 @@
 use super::{Channel, ChannelSource, Collection, GuideAction, MAX_CHANNELS, Snapshot, Stored};
 use crate::{
     Library, Media, MediaKind,
-    media::{MediaRecord, hydrate, media_id, upsert_media},
-    schema::{media, playlist_items, playlists},
+    catalog::media::{MediaRecord, hydrate, media_id, upsert_media},
+    storage::schema::{media, playlist_items, playlists},
 };
 use anyhow::{Context, Result, ensure};
 use diesel::{

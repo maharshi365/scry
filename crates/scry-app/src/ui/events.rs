@@ -98,6 +98,14 @@ fn request_library_updates(s: &mut State, tx: &mut Tx) -> bool {
 )]
 fn apply(s: &mut State, event: Event) {
     match event {
+        Event::TorrentCacheCleared(result) => {
+            s.settings.streaming.clearing = false;
+            s.settings.streaming.cache_error = result.is_err();
+            s.settings.streaming.cache_message = Some(match result {
+                Ok(()) => "Downloaded torrent data has been removed.".into(),
+                Err(error) => error,
+            });
+        }
         Event::StreamingPreferences(result) => {
             s.settings.streaming.busy = false;
             match result {
@@ -218,6 +226,7 @@ fn apply(s: &mut State, event: Event) {
                 }
                 Err(error) => s.detail.request.error = Some(error),
             }
+            s.try_resume_stream();
         }
         Event::Streams(id, streams, warnings, done)
             if s.runtime
@@ -274,6 +283,18 @@ fn apply(s: &mut State, event: Event) {
         }
         Event::Ready(id) if id == s.player.generation && s.player.playing => {
             let first_ready = !s.player.ready;
+            if first_ready {
+                s.library.replaying = None;
+                if let Some(candidate) = s.library.stream_candidate.take()
+                    && candidate.generation == id
+                    && let Ok(json) = serde_json::to_string(&candidate.stream)
+                {
+                    s.db(
+                        crate::library_worker::Command::SaveStream(candidate.media, json),
+                        false,
+                    );
+                }
+            }
             s.player.ready = true;
             if s.navigation.page == Page::Guide && first_ready {
                 s.seek_guide_now();
@@ -309,6 +330,11 @@ fn apply(s: &mut State, event: Event) {
             s.player.torrent_stats = stats;
         }
         Event::Stopped(id, error) if id == s.player.generation => {
+            let replay_failed = error
+                .is_some()
+                .then(|| s.library.replaying.take())
+                .flatten();
+            s.library.stream_candidate = None;
             if s.navigation.page != Page::Guide {
                 s.set_fullscreen(false);
             }
@@ -332,6 +358,11 @@ fn apply(s: &mut State, event: Event) {
             if error.is_some() {
                 s.player.error = error;
                 s.guide_join_failed();
+            }
+            if let Some(media) = replay_failed {
+                s.open_library_media(&media);
+                s.detail.request.error =
+                    Some("Previous stream could not be opened. Choose another stream.".into());
             }
         }
         Event::PlayerWarning(id, error) if id == s.player.generation => {

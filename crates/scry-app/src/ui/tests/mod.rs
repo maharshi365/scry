@@ -30,6 +30,7 @@ mod player;
 mod player_intro;
 mod posters;
 mod presentation;
+mod resume;
 mod series;
 mod settings;
 mod sources;

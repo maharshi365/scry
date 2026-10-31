@@ -48,6 +48,7 @@ impl State {
     }
 
     pub(in crate::ui) fn play(&mut self, stream: Stream, title: String) {
+        self.library.resume_request = None;
         if let Err(error) = stream.validate_playback() {
             self.player.error = Some(error.to_string());
             return;
@@ -80,10 +81,28 @@ impl State {
             .as_ref()
             .map(|meta| (meta.kind.clone(), meta.id.clone()));
         self.player.video_id = self.detail.episodes.selected.clone();
+        let candidate = self
+            .library
+            .playing
+            .clone()
+            .map(|media| (media, stream.clone()));
+        let generation = self.player.generation;
         self.play_source(Source::Stream(stream), title);
+        if self.player.generation != generation {
+            self.library.stream_candidate =
+                candidate.map(
+                    |(media, stream)| super::super::library_view::StreamCandidate {
+                        generation: self.player.generation,
+                        media,
+                        stream,
+                    },
+                );
+        }
     }
 
     pub(in crate::ui) fn play_source(&mut self, source: Source, title: String) {
+        self.library.stream_candidate = None;
+        self.library.replaying = None;
         self.player.error = None;
         if let Some(error) = self.shell.host_error.lock().ok().and_then(|e| e.clone()) {
             self.player.error = Some(error);

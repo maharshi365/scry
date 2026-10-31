@@ -6,7 +6,10 @@ use diesel::{
     sql_types::{BigInt, Bool, Nullable, Text},
 };
 
-use crate::{Library, stats::number};
+use crate::{
+    Library,
+    stats::metrics::{count, number},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Evaluation {
@@ -276,10 +279,7 @@ fn evaluate(
         let mut unlocked_at = previous.and_then(|entry| entry.unlocked_at);
         if !earned {
             if unlocked && !historical {
-                unlocked_at = Some(crate::stats::count(
-                    db.connection,
-                    "SELECT unixepoch() AS value",
-                )?);
+                unlocked_at = Some(count(db.connection, "SELECT unixepoch() AS value")?);
             }
             diesel::sql_query("INSERT INTO achievement_checks(id,unlocked,historical,unlocked_at) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET unlocked=excluded.unlocked,historical=excluded.historical,unlocked_at=excluded.unlocked_at")
                 .bind::<Text,_>(definition.id).bind::<Bool,_>(unlocked).bind::<Bool,_>(historical)
