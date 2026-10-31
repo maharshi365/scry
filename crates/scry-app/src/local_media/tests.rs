@@ -299,6 +299,151 @@ fn offline_roots_retain_unavailable_files_and_matches_survive_restart() {
 }
 
 #[test]
+fn targeted_scan_reconciles_only_its_subtree_and_preserves_reviewed_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let shows = temp.path().join("shows");
+    let movies = temp.path().join("movies");
+    fs::create_dir_all(&shows).unwrap();
+    fs::create_dir_all(&movies).unwrap();
+    let episode = shows.join("Example.S01E01.mkv");
+    let movie = movies.join("Arrival.2016.mkv");
+    fs::write(&episode, []).unwrap();
+    fs::write(&movie, []).unwrap();
+    let mut index = Index::default();
+    index.add_root(temp.path()).unwrap();
+    index.scan();
+    let shows = fs::canonicalize(shows).unwrap();
+    let movie = fs::canonicalize(movie).unwrap();
+    let reviewed = index
+        .items
+        .iter_mut()
+        .find(|item| item.kind == "series")
+        .unwrap();
+    let id = reviewed.id.clone();
+    reviewed.matched = Some(Match::from_meta(&reviewed.meta().unwrap(), true));
+    reviewed.keep_unmatched = true;
+    reviewed.files[0].episode = Some(Episode {
+        season: 2,
+        numbers: vec![5],
+    });
+    reviewed.files[0].corrected = true;
+    fs::write(shows.join("Example.S01E02.mkv"), []).unwrap();
+    fs::remove_file(&movie).unwrap();
+    assert_eq!(index.scan_changed(std::slice::from_ref(&shows)), 0);
+    let reviewed = index.items.iter().find(|item| item.id == id).unwrap();
+    assert!(reviewed.keep_unmatched);
+    assert!(reviewed.matched.as_ref().unwrap().manual);
+    assert_eq!(reviewed.files.len(), 2);
+    let corrected = reviewed.files.iter().find(|file| file.corrected).unwrap();
+    assert_eq!(corrected.episode.as_ref().unwrap().season, 2);
+    assert!(
+        index.items.iter().any(|item| item
+            .files
+            .iter()
+            .any(|file| file.path == movie && file.available)),
+        "An unscanned sibling must not be reconciled"
+    );
+    fs::remove_dir_all(&shows).unwrap();
+    assert_eq!(index.scan_changed(&[shows]), 0);
+    assert!(
+        index.items.is_empty(),
+        "A missing subtree must reconcile through its surviving parent"
+    );
+}
+
+#[test]
+fn targeted_scan_keeps_offline_roots_and_ignores_unselected_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("media");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("Arrival.2016.mkv"), []).unwrap();
+    let mut index = Index::default();
+    index.add_root(&root).unwrap();
+    index.scan();
+    let root = index.roots[0].clone();
+    fs::rename(&root, temp.path().join("offline")).unwrap();
+    assert_eq!(
+        index.scan_changed(&[temp.path().to_owned(), root.join("..")]),
+        0
+    );
+    assert!(index.items[0].files[0].available);
+    assert!(index.scan_changed(&[root.join("season")]) > 0);
+    assert_eq!(index.items.len(), 1);
+    assert!(!index.items[0].files[0].available);
+}
+
+#[test]
+fn modern_release_tags_do_not_become_part_of_the_title() {
+    for name in [
+        "Example.AV1-GROUP.mkv",
+        "Example.VP9.mkv",
+        "Example.HDR10.mkv",
+        "Example.WEB.DL.AV1.mkv",
+    ] {
+        assert_eq!(parse(Path::new(name)).title, "Example", "{name}");
+    }
+}
+
+#[test]
+fn overlapping_targeted_scans_do_not_duplicate_episode_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let season = temp.path().join("Example/Season 1");
+    fs::create_dir_all(&season).unwrap();
+    fs::write(season.join("Example.S01E01.mkv"), []).unwrap();
+    let mut index = Index::default();
+    index.add_root(temp.path()).unwrap();
+    index.add_root(&season).unwrap();
+    let season = fs::canonicalize(season).unwrap();
+    let show = season.parent().unwrap().to_owned();
+    assert_eq!(
+        index.scan_changed(&[season.clone(), show.clone(), season]),
+        0
+    );
+    assert_eq!(index.items.len(), 1);
+    assert_eq!(index.items[0].files.len(), 1);
+    fs::write(show.join("Season 1/Example.S01E02.mkv"), []).unwrap();
+    index.scan_changed(&[show]);
+    assert_eq!(index.items[0].files.len(), 2);
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn targeted_scans_do_not_follow_a_directory_replaced_with_a_link() {
+    let temp = tempfile::tempdir().unwrap();
+    let show = temp.path().join("show");
+    let other = temp.path().join("other");
+    fs::create_dir(&show).unwrap();
+    fs::create_dir(&other).unwrap();
+    fs::write(show.join("Before.2020.mkv"), []).unwrap();
+    let mut index = Index::default();
+    index.add_root(temp.path()).unwrap();
+    index.scan();
+    let show = fs::canonicalize(show).unwrap();
+    fs::remove_dir_all(&show).unwrap();
+    fs::write(other.join("After.2021.mkv"), []).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&other, &show).unwrap();
+    #[cfg(windows)]
+    {
+        let output = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&show)
+            .arg(&other)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "Cannot create junction fixture: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    assert_eq!(index.scan_changed(std::slice::from_ref(&show)), 0);
+    assert_eq!(index.items.len(), 1);
+    assert_eq!(index.items[0].title, "After");
+    assert!(!index.items[0].files[0].path.starts_with(show));
+}
+
+#[test]
 fn anime_files_group_without_guessing_season_one_and_new_files_use_the_saved_order() {
     let root = tempfile::tempdir().unwrap();
     for name in ["[Group] Example - 001v2 [1080p].mkv", "Example - 002.mkv"] {

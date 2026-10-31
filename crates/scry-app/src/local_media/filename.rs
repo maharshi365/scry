@@ -140,44 +140,56 @@ pub(super) fn parse(path: &Path) -> Parsed {
 }
 
 fn technical(value: &str) -> bool {
-    matches!(
-        value.to_ascii_lowercase().as_str(),
-        "480p"
-            | "720p"
-            | "1080p"
-            | "1080i"
-            | "2160p"
-            | "4k"
-            | "uhd"
-            | "ultrahd"
-            | "bluray"
-            | "blu-ray"
-            | "bdrip"
-            | "brrip"
-            | "webrip"
-            | "web-dl"
-            | "web-rip"
-            | "hdtv"
-            | "dvdrip"
-            | "x264"
-            | "x265"
-            | "h264"
-            | "h265"
-            | "hevc"
-            | "avc"
-            | "aac"
-            | "ac3"
-            | "eac3"
-            | "dts"
-            | "truehd"
-            | "atmos"
-            | "10bit"
-            | "xvid"
-            | "divx"
-            | "proper"
-            | "rerip"
-            | "remux"
-    )
+    let lower = value.to_ascii_lowercase();
+    [lower.as_str(), lower.split('-').next().unwrap_or(&lower)]
+        .into_iter()
+        .any(|value| {
+            matches!(
+                value,
+                "480p"
+                    | "720p"
+                    | "1080p"
+                    | "1080i"
+                    | "2160p"
+                    | "4k"
+                    | "uhd"
+                    | "ultrahd"
+                    | "bluray"
+                    | "blu-ray"
+                    | "bdrip"
+                    | "brrip"
+                    | "webrip"
+                    | "web-dl"
+                    | "web-rip"
+                    | "hdtv"
+                    | "dvdrip"
+                    | "x264"
+                    | "x265"
+                    | "h264"
+                    | "h265"
+                    | "hevc"
+                    | "avc"
+                    | "av1"
+                    | "vp9"
+                    | "hdr"
+                    | "hdr10"
+                    | "hdr10plus"
+                    | "dovi"
+                    | "webdl"
+                    | "aac"
+                    | "ac3"
+                    | "eac3"
+                    | "dts"
+                    | "truehd"
+                    | "atmos"
+                    | "10bit"
+                    | "xvid"
+                    | "divx"
+                    | "proper"
+                    | "rerip"
+                    | "remux"
+            )
+        })
 }
 
 fn strip_groups(value: &str) -> String {
@@ -288,11 +300,15 @@ fn parse_name(name: &str) -> Parsed {
             && tokens
                 .get(i + 1)
                 .is_some_and(|t| matches!(*t, "264" | "265"));
+        let split_web = token == "web"
+            && tokens
+                .get(i + 1)
+                .is_some_and(|t| t.eq_ignore_ascii_case("dl") || t.eq_ignore_ascii_case("rip"));
         let edition = matches!(
             token.as_str(),
             "extended" | "remastered" | "imax" | "directors" | "director's"
         ) && tokens.iter().skip(i + 1).any(|t| technical(t));
-        (technical(&token) || split_codec || edition).then_some(i)
+        (technical(&token) || split_codec || split_web || edition).then_some(i)
     });
     let boundary = ep
         .as_ref()

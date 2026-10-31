@@ -12,6 +12,7 @@ pub(crate) enum Command {
     Add(PathBuf),
     Remove(PathBuf),
     Scan,
+    ScanChanged(Vec<PathBuf>),
     StopMatching,
     Match(String, Option<Match>),
     Episode(String, PathBuf, local_media::Episode),
@@ -50,7 +51,7 @@ pub(super) fn start(runtime: &Runtime, data: PathBuf, inbox: Inbox) -> mpsc::Sen
             let command = if let Some(command) = pending.take() { command } else {
                 tokio::select! {
                     command = rx.recv() => { let Some(command) = command else { break; }; command }
-                    () = folders.changed() => Command::Scan,
+                    command = folders.changed() => command,
                     _ = retry.tick() => { if !folders.needs_retry() { continue; } Command::Scan }
                 }
             };
@@ -70,7 +71,7 @@ pub(super) fn start(runtime: &Runtime, data: PathBuf, inbox: Inbox) -> mpsc::Sen
                 inbox.send(Event::MediaOrders(token, id, result)).await;
                 continue;
             }
-            let scan = matches!(command, Command::Add(_) | Command::Remove(_) | Command::Scan);
+            let scan = matches!(command, Command::Add(_) | Command::Remove(_) | Command::Scan | Command::ScanChanged(_));
             let folder = data.clone();
             let next = index.clone();
             let result = tokio::task::spawn_blocking(move || update(next, command, &folder)).await;
@@ -89,7 +90,7 @@ pub(super) fn start(runtime: &Runtime, data: PathBuf, inbox: Inbox) -> mpsc::Sen
                             let result = tokio::select! {
                                 result = search(client, &item.title) => result,
                                 command = rx.recv() => { pending = command; break; }
-                                () = folders.changed() => { pending = Some(Command::Scan); break; }
+                                command = folders.changed() => { pending = Some(command); break; }
                             };
                             let Ok(candidates) = result else { failed = true; break; };
                             if let Some(candidate) = best_match(&item.title, item.year, &item.kind, &candidates) {
@@ -120,7 +121,9 @@ fn update(mut index: Index, command: Command, data: &std::path::Path) -> Result<
         command,
         Command::Add(_) | Command::Remove(_) | Command::Scan
     );
+    let mut changed = None;
     match command {
+        Command::ScanChanged(directories) => changed = Some(directories),
         Command::Add(path) => index.add_root(&path)?,
         Command::Remove(path) => {
             index.roots.retain(|root| root != &path);
@@ -189,7 +192,13 @@ fn update(mut index: Index, command: Command, data: &std::path::Path) -> Result<
         | Command::Search(_, _)
         | Command::FindOrders(_, _, _) => {}
     }
-    let failures = if scan { index.scan() } else { 0 };
+    let failures = if let Some(directories) = changed {
+        index.scan_changed(&directories)
+    } else if scan {
+        index.scan()
+    } else {
+        0
+    };
     local_media::save(data, &index)?;
     let status = if stopped {
         format!(

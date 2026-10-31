@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 const ENTRY_LIMIT: usize = 1_000_000;
@@ -29,6 +29,40 @@ impl Index {
     }
 
     pub fn scan(&mut self) -> usize {
+        self.scan_directories(&self.roots.clone())
+    }
+
+    pub fn scan_changed(&mut self, directories: &[PathBuf]) -> usize {
+        let mut scopes = BTreeSet::<PathBuf>::new();
+        for directory in directories {
+            if directory
+                .components()
+                .any(|part| part == Component::ParentDir)
+            {
+                continue;
+            }
+            let Some(root) = self
+                .roots
+                .iter()
+                .filter(|root| directory.starts_with(root))
+                .max_by_key(|root| root.components().count())
+            else {
+                continue;
+            };
+            let scope = scan_scope(root, directory);
+            if scopes.iter().any(|parent| scope.starts_with(parent)) {
+                continue;
+            }
+            scopes.retain(|child| !child.starts_with(&scope));
+            scopes.insert(scope);
+        }
+        self.scan_directories(&scopes.into_iter().collect::<Vec<_>>())
+    }
+
+    fn scan_directories(&mut self, directories: &[PathBuf]) -> usize {
+        if directories.is_empty() {
+            return 0;
+        }
         let previous: BTreeMap<_, _> = self
             .items
             .iter()
@@ -47,7 +81,7 @@ impl Index {
                 (item.id.clone(), item)
             })
             .collect();
-        let (found, incomplete) = discover(&self.roots);
+        let (found, incomplete) = discover(&self.roots, directories);
         let mut previous = previous;
         for path in found {
             if let Some((id, mut file)) = previous.remove(&path) {
@@ -83,10 +117,13 @@ impl Index {
             });
         }
         for (path, (id, mut file)) in previous {
-            if incomplete.iter().any(|dir| path.starts_with(dir))
+            let untouched = !directories.iter().any(|dir| path.starts_with(dir));
+            if (untouched || incomplete.iter().any(|dir| path.starts_with(dir)))
                 && let Some(item) = items.get_mut(&id)
             {
-                file.available = false;
+                if !untouched {
+                    file.available = false;
+                }
                 item.files.push(file);
             }
         }
@@ -99,11 +136,30 @@ impl Index {
     }
 }
 
-fn discover(roots: &[PathBuf]) -> (BTreeSet<PathBuf>, Vec<PathBuf>) {
+// Deleted directories must be reconciled through a surviving parent. Never climb above a
+// selected root: a disconnected drive is offline, not an empty library.
+fn scan_scope(root: &Path, directory: &Path) -> PathBuf {
+    let mut scope = directory;
+    for ancestor in directory.ancestors().take_while(|path| *path != root) {
+        if fs::symlink_metadata(ancestor).is_ok_and(|meta| meta.file_type().is_symlink()) {
+            scope = ancestor.parent().unwrap_or(root);
+        }
+    }
+    while scope != root {
+        match fs::symlink_metadata(scope) {
+            Ok(meta) if meta.is_dir() => break,
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => break,
+            _ => scope = scope.parent().unwrap_or(root),
+        }
+    }
+    scope.to_owned()
+}
+
+fn discover(roots: &[PathBuf], directories: &[PathBuf]) -> (BTreeSet<PathBuf>, Vec<PathBuf>) {
     let mut found = BTreeSet::new();
     let mut incomplete = Vec::new();
     let mut visited = BTreeSet::new();
-    let mut pending = roots.to_vec();
+    let mut pending = directories.to_vec();
     let mut entries = 0usize;
     while let Some(dir) = pending.pop() {
         let Ok(canonical) = fs::canonicalize(&dir) else {
@@ -121,7 +177,7 @@ fn discover(roots: &[PathBuf]) -> (BTreeSet<PathBuf>, Vec<PathBuf>) {
         for child in children {
             entries += 1;
             if entries > ENTRY_LIMIT {
-                incomplete.extend_from_slice(roots);
+                incomplete.extend_from_slice(directories);
                 pending.clear();
                 break;
             }
