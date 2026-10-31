@@ -6,7 +6,7 @@ mod unsupported;
 mod windows;
 
 #[cfg(target_os = "macos")]
-pub use macos::{cpu_time_s, memory};
+pub(crate) use macos::{cpu_time_s, memory};
 #[cfg(not(any(windows, target_os = "macos")))]
 pub use unsupported::{cpu_time_s, memory};
 #[cfg(windows)]

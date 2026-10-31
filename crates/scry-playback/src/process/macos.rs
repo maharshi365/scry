@@ -19,12 +19,12 @@ fn task_info() -> Option<libc::proc_taskinfo> {
     }
 }
 
-pub(super) fn memory() -> (Option<u64>, Option<u64>) {
+pub(crate) fn memory() -> (Option<u64>, Option<u64>) {
     // Virtual size is not private committed memory; do not mislabel it as such.
     (task_info().map(|info| info.pti_resident_size), None)
 }
 
-pub(super) fn cpu_time_s() -> Option<f64> {
+pub(crate) fn cpu_time_s() -> Option<f64> {
     let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
     // SAFETY: getrusage initializes this correctly sized/aligned output on success.
     // RUSAGE_SELF includes live render/decoder threads and returns timeval units.

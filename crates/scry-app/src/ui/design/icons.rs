@@ -223,7 +223,15 @@ mod tests {
             source!(CLOCK, "clock-3"),
             source!(CHART, "chart-no-axes-combined"),
         ];
-        for (icon, svg) in sources {
+        for (icon, svg, body) in sources.into_iter().flat_map(|(icon, svg)| {
+            ["\n", "\r\n"].into_iter().map(move |ending| {
+                (
+                    icon,
+                    svg.replace("\r\n", "\n").replace('\n', ending),
+                    icon.body.replace("\r\n", "\n").replace('\n', ending),
+                )
+            })
+        }) {
             assert!(
                 icon.body.trim_start().starts_with("<svg"),
                 "{}: adapted SVG must have a root element",
@@ -243,8 +251,8 @@ mod tests {
                 .filter(|line| line.starts_with("fill=") || line.starts_with("stroke"))
                 .collect::<Vec<_>>()
                 .join(" ");
-            let inner = rest.strip_suffix('\n').unwrap_or(rest);
-            let inner = inner
+            let inner = rest
+                .trim_end()
                 .strip_suffix("</svg>")
                 .ok_or("Missing SVG end")?
                 .trim();
@@ -266,7 +274,8 @@ mod tests {
             }
             expected.push_str("</svg>\n");
             assert_eq!(
-                icon.body, expected,
+                body.replace("\r\n", "\n"),
+                expected,
                 "{}: Lucide adaptation drifted",
                 icon.name
             );
