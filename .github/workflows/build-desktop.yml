@@ -91,6 +91,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           bash scripts/macos/setup.sh
+          brew install dylibbundler
           xcrun --sdk macosx metal --version || xcodebuild -downloadComponent MetalToolchain
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -109,10 +110,17 @@ jobs:
       - name: Package macOS
         if: runner.os == 'macOS'
         run: bash scripts/macos/package.sh "$RUNNER_TEMP/dist"
+      - name: Check Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/windows/test-package.ps1 -Installer "$env:RUNNER_TEMP/dist/Scry-$env:SCRY_BUILD_VERSION-windows-x64-setup.exe"
+      - name: Check macOS installer
+        if: runner.os == 'macOS'
+        run: bash scripts/macos/test-package.sh "$RUNNER_TEMP/dist/Scry-$SCRY_BUILD_VERSION-macos-arm64.pkg"
       - name: Report signing status
         shell: bash
         run: |
-          echo 'Developer signing and notarization are disabled. These are unsigned builds (macOS uses a local ad-hoc signature only).' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Installers are unsigned (macOS uses local ad-hoc app signatures only). Updates require closing Scry and running the newer installer. Developer signing, notarization, and in-app updates are not configured.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: scry-${{ matrix.platform }}

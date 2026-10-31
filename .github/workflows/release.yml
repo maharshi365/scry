@@ -36,13 +36,13 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          archives=(Scry-*.zip Scry-*.dmg)
+          archives=(Scry-*-setup.exe Scry-*.pkg)
           checksums=(Scry-*.sha256)
           test "${#archives[@]}" -eq 2
           test "${#checksums[@]}" -eq 2
           sha256sum --check --strict -- *.sha256
-          test -f "Scry-$VERSION-windows-x64.zip"
-          test -f "Scry-$VERSION-macos-arm64.dmg"
+          test -f "Scry-$VERSION-windows-x64-setup.exe"
+          test -f "Scry-$VERSION-macos-arm64.pkg"
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -50,4 +50,4 @@ jobs:
           VERSION: ${{ needs.desktop.outputs.version }}
           COMMIT: ${{ github.sha }}
         run: |
-          gh release create "v$VERSION" dist/* --target "$COMMIT" --draft --title "Scry v$VERSION" --notes 'Unsigned preview builds. Windows: extract the ZIP and run scry.exe. macOS (Apple Silicon): requires Homebrew mpv (brew install mpv); drag Scry from the DMG to Applications. Developer signing and notarization are not configured. Review runtime redistribution licensing before publishing this draft.'
+          gh release create "v$VERSION" dist/* --target "$COMMIT" --draft --title "Scry v$VERSION" --notes 'Unsigned preview installers with mpv included. Windows: run the setup EXE (per-user install). macOS (Apple Silicon): open the PKG to install in Applications (administrator access required). To update, close Scry and run the newer installer; user data is preserved. No in-app updater is included. Windows SmartScreen and macOS Gatekeeper may block unsigned downloads. Developer signing and notarization are not configured. Review runtime redistribution licensing before publishing this draft.'

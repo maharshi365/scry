@@ -25,8 +25,10 @@ jobs:
           ## Scry builds
           Download the platform artifact from this run. Artifacts expire after 14 days.
 
-          - **Windows x64:** extract the ZIP and run `scry.exe`. Keep `libmpv-2.dll` beside it. SmartScreen may warn because this build is unsigned.
-          - **macOS Apple Silicon:** install mpv with `brew install mpv`, then open the DMG and drag Scry to Applications. This build is not Developer ID signed or notarized. If macOS blocks it, remove quarantine only if you trust this build: `xattr -dr com.apple.quarantine /Applications/Scry.app`.
+          - **Windows x64:** run the setup EXE. It installs for the current user and includes mpv. SmartScreen may warn because this build is unsigned.
+          - **macOS Apple Silicon:** open the PKG to install Scry in Applications (administrator access required). mpv is included. This build is not Developer ID signed or notarized; macOS may block it. Only override the warning in Privacy & Security if you trust the download.
+
+          To update, close Scry and run the newer installer. App data is kept outside the installed files and is not removed. In-app updates are not implemented.
 
           Each download includes a SHA-256 checksum. No signing credentials are needed.
           EOF
