@@ -141,7 +141,7 @@ fn window_chrome(s: &State, cx: &mut Cx<State>, content: El) -> El {
         }
         root = root.children(super::source_picker::sort_menu(s, cx));
     }
-    if let Some(menu) = super::context_menu::view(s, cx) {
+    if let Some(menu) = super::context_menu::view(s) {
         root = root.child(menu);
     }
     if let Some(panel) = super::player::stats::panel(s) {

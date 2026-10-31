@@ -37,8 +37,3 @@ impl Window {
         bail!("Subtitle file selection is not supported on this platform")
     }
 }
-
-pub(super) fn open_browser(url: &str) -> Result<()> {
-    std::process::Command::new("xdg-open").arg(url).spawn()?;
-    Ok(())
-}

@@ -243,6 +243,18 @@ fn compact_icons_follow_small_text_without_shrinking_the_click_target() {
 }
 
 #[test]
+fn menus_delegate_scrolling_and_placement_to_the_framework() {
+    let surface = include_str!("../primitives/surface.rs");
+    assert!(surface.contains(".anchored_fit("));
+    assert!(surface.contains("popover::fit_scroll(content)"));
+    let context = include_str!("../context_menu.rs");
+    assert!(!context.contains(".absolute("));
+    assert!(!context.contains("cx.layout("));
+    let button = include_str!("../primitives/button.rs");
+    assert!(button.contains("rune_kit::Button::new("));
+}
+
+#[test]
 fn ui_uses_shared_visual_values_and_feature_free_primitives() {
     let mut violations = Vec::new();
     check_source(

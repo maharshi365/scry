@@ -1,6 +1,36 @@
 use super::*;
 
 #[test]
+fn trailer_action_queues_only_valid_youtube_links() {
+    for (id, expected) in [
+        (
+            "trailer-id_123",
+            Some("https://www.youtube.com/watch?v=trailer-id_123"),
+        ),
+        ("", None),
+        ("other&redirect=https://example.invalid", None),
+    ] {
+        let mut s = init();
+        s.navigation.page = Page::Detail;
+        s.detail.meta = Some(
+            serde_json::from_value(serde_json::json!({
+                "id": "movie", "type": "movie", "name": "Movie",
+                "trailerStreams": [{"ytId": id}]
+            }))
+            .unwrap(),
+        );
+        let mut rt = rune::Runtime::new(s, view, (1280.0, 820.0), rune::Env::default());
+        rt.frame(0.0);
+        tap(&mut rt, "title-trailer");
+        assert_eq!(
+            rt.take_url_requests(),
+            expected.into_iter().map(str::to_owned).collect::<Vec<_>>()
+        );
+        assert_eq!(rt.state.detail.request.error.is_some(), expected.is_none());
+    }
+}
+
+#[test]
 fn late_details_keep_the_episode_selected_while_metadata_was_loading() {
     let (mut s, tx) = state_with_events();
     s.open_detail_from(series(3));

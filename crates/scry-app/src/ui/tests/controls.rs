@@ -83,6 +83,58 @@ fn dropdown_variants_compose_with_sizes_and_gate_disabled_actions() {
 }
 
 #[test]
+fn busy_buttons_keep_their_target_size_and_block_activation() {
+    struct Control {
+        busy: bool,
+        presses: usize,
+    }
+    fn control(s: &Control, _: &mut rune::Cx<Control>) -> rune::El {
+        rune::col().child(
+            Button::new("save", "Save")
+                .busy(s.busy)
+                .on_press(|s: &mut Control| s.presses += 1),
+        )
+    }
+    let mut rt = rune::Runtime::new(
+        Control {
+            busy: false,
+            presses: 0,
+        },
+        control,
+        (400.0, 300.0),
+        rune::Env::default(),
+    );
+    rt.frame(0.0);
+    let target = rt
+        .elements()
+        .into_iter()
+        .find(|e| e.key.as_deref() == Some("save"))
+        .unwrap()
+        .rect;
+    rt.update(|s, _| s.busy = true);
+    rt.frame(0.0);
+    let busy = rt
+        .elements()
+        .into_iter()
+        .find(|e| e.key.as_deref() == Some("save"))
+        .unwrap();
+    assert_eq!(busy.rect, target);
+    assert!(!busy.focusable);
+    assert!(rt.find("save-spinner").is_some());
+    rt.pointer_down(target[0] + target[2] / 2.0, target[1] + target[3] / 2.0);
+    rt.pointer_up(target[0] + target[2] / 2.0, target[1] + target[3] / 2.0);
+    rt.frame(0.0);
+    assert_eq!(rt.state.presses, 0);
+    rt.update(|s, _| s.busy = false);
+    rt.frame(0.0);
+    let (x, y) = rt.find("save").unwrap();
+    rt.pointer_down(x, y);
+    rt.pointer_up(x, y);
+    rt.frame(0.0);
+    assert_eq!(rt.state.presses, 1);
+}
+
+#[test]
 fn shared_progress_bars_bound_values_and_keep_accessible_percentages() {
     struct Bars {
         values: Vec<(&'static str, f64)>,

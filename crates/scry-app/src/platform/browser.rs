@@ -1,7 +1,11 @@
 use anyhow::{Result, bail};
 use url::Url;
 
-fn browser_url(value: &str) -> Result<Url> {
+/// Validate a web URL before asking Rune to open the default browser.
+///
+/// # Errors
+/// Returns an error unless the URL is HTTP or HTTPS, has a host, and has no credentials.
+pub fn validate_browser_url(value: &str) -> Result<Url> {
     let url = Url::parse(value).map_err(|_| anyhow::anyhow!("Invalid browser URL"))?;
     if value.contains('\0')
         || !matches!(url.scheme(), "http" | "https")
@@ -12,15 +16,6 @@ fn browser_url(value: &str) -> Result<Url> {
         bail!("Only HTTP and HTTPS browser URLs without credentials are supported");
     }
     Ok(url)
-}
-
-/// Open a web URL with the operating system's default browser.
-///
-/// # Errors
-/// Returns an error for an unsafe URL or if the browser cannot be launched.
-pub fn open_browser(value: &str) -> Result<()> {
-    let url = browser_url(value)?;
-    super::native::open_browser(url.as_str())
 }
 
 #[cfg(test)]
@@ -35,11 +30,11 @@ mod tests {
             "https://user:secret@example.com/",
             "https://example.com/\0",
         ] {
-            assert!(browser_url(value).is_err());
+            assert!(validate_browser_url(value).is_err());
         }
         let trailer = "https://www.youtube.com/watch?v=FVI84Dfx2-I";
         assert_eq!(
-            browser_url(trailer).ok().as_ref().map(Url::as_str),
+            validate_browser_url(trailer).ok().as_ref().map(Url::as_str),
             Some(trailer)
         );
     }

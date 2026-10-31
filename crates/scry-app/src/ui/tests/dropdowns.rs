@@ -112,6 +112,32 @@ fn dropdowns_overlay_without_moving_content_and_dismiss_without_navigation() {
 }
 
 #[test]
+fn long_season_menu_scrolls_to_choices_without_leaving_the_window() {
+    let mut rt = runtime(880.0, 600.0);
+    rt.update(|s, _| {
+        let videos: Vec<_> = (1..=60).map(|season| serde_json::json!({
+            "id": format!("show:{season}:1"), "title": "Episode", "season": season, "episode": 1
+        })).collect();
+        s.detail.meta = Some(
+            serde_json::from_value(serde_json::json!({
+                "id": "show", "type": "series", "name": "Show", "videos": videos
+            }))
+            .unwrap(),
+        );
+    });
+    settle(&mut rt);
+    tap(&mut rt, "season-select");
+    settle(&mut rt);
+    let popup = rect(&rt, "season-menu");
+    assert!(popup[1] >= 8.0 && popup[1] + popup[3] <= 593.0, "{popup:?}");
+    rt.wheel(popup[0] + 20.0, popup[1] + 20.0, -100_000.0);
+    settle(&mut rt);
+    tap(&mut rt, "season-option-59");
+    assert_eq!(rt.state.active_season(), Some(60));
+    assert!(!rt.state.detail.episodes.menu_open);
+}
+
+#[test]
 fn overlay_choices_keep_season_selection_and_provider_filtering_working() {
     let mut rt = runtime(880.0, 600.0);
     tap(&mut rt, "season-select");

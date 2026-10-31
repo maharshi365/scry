@@ -3911,7 +3911,7 @@ dependencies = [
 [[package]]
 name = "rune"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=fe116eea5643e2acfcfda5453e006e74b8dc6c34#fe116eea5643e2acfcfda5453e006e74b8dc6c34"
+source = "git+https://github.com/anomalyco/rune?rev=664b69ed1e76806f9e3b3fa79c8594e3b154700b#664b69ed1e76806f9e3b3fa79c8594e3b154700b"
 dependencies = [
  "arboard",
  "blake3",
@@ -3974,14 +3974,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "rune-kit"
+version = "0.0.1"
+source = "git+https://github.com/anomalyco/rune?rev=664b69ed1e76806f9e3b3fa79c8594e3b154700b#664b69ed1e76806f9e3b3fa79c8594e3b154700b"
+dependencies = [
+ "rune",
+ "rune-motion",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "rune-motion"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/rune?rev=fe116eea5643e2acfcfda5453e006e74b8dc6c34#fe116eea5643e2acfcfda5453e006e74b8dc6c34"
+source = "git+https://github.com/anomalyco/rune?rev=664b69ed1e76806f9e3b3fa79c8594e3b154700b#664b69ed1e76806f9e3b3fa79c8594e3b154700b"
 
 [[package]]
 name = "rune-staging"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=fe116eea5643e2acfcfda5453e006e74b8dc6c34#fe116eea5643e2acfcfda5453e006e74b8dc6c34"
+source = "git+https://github.com/anomalyco/rune?rev=664b69ed1e76806f9e3b3fa79c8594e3b154700b#664b69ed1e76806f9e3b3fa79c8594e3b154700b"
 dependencies = [
  "wgpu",
 ]
@@ -4142,6 +4152,7 @@ dependencies = [
  "reqwest",
  "resvg",
  "rune",
+ "rune-kit",
  "same-file",
  "scry-addons",
  "scry-library",

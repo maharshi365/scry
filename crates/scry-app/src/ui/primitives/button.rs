@@ -238,6 +238,15 @@ impl Button {
 
     /// Shared interactive frame for controls with caller-owned contents.
     pub fn frame(&self) -> El {
+        let frame = self.style(row().role("button"));
+        if self.enabled || self.busy {
+            frame
+        } else {
+            frame.opacity(tokens::opacity::DISABLED)
+        }
+    }
+
+    fn style(&self, frame: El) -> El {
         let active = self.enabled && !self.busy;
         let label = if self.busy {
             format!("{}, busy", self.title)
@@ -258,9 +267,8 @@ impl Button {
                 Variant::Danger => (tokens::danger_fill(), tokens::danger_edge()),
             }
         };
-        let mut frame = row()
+        let mut frame = frame
             .key(self.key.clone())
-            .role("button")
             .label(label)
             .h(control::HEIGHT)
             .px(control::PADDING_X)
@@ -303,14 +311,12 @@ impl Button {
             } else {
                 tokens::theme().hover
             }))
-        } else if self.busy {
-            frame
         } else {
-            frame.opacity(tokens::opacity::DISABLED)
+            frame
         }
     }
 
-    fn content(&self) -> El {
+    fn label(&self) -> El {
         let color = if self.busy {
             tokens::transparent()
         } else if !self.enabled {
@@ -322,47 +328,46 @@ impl Button {
         } else {
             tokens::theme().text
         };
-        let content = if let Some(glyph) = self.glyph {
-            self.frame()
+        if let Some(glyph) = self.glyph {
+            icon(
+                glyph,
+                if matches!(self.size, Size::Compact) {
+                    control::COMPACT_ICON_SIZE
+                } else {
+                    control::ICON_SIZE
+                },
+            )
+            .color(color)
+        } else {
+            text(self.title.clone())
+                .truncate()
+                .font(if matches!(self.size, Size::Compact) {
+                    type_::SMALL
+                } else {
+                    type_::LABEL
+                })
+                .color(color)
+        }
+    }
+
+    fn content(&self, content: El) -> El {
+        let mut content = self.style(content.gap(0.0));
+        if self.glyph.is_some() {
+            content = content
                 .w(match self.size {
                     Size::Compact => control::COMPACT_HEIGHT,
                     Size::Pill => control::PILL_HEIGHT,
                     Size::DialogAction => control::DIALOG_ACTION_WIDTH,
                     _ => control::ICON_TARGET,
                 })
-                .px(0.0)
-                .child(
-                    icon(
-                        glyph,
-                        if matches!(self.size, Size::Compact) {
-                            control::COMPACT_ICON_SIZE
-                        } else {
-                            control::ICON_SIZE
-                        },
-                    )
-                    .color(color),
-                )
-        } else {
-            let content = self.frame().child(
-                text(self.title.clone())
-                    .truncate()
-                    .font(if matches!(self.size, Size::Compact) {
-                        type_::SMALL
-                    } else {
-                        type_::LABEL
-                    })
-                    .color(color),
+                .px(0.0);
+        } else if matches!(self.layout, Layout::Dropdown) {
+            content = content.child(
+                icon(&super::super::design::icons::DOWN, control::CHEVRON_SIZE)
+                    .key(format!("{}-chevron", self.key))
+                    .color(tokens::theme().text_secondary),
             );
-            if matches!(self.layout, Layout::Dropdown) {
-                content.child(
-                    icon(&super::super::design::icons::DOWN, control::CHEVRON_SIZE)
-                        .key(format!("{}-chevron", self.key))
-                        .color(tokens::theme().text_secondary),
-                )
-            } else {
-                content
-            }
-        };
+        }
         if self.busy {
             content.child(el().absolute(0.0, 0.0).w_full().h_full().center().child(
                 super::status::spinner(format!("{}-spinner", self.key), control::ICON_SIZE),
@@ -377,11 +382,17 @@ impl Button {
     }
 
     pub fn on_press_tx<S: 'static>(self, f: impl Fn(&mut S, &mut Tx) + 'static) -> El {
-        let control = self.content();
-        if self.enabled && !self.busy {
-            control.on_press_tx(f)
-        } else {
-            control
-        }
+        let label = self.label();
+        let control = rune_kit::Button::new(self.title.clone())
+            .variant(if self.busy {
+                rune_kit::ButtonVariant::Loading
+            } else {
+                rune_kit::ButtonVariant::Ghost
+            })
+            .disabled(!self.enabled && !self.busy)
+            .label_with(move |_, _| label)
+            .on_press_tx(f)
+            .build(tokens::kit());
+        self.content(control)
     }
 }

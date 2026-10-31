@@ -111,8 +111,3 @@ impl Window {
             .map_err(anyhow::Error::msg)?
     }
 }
-
-pub(super) fn open_browser(url: &str) -> Result<()> {
-    std::process::Command::new("open").arg(url).spawn()?;
-    Ok(())
-}

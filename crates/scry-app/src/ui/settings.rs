@@ -348,13 +348,6 @@ pub(super) fn language_menu(s: &State) -> Option<El> {
     } else {
         &s.settings.subtitle_preferences.secondary
     };
-    let menu = super::primitives::surface::dropdown(
-        "subtitle-language-menu",
-        anchor,
-        280.0,
-        300.0,
-        |s: &mut State| s.settings.subtitles.language_menu = None,
-    );
     let mut options = col().w_full().gap(4.0);
     for (code, title) in std::iter::once(("", "Off")).chain(LANGUAGES.iter().copied()) {
         let language = (!code.is_empty()).then(|| code.to_owned());
@@ -374,7 +367,13 @@ pub(super) fn language_menu(s: &State) -> Option<El> {
             },
         ));
     }
-    Some(menu.child(options))
+    Some(super::primitives::surface::dropdown(
+        "subtitle-language-menu",
+        anchor,
+        280.0,
+        options,
+        |s: &mut State| s.settings.subtitles.language_menu = None,
+    ))
 }
 
 fn policy_button(s: &State, key: String, title: &str, selected: bool, policy: SourcePolicy) -> El {

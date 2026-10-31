@@ -1,6 +1,7 @@
 use super::super::design::tokens::{self, accent, edge, panel, theme, type_};
 use super::text::label;
-use rune::{Align, El, Icon, ScrollSpec, Side, col, el, icon, text};
+use rune::{Align, El, Icon, PointerPress, ScrollSpec, Side, col, el, icon, text};
+use rune_kit::popover;
 
 pub(in crate::ui) fn card() -> El {
     surface(col())
@@ -137,7 +138,7 @@ pub(in crate::ui) fn dropdown<S: 'static>(
     key: &str,
     trigger: &str,
     width: f32,
-    height: f32,
+    content: El,
     dismiss: impl Fn(&mut S) + 'static,
 ) -> El {
     Variant::Menu
@@ -145,13 +146,36 @@ pub(in crate::ui) fn dropdown<S: 'static>(
         .key(key)
         .role("menu")
         .w(width)
-        .h(height + 12.0)
+        .min_h(0.0)
+        .shrink()
         .padding(6.0)
-        .anchored(trigger, Side::Bottom, Align::Start, 6.0)
+        .anchored_fit(trigger, Side::Bottom, Align::Start, 6.0)
         .modal(true, dismiss)
         .focus_group()
         .focus_return(trigger)
-        .scroll(ScrollSpec {
-            stick_bottom: false,
-        })
+        .child(popover::fit_scroll(content))
+}
+
+/// A pointer-anchored menu with the same fitting and scrolling as dropdowns.
+pub(in crate::ui) fn context_menu<S: 'static>(
+    key: &str,
+    point: PointerPress,
+    width: f32,
+    content: El,
+    dismiss: impl Fn(&mut S) + 'static,
+) -> El {
+    let anchor = format!("{key}-point");
+    el().key(format!("{key}-layer"))
+        .absolute(0.0, 0.0)
+        .w_full()
+        .h_full()
+        .child(el().key(&anchor).absolute(point.x, point.y).size(0.0, 0.0))
+        .child(
+            dropdown(key, &anchor, width, content, dismiss).anchored_fit(
+                anchor,
+                Side::Bottom,
+                Align::Start,
+                0.0,
+            ),
+        )
 }

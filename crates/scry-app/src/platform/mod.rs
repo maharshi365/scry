@@ -22,7 +22,7 @@ pub struct VideoOverlay {
 mod browser;
 mod navigation;
 mod window;
-pub use browser::open_browser;
+pub use browser::validate_browser_url;
 pub use navigation::{HistoryDirection, NavigationInput};
 pub use window::{Fullscreen, Window};
 

@@ -3,7 +3,7 @@ use super::{
     primitives::{button::menu_item, text::label},
 };
 use crate::library_worker::Command;
-use rune::{Cx, El, col};
+use rune::{El, col};
 use scry_library::{Media, MediaKind};
 
 pub(super) enum Target {
@@ -136,21 +136,9 @@ impl State {
     }
 }
 
-pub(super) fn view(s: &State, cx: &Cx<State>) -> Option<El> {
+pub(super) fn view(s: &State) -> Option<El> {
     let (point, item) = s.shell.context_menu.as_ref()?;
-    let bounds = cx.layout("scry").unwrap_or([0.0, 0.0, 880.0, 600.0]);
-    let mut menu = super::primitives::surface::Variant::Menu
-        .apply(col())
-        .key("context-menu")
-        .w(250.0)
-        .padding(6.0)
-        .gap(5.0)
-        .modal(true, |s: &mut State| s.shell.context_menu = None)
-        .focus_group()
-        .absolute(
-            point.x.min(bounds[2] - 258.0).max(8.0),
-            point.y.min(bounds[3] - 360.0).max(8.0),
-        );
+    let mut menu = col().w_full().gap(5.0);
     if let Some(Target::Title(media)) = item {
         menu = menu.children(dismiss_watching(s, media));
         if matches!(media.key.kind, MediaKind::Movie | MediaKind::Series) {
@@ -218,7 +206,13 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> Option<El> {
             ));
         }
     }
-    Some(menu.child(menu_item("context-refresh", "Refresh", State::refresh_page)))
+    Some(super::primitives::surface::context_menu(
+        "context-menu",
+        *point,
+        250.0,
+        menu.child(menu_item("context-refresh", "Refresh", State::refresh_page)),
+        |s: &mut State| s.shell.context_menu = None,
+    ))
 }
 
 fn dismiss_watching(s: &State, media: &Media) -> Option<El> {

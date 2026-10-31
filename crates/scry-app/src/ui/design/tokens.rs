@@ -260,6 +260,33 @@ pub(in crate::ui) mod detail {
     pub const PREVIEW_INSET: f32 = 16.0;
 }
 
+/// Map Scry's existing design roles onto Rune Kit's generic controls.
+pub(in crate::ui) fn kit() -> &'static rune_kit::Kit {
+    static KIT: std::sync::OnceLock<rune_kit::Kit> = std::sync::OnceLock::new();
+    KIT.get_or_init(|| {
+        let mut kit = rune_kit::Kit::neutral(true);
+        let theme = theme();
+        kit.c.text_base = theme.text;
+        kit.c.icon_base = theme.text;
+        kit.c.text_muted = theme.text_secondary;
+        kit.c.icon_muted = theme.text_secondary;
+        kit.c.border_focus = accent();
+        kit.c.hover = theme.hover;
+        kit.c.pressed = theme.press;
+        kit.c.layer_01 = panel();
+        kit.c.bg_button_neutral = panel();
+        kit.c.border_base = edge();
+        kit.c.border_muted = edge();
+        kit.c.danger.fg = danger();
+        kit.ty.ui_medium = type_::LABEL;
+        kit.radius.sm = radius::SM;
+        kit.radius.md = radius::SM;
+        kit.radius.lg = radius::LG;
+        kit.elevation = rune_kit::Elevation::default();
+        kit
+    })
+}
+
 pub(in crate::ui) mod addon {
     pub const TILE_HEIGHT: f32 = 220.0;
     pub const DIALOG_WIDTH: f32 = 560.0;

@@ -282,7 +282,7 @@ pub(super) fn quick_actions(s: &State, compact: bool) -> El {
                 .size(super::primitives::button::Size::Pill)
                 .enabled(trailer.is_some())
                 .icon(&icons::TRAILER)
-                .on_press(State::open_trailer),
+                .on_press_tx(State::open_trailer),
         );
     if compact {
         actions = actions.child(
@@ -349,7 +349,7 @@ impl State {
         }
     }
 
-    fn open_trailer(&mut self) {
+    fn open_trailer(&mut self, tx: &mut rune::Tx) {
         let Some(id) = self
             .detail
             .meta
@@ -368,8 +368,8 @@ impl State {
             return;
         }
         let url = format!("https://www.youtube.com/watch?v={id}");
-        if let Err(error) = scry_app::platform::open_browser(&url) {
-            self.detail.request.error = Some(format!("Cannot open the trailer: {error}"));
+        if scry_app::platform::validate_browser_url(&url).is_err() || tx.open_url(&url).is_err() {
+            self.detail.request.error = Some("Cannot open the trailer".into());
         }
     }
 }
@@ -607,15 +607,11 @@ pub(super) fn season_menu(s: &State, cx: &Cx<State>) -> Option<El> {
             }),
         );
     }
-    let visible = u16::try_from(seasons.len().min(4)).unwrap_or(4);
-    Some(
-        dropdown(
-            "season-menu",
-            "season-select",
-            anchor[2].max(200.0),
-            f32::from(visible) * (tokens::control::HEIGHT + 4.0),
-            |s: &mut State| s.detail.episodes.menu_open = false,
-        )
-        .child(choices),
-    )
+    Some(dropdown(
+        "season-menu",
+        "season-select",
+        anchor[2].max(200.0),
+        choices,
+        |s: &mut State| s.detail.episodes.menu_open = false,
+    ))
 }

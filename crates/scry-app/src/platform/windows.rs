@@ -24,30 +24,6 @@ use windows_sys::Win32::{
     },
 };
 
-pub(super) fn open_browser(url: &str) -> Result<()> {
-    let operation: Vec<u16> = "open\0".encode_utf16().collect();
-    let target: Vec<u16> = url.encode_utf16().chain(std::iter::once(0)).collect();
-    // ShellExecute resolves the registered HTTP(S) handler. Starting Explorer
-    // as a process can interpret the URL as a shell location instead.
-    // SAFETY: operation and target are live NUL-terminated UTF-16 strings.
-    // Optional arguments are null; the call does not retain the string pointers.
-    let result = unsafe {
-        windows_sys::Win32::UI::Shell::ShellExecuteW(
-            ptr::null_mut(),
-            operation.as_ptr(),
-            target.as_ptr(),
-            ptr::null(),
-            ptr::null(),
-            windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
-        )
-    };
-    let status = result.addr();
-    if status <= 32 {
-        bail!("Windows could not open the default browser (code {status})");
-    }
-    Ok(())
-}
-
 #[derive(Clone, Default)]
 pub struct Host(Arc<NativeHost>);
 

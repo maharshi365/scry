@@ -157,7 +157,6 @@ pub(super) fn provider_menu(s: &State, cx: &Cx<State>) -> Option<El> {
     if providers.len() < 2 {
         return None;
     }
-    let visible = u16::try_from(providers.len().saturating_add(1).min(4)).unwrap_or(4);
     let mut filters = col().key("source-filters").w_full().gap(6.0).child(filter(
         "source-all",
         "All add-ons".into(),
@@ -179,16 +178,13 @@ pub(super) fn provider_menu(s: &State, cx: &Cx<State>) -> Option<El> {
             },
         ));
     }
-    Some(
-        dropdown(
-            "source-menu",
-            "source-select",
-            anchor[2],
-            f32::from(visible) * (super::design::tokens::control::HEIGHT + 6.0),
-            |s: &mut State| s.detail.sources.menu_open = false,
-        )
-        .child(filters),
-    )
+    Some(dropdown(
+        "source-menu",
+        "source-select",
+        anchor[2],
+        filters,
+        |s: &mut State| s.detail.sources.menu_open = false,
+    ))
 }
 
 fn sort_option(key: &str, title: &str, order: SourceSort, selected: bool) -> El {
@@ -203,38 +199,33 @@ pub(super) fn sort_menu(s: &State, cx: &Cx<State>) -> Option<El> {
         return None;
     }
     cx.layout("source-sort")?;
-    Some(
-        dropdown(
-            "source-sort-menu",
-            "source-sort",
-            180.0,
-            3.0 * (super::design::tokens::control::HEIGHT + 6.0),
-            |s: &mut State| s.detail.sources.sort_open = false,
-        )
-        .child(
-            col()
-                .w_full()
-                .gap(6.0)
-                .child(sort_option(
-                    "source-best",
-                    "Best available",
-                    SourceSort::Best,
-                    s.detail.sources.sort == SourceSort::Best,
-                ))
-                .child(sort_option(
-                    "source-original",
-                    "Original order",
-                    SourceSort::Original,
-                    s.detail.sources.sort == SourceSort::Original,
-                ))
-                .child(sort_option(
-                    "source-provider-sort",
-                    "Provider",
-                    SourceSort::Provider,
-                    s.detail.sources.sort == SourceSort::Provider,
-                )),
-        ),
-    )
+    Some(dropdown(
+        "source-sort-menu",
+        "source-sort",
+        180.0,
+        col()
+            .w_full()
+            .gap(6.0)
+            .child(sort_option(
+                "source-best",
+                "Best available",
+                SourceSort::Best,
+                s.detail.sources.sort == SourceSort::Best,
+            ))
+            .child(sort_option(
+                "source-original",
+                "Original order",
+                SourceSort::Original,
+                s.detail.sources.sort == SourceSort::Original,
+            ))
+            .child(sort_option(
+                "source-provider-sort",
+                "Provider",
+                SourceSort::Provider,
+                s.detail.sources.sort == SourceSort::Provider,
+            )),
+        |s: &mut State| s.detail.sources.sort_open = false,
+    ))
 }
 
 fn header(s: &State) -> El {

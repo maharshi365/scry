@@ -136,15 +136,11 @@ pub(super) fn catalog_menu(s: &State, cx: &Cx<State>) -> Option<El> {
             .w_full(),
         );
     }
-    let visible = u16::try_from(catalogs.len().min(5)).unwrap_or(5);
-    Some(
-        dropdown(
-            "catalog-menu",
-            "catalog-select",
-            anchor[2].max(tokens::layout::CONTROL_MIN_WIDTH),
-            f32::from(visible) * (tokens::control::HEIGHT + tokens::layout::COPY_GAP),
-            |s: &mut State| s.discover.menu_open = false,
-        )
-        .child(choices),
-    )
+    Some(dropdown(
+        "catalog-menu",
+        "catalog-select",
+        anchor[2].max(tokens::layout::CONTROL_MIN_WIDTH),
+        choices,
+        |s: &mut State| s.discover.menu_open = false,
+    ))
 }
