@@ -27,6 +27,10 @@ pub(super) fn glyph(id: &str) -> &'static Icon {
         "double-feature" => &icons::MOVIE,
         "channel-surfer" => &icons::TV,
         "standing-appointment" => &icons::CALENDAR,
+        "silver-screen" => &icons::TRAILER,
+        "encore-club" => &icons::CHART,
+        "roll-credits" => &icons::CHECK,
+        "intermission" => &icons::CLOCK,
         _ => &icons::TROPHY,
     }
 }

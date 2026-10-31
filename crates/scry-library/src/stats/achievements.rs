@@ -266,6 +266,46 @@ const ACHIEVEMENTS: &[Achievement] = &[
             Ok(Evaluation::threshold(db.metric("SELECT CAST(COALESCE(MAX(days),0) AS REAL) AS value FROM (SELECT COUNT(*) AS days FROM (SELECT day-ROW_NUMBER() OVER (ORDER BY day) AS streak FROM (SELECT hour/86400 AS day FROM stats_hours GROUP BY hour/86400 HAVING SUM(seconds)>=1200)) GROUP BY streak)")?, 7.0))
         }
     ),
+    achievement!(
+        "silver-screen",
+        "Silver Screen",
+        "Your own little film festival.",
+        "Record a completed playback run for 25 different movies. A run needs more than 70% of the runtime played; manual watched marks do not count.",
+        false,
+        |db| {
+            Ok(Evaluation::threshold(db.metric("SELECT CAST(COUNT(*) AS REAL) AS value FROM stats_titles t JOIN media m USING(media_id) WHERE m.kind='movie' AND t.completions>0")?, 25.0))
+        }
+    ),
+    achievement!(
+        "encore-club",
+        "Encore Club",
+        "Some stories deserve another round.",
+        "Record at least two completed playback runs for each of 5 different movies or episodes. Each run needs more than 70% of the runtime played; manual watched marks do not count.",
+        false,
+        |db| {
+            Ok(Evaluation::threshold(db.metric("SELECT CAST(COUNT(*) AS REAL) AS value FROM stats_titles t JOIN media m USING(media_id) WHERE m.kind IN ('movie','episode') AND t.completions>=2")?, 5.0))
+        }
+    ),
+    achievement!(
+        "roll-credits",
+        "Roll Credits",
+        "For once, the list is not winning.",
+        "Have at least 10 movies saved, with every saved movie watched. Saved series do not affect this achievement.",
+        true,
+        |db| {
+            Ok(Evaluation::threshold(db.metric("SELECT CAST(COUNT(*)>=10 AND COALESCE(MIN(COALESCE(w.watched,0)),0)=1 AS REAL) AS value FROM watchlist l JOIN media m USING(media_id) LEFT JOIN effective_watched w USING(media_id) WHERE m.kind='movie'")?, 1.0))
+        }
+    ),
+    achievement!(
+        "intermission",
+        "Intermission",
+        "There was time for a whole other movie.",
+        "Record more than 70% of a movie whose known runtime is at least three hours. Recorded time can span multiple runs; manual watched marks do not count.",
+        true,
+        |db| {
+            Ok(Evaluation::threshold(db.metric("SELECT CAST(COUNT(*) AS REAL) AS value FROM stats_titles t JOIN media m USING(media_id) JOIN media_runtime r USING(media_id) WHERE m.kind='movie' AND r.seconds>=10800 AND t.seconds*10>r.seconds*7")?, 1.0))
+        }
+    ),
 ];
 
 #[derive(QueryableByName)]
@@ -444,6 +484,143 @@ mod tests {
             "INSERT INTO stats_hours VALUES (349200,1,1);",
         )?;
         assert_hidden(&mut library, "standing-appointment", true)
+    }
+
+    fn assert_visible_progress(
+        library: &mut Library,
+        id: &str,
+        current: f64,
+        target: f64,
+    ) -> Result<()> {
+        let result = library.evaluate_achievements()?;
+        let entry = result
+            .entries
+            .iter()
+            .find(|entry| entry.id == id)
+            .ok_or_else(|| anyhow::anyhow!("missing achievement {id}"))?;
+        assert!(
+            !entry.hidden,
+            "{id} should show its requirement and progress"
+        );
+        assert_eq!(entry.progress, Evaluation::threshold(current, target));
+        assert_eq!(entry.unlocked, current >= target);
+        if entry.unlocked {
+            assert!(result.newly_unlocked.iter().any(|entry| {
+                entry.id == id && !entry.historical && entry.unlocked_at.is_some()
+            }));
+            assert!(library.evaluate_achievements()?.newly_unlocked.is_empty());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn silver_screen_counts_distinct_recorded_movie_completions() -> Result<()> {
+        let mut library = Library::memory()?;
+        assert_visible_progress(&mut library, "silver-screen", 0.0, 25.0)?;
+        seed(
+            &mut library.connection.borrow_mut(),
+            "
+            WITH RECURSIVE n(id) AS (VALUES(1) UNION ALL SELECT id+1 FROM n WHERE id<25)
+            INSERT INTO media(media_id,namespace,kind,external_id,title)
+                SELECT id,'test','movie',CAST(id AS TEXT),'Movie' FROM n;
+            INSERT INTO watched SELECT media_id,1 FROM media;
+            INSERT INTO media(media_id,namespace,kind,external_id,title) VALUES
+                (26,'test','episode','episode','Episode'),(27,'test','series','series','Series');
+            INSERT INTO stats_titles(media_id,seconds,completions)
+                SELECT media_id,100,3 FROM media WHERE media_id<>25;
+        ",
+        )?;
+        assert_visible_progress(&mut library, "silver-screen", 24.0, 25.0)?;
+        seed(
+            &mut library.connection.borrow_mut(),
+            "INSERT INTO stats_titles(media_id,seconds,completions) VALUES (25,100,1);",
+        )?;
+        assert_visible_progress(&mut library, "silver-screen", 25.0, 25.0)
+    }
+
+    #[test]
+    fn encore_club_needs_repeat_completions_not_just_rewatch_seconds() -> Result<()> {
+        let mut library = Library::memory()?;
+        assert_visible_progress(&mut library, "encore-club", 0.0, 5.0)?;
+        seed(
+            &mut library.connection.borrow_mut(),
+            "
+            WITH RECURSIVE n(id) AS (VALUES(1) UNION ALL SELECT id+1 FROM n WHERE id<5)
+            INSERT INTO media(media_id,namespace,kind,external_id,title)
+                SELECT id,'test',CASE WHEN id%2=0 THEN 'episode' ELSE 'movie' END,
+                    CAST(id AS TEXT),'Title' FROM n;
+            INSERT INTO media(media_id,namespace,kind,external_id,title)
+                VALUES (6,'test','series','series','Series');
+            INSERT INTO stats_titles(media_id,seconds,completions,rewatch_seconds)
+                SELECT media_id,1000,CASE WHEN media_id=5 THEN 1 ELSE 3 END,500 FROM media;
+        ",
+        )?;
+        assert_visible_progress(&mut library, "encore-club", 4.0, 5.0)?;
+        seed(
+            &mut library.connection.borrow_mut(),
+            "UPDATE stats_titles SET completions=2 WHERE media_id=5;",
+        )?;
+        assert_visible_progress(&mut library, "encore-club", 5.0, 5.0)
+    }
+
+    #[test]
+    fn roll_credits_needs_a_nontrivial_fully_watched_saved_movie_list() -> Result<()> {
+        let mut library = Library::memory()?;
+        assert_hidden(&mut library, "roll-credits", false)?;
+        seed(
+            &mut library.connection.borrow_mut(),
+            "
+            WITH RECURSIVE n(id) AS (VALUES(1) UNION ALL SELECT id+1 FROM n WHERE id<11)
+            INSERT INTO media(media_id,namespace,kind,external_id,title)
+                SELECT id,'test','movie',CAST(id AS TEXT),'Movie' FROM n;
+            INSERT INTO watched SELECT media_id,1 FROM media WHERE media_id<>10;
+            INSERT INTO watchlist(media_id) SELECT media_id FROM media WHERE media_id<10;
+            INSERT INTO media(media_id,namespace,kind,external_id,title)
+                VALUES (12,'test','series','series','Series');
+            INSERT INTO watchlist(media_id) VALUES (12);
+        ",
+        )?;
+        assert_hidden(&mut library, "roll-credits", false)?;
+        seed(
+            &mut library.connection.borrow_mut(),
+            "INSERT INTO watchlist(media_id) VALUES (10);",
+        )?;
+        assert_hidden(&mut library, "roll-credits", false)?;
+        seed(
+            &mut library.connection.borrow_mut(),
+            "INSERT INTO watched VALUES (10,1);",
+        )?;
+        assert_hidden(&mut library, "roll-credits", true)
+    }
+
+    #[test]
+    fn intermission_needs_known_long_movie_runtime_and_recorded_time() -> Result<()> {
+        let mut library = Library::memory()?;
+        assert_hidden(&mut library, "intermission", false)?;
+        seed(
+            &mut library.connection.borrow_mut(),
+            "
+            INSERT INTO media(media_id,namespace,kind,external_id,title) VALUES
+                (1,'test','movie','long','Long'),(2,'test','movie','short','Short'),
+                (3,'test','movie','unknown','Unknown'),(4,'test','episode','episode','Episode');
+            INSERT INTO media_runtime(media_id,seconds) VALUES (1,10800),(2,10799),(4,10800);
+            INSERT INTO watched VALUES (1,1),(2,1),(3,1);
+        ",
+        )?;
+        assert_hidden(&mut library, "intermission", false)?;
+        seed(
+            &mut library.connection.borrow_mut(),
+            "
+            INSERT INTO stats_titles(media_id,seconds) VALUES
+                (1,7560),(2,10800),(3,10800),(4,10800);
+        ",
+        )?;
+        assert_hidden(&mut library, "intermission", false)?;
+        seed(
+            &mut library.connection.borrow_mut(),
+            "UPDATE stats_titles SET seconds=7561 WHERE media_id=1;",
+        )?;
+        assert_hidden(&mut library, "intermission", true)
     }
 
     fn forbidden(_: &mut AchievementDb<'_>) -> Result<Evaluation> {
