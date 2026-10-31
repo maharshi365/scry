@@ -12,7 +12,7 @@ use std::{
     ptr,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicIsize, Ordering},
+        atomic::{AtomicIsize, AtomicU32, Ordering},
     },
 };
 use windows_sys::Win32::{
@@ -33,6 +33,7 @@ struct NativeHost {
     input: AtomicIsize,
     clicks: Mutex<std::collections::VecDeque<super::VideoClick>>,
     clip: Mutex<Option<video_input::Clip>>,
+    scale: AtomicU32,
 }
 
 impl VideoHost for Host {
@@ -83,6 +84,7 @@ impl VideoHost for Host {
         reason = "Windows requires integer pixels; rounded layout coordinates intentionally saturate to i32"
     )]
     fn place(&self, [x, y, w, h]: [f32; 4], scale: f32) {
+        self.0.scale.store(scale.to_bits(), Ordering::Release);
         let hwnd = self.0.child.load(Ordering::Acquire) as HWND;
         if hwnd.is_null() {
             return;
@@ -148,10 +150,6 @@ impl VideoHost for Host {
 
     fn pointer_position(&self, scale: f32) -> super::VideoPointer {
         video_input::pointer_position(self, scale)
-    }
-
-    fn double_click_interval(&self) -> std::time::Duration {
-        video_input::double_click_interval()
     }
 
     fn show(&self) {

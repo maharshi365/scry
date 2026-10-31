@@ -40,22 +40,28 @@ fn surface(s: &State, scale: f32, compact: bool) -> El {
                 std::time::Instant::now(),
             );
         })
-        .on_drag(|s: &mut State, drag, tx| {
-            if drag.phase == Phase::Up && drag.dx.abs() <= 4.0 && drag.dy.abs() <= 4.0 {
-                let click = scry_app::platform::VideoClick {
-                    at: std::time::Instant::now(),
-                    position: [f64::from(drag.x), f64::from(drag.y)],
-                };
-                if let Some(action) = s.player.interaction.click(click) {
-                    if matches!(action, PlayerAction::ToggleFullscreen) && s.player.fullscreen {
-                        s.set_fullscreen(false);
-                    } else {
-                        s.player_action(action);
-                    }
-                    tx.instant();
-                }
-                tx.wake_after(s.player.interaction.double_click);
+        .on_drag(|s: &mut State, drag, _| {
+            if drag.phase == Phase::Down {
+                s.player.interaction.video_press = interaction::VideoPress::Click;
             }
+            if drag.cancelled() || drag.dx.abs() > 4.0 || drag.dy.abs() > 4.0 {
+                s.player.interaction.video_press = interaction::VideoPress::Cancelled;
+            }
+        })
+        .on_press_tx(|s: &mut State, tx| {
+            if matches!(
+                s.player.interaction.video_press,
+                interaction::VideoPress::Cancelled
+            ) {
+                return;
+            }
+            s.player.interaction.reveal(std::time::Instant::now());
+            s.player_action(PlayerAction::TogglePause);
+            tx.instant();
+        })
+        .on_double_press_tx(|s: &mut State, tx| {
+            s.player_action(PlayerAction::ToggleFullscreen);
+            tx.instant();
         });
     if s.player.playing
         && let scry_app::platform::VideoPresentation::Pixels(pixels) = s.shell.host.presentation()

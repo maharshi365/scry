@@ -5,6 +5,13 @@ use std::time::{Duration, Instant};
 
 const IDLE: Duration = Duration::from_secs(3);
 
+#[derive(Default)]
+pub(crate) enum VideoPress {
+    #[default]
+    Click,
+    Cancelled,
+}
+
 pub(crate) struct Interaction {
     pub feedback: super::feedback::Feedback,
     pub visible: bool,
@@ -13,10 +20,9 @@ pub(crate) struct Interaction {
     pub controls_rect: Option<[f32; 4]>,
     pub video_rect: Option<[f32; 4]>,
     pub scale: f32,
+    pub video_press: VideoPress,
     pointer: Option<[f64; 2]>,
     last_activity: Instant,
-    pending: Option<VideoClick>,
-    pub double_click: Duration,
 }
 
 impl Default for Interaction {
@@ -29,10 +35,9 @@ impl Default for Interaction {
             controls_rect: None,
             video_rect: None,
             scale: 1.0,
+            video_press: VideoPress::default(),
             pointer: None,
             last_activity: Instant::now(),
-            pending: None,
-            double_click: Duration::from_millis(500),
         }
     }
 }
@@ -80,30 +85,6 @@ impl Interaction {
             self.visible = false;
         }
     }
-
-    pub fn click(&mut self, click: VideoClick) -> Option<PlayerAction> {
-        self.reveal(click.at);
-        if let Some(first) = self.pending
-            && click.at.saturating_duration_since(first.at) <= self.double_click
-            && (click.position[0] - first.position[0]).abs() <= 4.0
-            && (click.position[1] - first.position[1]).abs() <= 4.0
-        {
-            self.pending = None;
-            return Some(PlayerAction::ToggleFullscreen);
-        }
-        self.pending
-            .replace(click)
-            .map(|_| PlayerAction::TogglePause)
-    }
-
-    pub fn finish_click(&mut self, now: Instant) -> Option<PlayerAction> {
-        let click = self.pending?;
-        if now.saturating_duration_since(click.at) < self.double_click {
-            return None;
-        }
-        self.pending = None;
-        Some(PlayerAction::TogglePause)
-    }
 }
 
 fn contains([x, y, w, h]: [f32; 4], [px, py]: [f64; 2]) -> bool {
@@ -111,6 +92,15 @@ fn contains([x, y, w, h]: [f32; 4], [px, py]: [f64; 2]) -> bool {
 }
 
 impl State {
+    pub(in crate::ui) fn native_video_click(&mut self, click: VideoClick, tx: &mut rune::Tx) {
+        self.player.interaction.reveal(click.at);
+        self.player_action(PlayerAction::TogglePause);
+        if click.double {
+            self.player_action(PlayerAction::ToggleFullscreen);
+        }
+        tx.instant();
+    }
+
     pub(in crate::ui) fn cover_player(&self) {
         let interaction = &self.player.interaction;
         let local_overlay = |rect: [f32; 4]| {
@@ -207,19 +197,18 @@ impl State {
             && (self.navigation.page == super::Page::Player
                 || self.navigation.page == super::Page::Guide && self.player.fullscreen);
         let overlay_changed = self.poll_player_overlays(active, tx);
-        self.poll_player_feedback(tx);
         if !self.player.playing
             || !matches!(
                 self.navigation.page,
                 super::Page::Player | super::Page::Guide
             )
         {
+            self.poll_player_feedback(tx);
             return overlay_changed;
         }
         let now = Instant::now();
         let mut acted = false;
         let was = (self.player.interaction.visible, self.player.fullscreen);
-        self.player.interaction.double_click = self.shell.host.double_click_interval();
         for click in clicks {
             if self.player.audio.overlay.is_open() {
                 self.player.audio.overlay.dismiss();
@@ -231,15 +220,10 @@ impl State {
                 acted = true;
                 continue;
             }
-            if let Some(action) = self.player.interaction.click(click) {
-                self.player_action(action);
-                acted = true;
-            }
-        }
-        if let Some(action) = self.player.interaction.finish_click(now) {
-            self.player_action(action);
+            self.native_video_click(click, tx);
             acted = true;
         }
+        self.poll_player_feedback(tx);
         if self.player.fullscreen {
             let interaction = &mut self.player.interaction;
             let pointer = match self.shell.host.pointer_position(interaction.scale) {
@@ -275,68 +259,6 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn single_click_waits_and_double_click_only_toggles_fullscreen() {
-        let mut input = Interaction::default();
-        let now = Instant::now();
-        let click = VideoClick {
-            at: now,
-            position: [10.0, 20.0],
-        };
-        assert!(input.click(click).is_none());
-        assert!(
-            input
-                .finish_click(now + Duration::from_millis(100))
-                .is_none()
-        );
-        assert!(matches!(
-            input.click(VideoClick {
-                at: now + Duration::from_millis(200),
-                ..click
-            }),
-            Some(PlayerAction::ToggleFullscreen)
-        ));
-        assert!(input.finish_click(now + Duration::from_secs(1)).is_none());
-        assert!(
-            input
-                .click(VideoClick {
-                    at: now + Duration::from_secs(2),
-                    ..click
-                })
-                .is_none()
-        );
-        assert!(matches!(
-            input.finish_click(now + Duration::from_secs(3)),
-            Some(PlayerAction::TogglePause)
-        ));
-    }
-
-    #[test]
-    fn windowed_single_click_toggles_pause_and_double_click_only_enters_fullscreen() {
-        let mut input = Interaction::default();
-        let now = Instant::now();
-        let click = VideoClick {
-            at: now,
-            position: [10.0, 20.0],
-        };
-        input.click(click);
-        assert!(matches!(
-            input.finish_click(now + Duration::from_secs(1)),
-            Some(PlayerAction::TogglePause)
-        ));
-        input.click(VideoClick {
-            at: now + Duration::from_secs(2),
-            ..click
-        });
-        assert!(matches!(
-            input.click(VideoClick {
-                at: now + Duration::from_millis(2200),
-                ..click
-            }),
-            Some(PlayerAction::ToggleFullscreen)
-        ));
-    }
 
     #[test]
     fn controls_hide_on_leave_or_idle_and_remain_during_interaction() {

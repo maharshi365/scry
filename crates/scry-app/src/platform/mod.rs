@@ -5,7 +5,7 @@ use scry_playback::PlaybackTarget;
 #[derive(Clone, Copy)]
 pub struct VideoClick {
     pub at: std::time::Instant,
-    pub position: [f64; 2],
+    pub double: bool,
 }
 
 pub enum VideoPointer {
@@ -66,8 +66,5 @@ pub trait VideoHost: Clone + Default {
     }
     fn pointer_position(&self, _scale: f32) -> VideoPointer {
         VideoPointer::Unavailable
-    }
-    fn double_click_interval(&self) -> std::time::Duration {
-        std::time::Duration::from_millis(500)
     }
 }
