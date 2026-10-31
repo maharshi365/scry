@@ -79,8 +79,9 @@ fn entry(s: &State, index: usize) -> Entry {
         {
             "Next episode".into()
         } else {
-            s.series_progress_label(&media.key)
-                .unwrap_or_else(|| info.map_or_else(String::new, |p| p.year.clone()))
+            s.series_progress_label(&media.key).unwrap_or_else(|| {
+                info.map_or_else(String::new, |p| super::formatting::release_year(&p.year))
+            })
         };
         return Entry {
             title: media.title.clone(),
@@ -119,11 +120,11 @@ fn entry(s: &State, index: usize) -> Entry {
         {
             summary
         } else if s.discover.displayed_query.is_empty() {
-            meta.year.clone()
+            super::formatting::release_year(&meta.year)
         } else {
             format!(
                 "{}{}{}",
-                meta.year,
+                super::formatting::release_year(&meta.year),
                 if meta.year.is_empty() { "" } else { " · " },
                 if meta.kind == "series" {
                     "TV show"

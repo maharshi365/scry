@@ -17,6 +17,28 @@ fn advance(rt: &mut rune::Runtime<State>) {
 }
 
 #[test]
+fn gallery_and_search_show_present_for_ongoing_series() {
+    let mut rt = gallery();
+    let mut metas = rt.state.discover.results.to_vec();
+    metas[0].kind = "series".into();
+    metas[0].year = "2022–".into();
+    rt.state.discover.results = metas.into();
+    for (query, expected) in [
+        ("", "2022 to Present"),
+        ("show", "2022 to Present · TV show"),
+    ] {
+        rt.update(|s, _| s.discover.displayed_query = query.into());
+        rt.frame(0.0);
+        let subtitle = rt
+            .elements()
+            .into_iter()
+            .find(|e| e.key.as_deref() == Some("title-info-0"))
+            .unwrap();
+        assert_eq!(subtitle.text.as_deref(), Some(expected));
+    }
+}
+
+#[test]
 fn gallery_cards_are_unframed_and_reserve_two_title_lines() {
     let rt = gallery();
     let elements = rt.elements();

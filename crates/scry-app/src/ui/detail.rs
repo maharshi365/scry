@@ -201,7 +201,8 @@ fn hero(s: &State, compact: bool) -> El {
         } else {
             info = info.child(title);
         }
-        let facts = [&meta.runtime, &meta.year, &meta.imdb_rating]
+        let year = super::formatting::release_year(&meta.year);
+        let facts = [&meta.runtime, &year, &meta.imdb_rating]
             .into_iter()
             .filter(|value| !value.is_empty())
             .cloned()
