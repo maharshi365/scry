@@ -24,6 +24,9 @@ pub(super) fn glyph(id: &str) -> &'static Icon {
         "one-more-episode" => &icons::FORWARD,
         "night-shift" => &icons::MOON,
         "full-time-viewer" => &icons::BRIEFCASE,
+        "double-feature" => &icons::MOVIE,
+        "channel-surfer" => &icons::TV,
+        "standing-appointment" => &icons::CALENDAR,
         _ => &icons::TROPHY,
     }
 }

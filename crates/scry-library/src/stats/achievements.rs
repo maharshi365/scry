@@ -236,6 +236,36 @@ const ACHIEVEMENTS: &[Achievement] = &[
             Ok(Evaluation::threshold(db.metric("SELECT COALESCE(MAX(total),0.0) AS value FROM (SELECT SUM(SUM(seconds)) OVER (ORDER BY hour/86400 RANGE BETWEEN 6 PRECEDING AND CURRENT ROW) AS total FROM (SELECT hour,seconds FROM stats_hours UNION ALL SELECT watched_at AS hour,credit AS seconds FROM stats_counted WHERE watched_at IS NOT NULL AND credit>0) GROUP BY hour/86400)")? / 3600.0, 40.0))
         }
     ),
+    achievement!(
+        "double-feature",
+        "Double Feature",
+        "The living room has a second screening.",
+        "Record more than 70% of each of two different movies in one UTC calendar day. Known runtimes are required; manual watched marks do not count.",
+        true,
+        |db| {
+            Ok(Evaluation::threshold(db.metric("SELECT CAST(COALESCE(MAX(movies),0) AS REAL) AS value FROM (SELECT COUNT(*) AS movies FROM (SELECT h.hour/86400 AS day,h.media_id FROM stats_hours h JOIN media m USING(media_id) JOIN media_runtime r USING(media_id) WHERE m.kind='movie' GROUP BY h.hour/86400,h.media_id HAVING SUM(h.seconds)>r.seconds*0.7) GROUP BY day)")?, 2.0))
+        }
+    ),
+    achievement!(
+        "channel-surfer",
+        "Channel Surfer",
+        "Three fictional universes. One sofa.",
+        "Record at least 20 minutes of episodes from each of three different series in one UTC calendar day. Manual watched marks do not count.",
+        true,
+        |db| {
+            Ok(Evaluation::threshold(db.metric("SELECT CAST(COALESCE(MAX(shows),0) AS REAL) AS value FROM (SELECT COUNT(*) AS shows FROM (SELECT h.hour/86400 AS day,m.parent_id FROM stats_hours h JOIN media m USING(media_id) JOIN media p ON p.media_id=m.parent_id WHERE m.kind='episode' AND p.kind='series' GROUP BY h.hour/86400,m.parent_id HAVING SUM(h.seconds)>=1200) GROUP BY day)")?, 3.0))
+        }
+    ),
+    achievement!(
+        "standing-appointment",
+        "Standing Appointment",
+        "The sofa has put you on the calendar.",
+        "Record at least 20 minutes of playback on each of seven consecutive UTC calendar days. Manual watched marks do not count.",
+        true,
+        |db| {
+            Ok(Evaluation::threshold(db.metric("SELECT CAST(COALESCE(MAX(days),0) AS REAL) AS value FROM (SELECT COUNT(*) AS days FROM (SELECT day-ROW_NUMBER() OVER (ORDER BY day) AS streak FROM (SELECT hour/86400 AS day FROM stats_hours GROUP BY hour/86400 HAVING SUM(seconds)>=1200)) GROUP BY streak)")?, 7.0))
+        }
+    ),
 ];
 
 #[derive(QueryableByName)]
@@ -319,6 +349,102 @@ impl Library {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use diesel::connection::SimpleConnection;
+
+    fn seed(connection: &mut SqliteConnection, sql: &str) -> Result<()> {
+        connection.batch_execute(sql)?;
+        Ok(())
+    }
+
+    fn assert_hidden(library: &mut Library, id: &str, unlocked: bool) -> Result<()> {
+        let result = library.evaluate_achievements()?;
+        let entry = result.entries.iter().find(|entry| entry.id == id);
+        assert!(
+            entry.is_some_and(|entry| entry.hidden && entry.unlocked == unlocked),
+            "hidden achievement {id} should have unlocked={unlocked}"
+        );
+        if unlocked {
+            assert!(result.newly_unlocked.iter().any(|entry| {
+                entry.id == id && !entry.historical && entry.unlocked_at.is_some()
+            }));
+            assert!(library.evaluate_achievements()?.newly_unlocked.is_empty());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn double_feature_needs_two_distinct_movies_over_threshold_on_the_same_day() -> Result<()> {
+        let mut library = Library::memory()?;
+        seed(
+            &mut library.connection.borrow_mut(),
+            "
+            INSERT INTO media(media_id,namespace,kind,external_id,title) VALUES
+                (1,'test','movie','one','One'),(2,'test','movie','two','Two'),
+                (3,'test','episode','episode','Episode');
+            INSERT INTO media_runtime(media_id,seconds) VALUES (1,6000),(2,6000),(3,6000);
+            INSERT INTO watched VALUES (1,1),(2,1);
+        ",
+        )?;
+        assert_hidden(&mut library, "double-feature", false)?;
+        seed(
+            &mut library.connection.borrow_mut(),
+            "
+            INSERT INTO stats_hours VALUES (86400,1,5000),(90000,1,5000),
+                (86400,3,5000),(86400,2,4200),(172800,2,5000);
+        ",
+        )?;
+        assert_hidden(&mut library, "double-feature", false)?;
+        seed(
+            &mut library.connection.borrow_mut(),
+            "INSERT INTO stats_hours VALUES (90000,2,1);",
+        )?;
+        assert_hidden(&mut library, "double-feature", true)
+    }
+
+    #[test]
+    fn channel_surfer_groups_episodes_by_series_and_day() -> Result<()> {
+        let mut library = Library::memory()?;
+        seed(
+            &mut library.connection.borrow_mut(),
+            "
+            INSERT INTO media(media_id,namespace,kind,external_id,title) VALUES
+                (1,'test','series','one','One'),(2,'test','series','two','Two'),
+                (3,'test','series','three','Three'),(4,'test','movie','movie','Movie');
+            INSERT INTO media(media_id,namespace,kind,external_id,title,parent_id) VALUES
+                (5,'test','episode','a','A',1),(6,'test','episode','b','B',1),
+                (7,'test','episode','c','C',2),(8,'test','episode','d','D',3);
+            INSERT INTO stats_hours VALUES (86400,5,600),(90000,6,600),
+                (86400,7,1200),(86400,8,1199),(172800,8,1200),(86400,4,1200);
+        ",
+        )?;
+        assert_hidden(&mut library, "channel-surfer", false)?;
+        seed(
+            &mut library.connection.borrow_mut(),
+            "INSERT INTO stats_hours VALUES (90000,8,1);",
+        )?;
+        assert_hidden(&mut library, "channel-surfer", true)
+    }
+
+    #[test]
+    fn standing_appointment_needs_seven_consecutive_qualifying_days() -> Result<()> {
+        let mut library = Library::memory()?;
+        seed(
+            &mut library.connection.borrow_mut(),
+            "
+            INSERT INTO media(media_id,namespace,kind,external_id,title) VALUES
+                (1,'test','movie','one','One');
+            INSERT INTO stats_hours VALUES (86400,1,1200),(172800,1,1200),
+                (259200,1,1200),(345600,1,1199),(432000,1,1200),
+                (518400,1,1200),(604800,1,1200),(691200,1,1200);
+        ",
+        )?;
+        assert_hidden(&mut library, "standing-appointment", false)?;
+        seed(
+            &mut library.connection.borrow_mut(),
+            "INSERT INTO stats_hours VALUES (349200,1,1);",
+        )?;
+        assert_hidden(&mut library, "standing-appointment", true)
+    }
 
     fn forbidden(_: &mut AchievementDb<'_>) -> Result<Evaluation> {
         anyhow::bail!("an earned achievement must not be evaluated")
