@@ -63,6 +63,22 @@ fn medallion(entry: &AchievementEntry) -> El {
     )
 }
 
+fn ordered_entries(entries: &[AchievementEntry]) -> Vec<&AchievementEntry> {
+    let mut ordered: Vec<_> = entries.iter().collect();
+    ordered.sort_by_key(|entry| {
+        if entry.unlocked {
+            0
+        } else if !entry.hidden
+            && matches!(entry.progress, Evaluation::Progress { target, .. } if target > 0.0)
+        {
+            1
+        } else {
+            2
+        }
+    });
+    ordered
+}
+
 pub(super) fn view(s: &State) -> El {
     let earned = s
         .stats
@@ -91,7 +107,7 @@ pub(super) fn view(s: &State) -> El {
                 ))),
         );
     let mut list = col().role("list").label("Achievements").w_full();
-    for entry in &s.stats.entries {
+    for entry in ordered_entries(&s.stats.entries) {
         list = list.child(achievement_row(entry));
     }
     section = section.child(list);
@@ -178,6 +194,55 @@ fn achievement_row(entry: &AchievementEntry) -> El {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn collection_orders_unlocked_then_visible_progress_then_other_items() {
+        let entry = |id, unlocked, hidden, progress| AchievementEntry {
+            id,
+            name: "Achievement",
+            description: "Description",
+            requirement: "Requirement",
+            hidden,
+            unlocked,
+            historical: false,
+            unlocked_at: None,
+            progress,
+        };
+        let entries = [
+            entry("unavailable", false, false, Evaluation::Unavailable),
+            entry("partial", false, false, Evaluation::threshold(2.0, 10.0)),
+            entry("earned", true, false, Evaluation::Unlocked),
+            entry("hidden-progress", false, true, Evaluation::threshold(1.0, 5.0)),
+            entry("zero-progress", false, false, Evaluation::threshold(0.0, 10.0)),
+            entry("hidden-earned", true, true, Evaluation::Unlocked),
+            entry(
+                "invalid-target",
+                false,
+                false,
+                Evaluation::Progress {
+                    current: 0.0,
+                    target: 0.0,
+                },
+            ),
+        ];
+        let ordered: Vec<_> = ordered_entries(&entries)
+            .into_iter()
+            .map(|entry| entry.id)
+            .collect();
+        assert_eq!(
+            ordered,
+            [
+                "earned",
+                "hidden-earned",
+                "partial",
+                "zero-progress",
+                "unavailable",
+                "hidden-progress",
+                "invalid-target",
+            ]
+        );
+    }
+
     #[test]
     fn every_current_achievement_has_a_distinct_glyph() -> anyhow::Result<()> {
         let mut db = scry_library::Library::memory()?;

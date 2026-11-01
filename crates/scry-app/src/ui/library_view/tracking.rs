@@ -22,6 +22,12 @@ pub(in crate::ui) struct TrackingUi {
 }
 
 impl State {
+    pub(in crate::ui) fn stats_metadata_pending(&self) -> bool {
+        self.library.tracking.busy
+            || self.movie_runtime_scan_pending()
+            || !self.library.tracking.pending_runtimes.is_empty()
+    }
+
     pub(in crate::ui) fn reset_series_tracking(&mut self) {
         self.library.tracking.generation += 1;
         self.library.tracking.busy = false;

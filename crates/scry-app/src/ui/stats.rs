@@ -18,11 +18,14 @@ use super::{
 use crate::library_worker::Command;
 
 const TOAST_DURATION: Duration = Duration::from_secs(6);
+const REFRESH_QUIET_PERIOD: Duration = Duration::from_millis(250);
 
 #[derive(Default)]
 pub(super) struct StatsUi {
     generation: u64,
     pending: Option<u64>,
+    refresh_needed: bool,
+    refresh_after: Option<Instant>,
     data: Option<NerdStats>,
     error: Option<&'static str>,
     entries: Vec<AchievementEntry>,
@@ -49,6 +52,11 @@ struct Notice {
 
 impl State {
     pub(super) fn refresh_stats(&mut self) {
+        if self.stats.pending.is_some() {
+            return;
+        }
+        self.stats.refresh_needed = false;
+        self.stats.refresh_after = None;
         self.stats.generation += 1;
         let generation = self.stats.generation;
         self.stats.pending = Some(generation);
@@ -68,13 +76,45 @@ impl State {
             self.stats.data = Some(data);
             self.stats.pending = None;
             self.stats.error = None;
+            // The worker emits mutation acknowledgments before any later stats result.
+            // This snapshot already includes every invalidation received before it.
+            self.stats.refresh_needed = false;
+            self.stats.refresh_after = None;
         }
+    }
+
+    pub(in crate::ui) fn invalidate_stats(&mut self) {
+        if self.navigation.page == Page::Stats {
+            self.stats.refresh_needed = true;
+            self.stats.refresh_after = Some(Instant::now() + REFRESH_QUIET_PERIOD);
+        }
+    }
+
+    pub(super) fn poll_stats(&mut self, tx: &mut Tx) -> bool {
+        if self.navigation.page != Page::Stats
+            || !self.stats.refresh_needed
+            || self.stats.pending.is_some()
+            || self.stats_metadata_pending()
+        {
+            return false;
+        }
+        if let Some(after) = self.stats.refresh_after {
+            let remaining = after.saturating_duration_since(Instant::now());
+            if !remaining.is_zero() {
+                tx.wake_after(remaining);
+                return false;
+            }
+        }
+        self.refresh_stats();
+        true
     }
 
     pub(in crate::ui) fn stats_failed(&mut self, generation: u64) {
         if self.stats.pending == Some(generation) {
             self.stats.pending = None;
-            self.stats.error = Some("Cannot load stats. Use Refresh to try again.");
+            self.stats.refresh_needed = false;
+            self.stats.refresh_after = None;
+            self.stats.error = Some("Your watch history is safe. Try loading your stats again.");
         }
     }
 
@@ -87,9 +127,6 @@ impl State {
             }
         }
         self.stats.entries = result.entries;
-        if self.navigation.page == Page::Stats {
-            self.refresh_stats();
-        }
     }
 
     pub(super) fn poll_achievement_toast(&mut self, tx: &mut Tx) -> bool {
@@ -219,6 +256,21 @@ pub(super) fn view(s: &State) -> El {
     dashboard::view(s)
 }
 
+pub(super) fn scene_loading(s: &mut State) {
+    s.addons.busy = false;
+    s.navigation.page = Page::Stats;
+    s.stats = StatsUi {
+        generation: 1,
+        pending: Some(1),
+        ..StatsUi::default()
+    };
+}
+
+pub(super) fn scene_refreshing(s: &mut State) {
+    scene(s);
+    s.stats.pending = Some(s.stats.generation);
+}
+
 pub(super) fn scene(s: &mut State) {
     s.addons.busy = false;
     s.navigation.page = Page::Stats;
@@ -290,8 +342,179 @@ mod tests {
     use anyhow::Context;
 
     #[test]
+    fn repeated_refreshes_keep_the_in_flight_generation() {
+        let mut state = crate::ui::app::init();
+        state.stats.generation = 7;
+        state.stats.pending = Some(7);
+        for _ in 0..10 {
+            state.refresh_stats();
+        }
+        assert_eq!(state.stats.pending, Some(7));
+        assert_eq!(state.stats.generation, 7);
+        state.apply_stats(6, NerdStats::default());
+        assert!(state.stats.data.is_none());
+        state.apply_stats(7, NerdStats::default());
+        assert!(state.stats.data.is_some());
+        assert!(!state.stats.refresh_needed);
+    }
+
+    #[test]
+    fn achievement_reports_do_not_start_dashboard_requests() {
+        let mut state = crate::ui::app::init();
+        state.navigation.page = Page::Stats;
+        state.stats.data = Some(NerdStats::default());
+        for _ in 0..100 {
+            state.apply_achievements(AchievementEvaluation::default());
+        }
+        assert_eq!(state.stats.generation, 0);
+        assert!(state.stats.pending.is_none());
+        assert!(state.stats.error.is_none());
+    }
+
+    #[test]
+    fn background_changes_wait_for_a_quiet_period_before_refreshing() {
+        let mut state = crate::ui::app::init();
+        state.navigation.page = Page::Stats;
+        state.stats.data = Some(NerdStats::default());
+        for _ in 0..100 {
+            state.invalidate_stats();
+        }
+        assert!(!state.poll_stats(&mut Tx::default()));
+        assert_eq!(state.stats.generation, 0);
+        assert!(state.stats.pending.is_none());
+        state.stats.refresh_after = Some(Instant::now());
+        assert!(state.poll_stats(&mut Tx::default()));
+        assert_eq!(state.stats.generation, 1);
+        assert!(!state.poll_stats(&mut Tx::default()));
+        assert_eq!(state.stats.generation, 1);
+    }
+
+    #[test]
+    fn background_changes_during_a_request_do_not_start_a_parallel_refresh() {
+        let mut state = crate::ui::app::init();
+        state.navigation.page = Page::Stats;
+        state.stats.generation = 3;
+        state.stats.pending = Some(3);
+        state.invalidate_stats();
+        state.stats.refresh_after = Some(Instant::now());
+        assert!(!state.poll_stats(&mut Tx::default()));
+        assert_eq!(state.stats.pending, Some(3));
+        state.apply_stats(3, NerdStats::default());
+        assert!(state.stats.data.is_some());
+        assert!(state.stats.pending.is_none());
+        assert!(!state.poll_stats(&mut Tx::default()));
+        assert_eq!(state.stats.generation, 3);
+    }
+
+    #[test]
+    fn background_refresh_waits_for_the_active_scan_to_finish() {
+        let mut state = crate::ui::app::init();
+        state.navigation.page = Page::Stats;
+        state.stats.data = Some(NerdStats::default());
+        state.library.tracking.busy = true;
+        state.invalidate_stats();
+        state.stats.refresh_after = Some(Instant::now());
+        assert!(!state.poll_stats(&mut Tx::default()));
+        assert_eq!(state.stats.generation, 0);
+        state.library.tracking.busy = false;
+        assert!(state.poll_stats(&mut Tx::default()));
+        assert_eq!(state.stats.generation, 1);
+        assert!(!state.poll_stats(&mut Tx::default()));
+    }
+
+    #[test]
+    fn refresh_bursts_do_not_queue_redundant_follow_ups() -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let mut state = crate::ui::app::init();
+        state.library.worker = Some(crate::library_worker::Worker::start(
+            directory.path().join("stats.sqlite3"),
+            std::sync::Arc::new(|| {}),
+        )?);
+        state.navigation.page = Page::Stats;
+        state.refresh_stats();
+        let generation = state.stats.pending.context("first request")?;
+        for _ in 0..10 {
+            state.refresh_stats();
+        }
+        state.apply_stats(generation, NerdStats::default());
+        assert!(
+            state.stats.data.is_some(),
+            "Publish the first result immediately"
+        );
+        assert!(state.stats.pending.is_none());
+        assert!(!state.poll_stats(&mut Tx::default()));
+        assert_eq!(state.stats.generation, generation);
+        Ok(())
+    }
+
+    #[test]
+    fn page_loader_fills_the_content_and_centers_its_spinner() -> anyhow::Result<()> {
+        for width in [880.0, 1280.0] {
+            let mut state = crate::ui::app::init();
+            scene_loading(&mut state);
+            let mut rt = rune::Runtime::new(
+                state,
+                crate::ui::shell::view,
+                (width, 820.0),
+                rune::Env::default(),
+            );
+            rt.frame(0.0);
+            let elements = rt.elements();
+            let bounds = |key: &str| -> anyhow::Result<[f32; 4]> {
+                elements
+                    .iter()
+                    .find(|element| element.key.as_deref() == Some(key))
+                    .map(|element| element.rect)
+                    .with_context(|| format!("Missing {key}"))
+            };
+            let loader = bounds("stats-loading")?;
+            let spinner = bounds("stats-loading-spinner")?;
+            assert!(loader[3] > 410.0, "Loader must fill most of the content area");
+            assert!(
+                (spinner[0] + spinner[2] / 2.0 - loader[0] - loader[2] / 2.0).abs() < 0.5,
+                "Spinner must be centered in the content area"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn first_load_has_a_page_loader_and_refresh_keeps_the_dashboard() {
+        let mut state = crate::ui::app::init();
+        state.navigation.page = Page::Stats;
+        state.stats.pending = Some(1);
+        let mut rt = rune::Runtime::new(
+            state,
+            crate::ui::shell::view,
+            (880.0, 600.0),
+            rune::Env::default(),
+        );
+        rt.frame(0.0);
+        assert!(rt.find("stats-loading").is_some());
+        assert!(rt.find("stats-loading-spinner").is_some());
+        assert!(rt.find("stats-watch-time").is_none());
+        rt.update(|state, _| state.apply_stats(1, NerdStats::default()));
+        rt.frame(0.0);
+        assert!(rt.find("stats-loading").is_none());
+        assert!(rt.find("stats-watch-time").is_some());
+        rt.update(|state, _| state.stats.pending = Some(2));
+        rt.frame(0.0);
+        assert!(rt.find("stats-loading").is_none());
+        assert!(rt.find("stats-refreshing").is_none());
+        assert!(rt.find("stats-refresh-spinner").is_none());
+        assert!(rt.find("stats-watch-time").is_some());
+        rt.update(|state, _| state.stats_failed(2));
+        rt.frame(0.0);
+        assert!(rt.find("stats-retry").is_some());
+        assert!(rt.find("stats-watch-time").is_some());
+    }
+
+    #[test]
     fn refresh_preserves_dashboard_card_bounds() -> anyhow::Result<()> {
         let keys = [
+            "stats-refresh",
+            "stats-tabs",
+            "stats-watch-time",
             "stats-mix",
             "stats-mastery",
             "stats-top-titles",
@@ -321,14 +544,22 @@ mod tests {
                     .collect()
             };
             let before = bounds(&rt)?;
-            rt.update(|state, _| {
-                state.stats.pending = Some(1);
-                state.apply_stats(1, NerdStats::default());
-            });
-            rt.frame(0.0);
-            for (old, new) in before.iter().zip(bounds(&rt)?) {
-                for (a, b) in old.iter().zip(new) {
-                    assert!((a - b).abs() < 0.5, "Card moved after stats refresh");
+            for generation in 1..=5 {
+                rt.update(|state, _| state.stats.pending = Some(generation));
+                rt.frame(0.0);
+                assert!(rt.find("stats-refreshing").is_none());
+                assert!(rt.find("stats-refresh-spinner").is_none());
+                for (old, new) in before.iter().zip(bounds(&rt)?) {
+                    for (a, b) in old.iter().zip(new) {
+                        assert!((a - b).abs() < 0.5, "Layout moved during stats refresh");
+                    }
+                }
+                rt.update(|state, _| state.apply_stats(generation, NerdStats::default()));
+                rt.frame(0.0);
+                for (old, new) in before.iter().zip(bounds(&rt)?) {
+                    for (a, b) in old.iter().zip(new) {
+                        assert!((a - b).abs() < 0.5, "Layout moved after stats refresh");
+                    }
                 }
             }
         }

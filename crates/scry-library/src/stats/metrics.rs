@@ -68,6 +68,54 @@ struct Number {
     value: f64,
 }
 
+#[derive(QueryableByName)]
+struct PlaybackTotals {
+    #[diesel(sql_type = Double)]
+    watch_seconds: f64,
+    #[diesel(sql_type = Double)]
+    movie_seconds: f64,
+    #[diesel(sql_type = Double)]
+    tv_seconds: f64,
+}
+
+#[derive(QueryableByName)]
+struct LibraryTotals {
+    #[diesel(sql_type = BigInt)]
+    movies_watched: i64,
+    #[diesel(sql_type = BigInt)]
+    episodes_watched: i64,
+    #[diesel(sql_type = BigInt)]
+    series_completed: i64,
+    #[diesel(sql_type = BigInt)]
+    unfinished_shows: i64,
+    #[diesel(sql_type = BigInt)]
+    saved_titles: i64,
+    #[diesel(sql_type = BigInt)]
+    saved_watched: i64,
+    #[diesel(sql_type = BigInt)]
+    unknown_runtimes: i64,
+}
+
+#[derive(QueryableByName)]
+struct RecordedTotals {
+    #[diesel(sql_type = BigInt)]
+    completions: i64,
+    #[diesel(sql_type = Double)]
+    seconds: f64,
+    #[diesel(sql_type = Double)]
+    rewatch_seconds: f64,
+}
+
+#[derive(QueryableByName)]
+struct SessionTotals {
+    #[diesel(sql_type = BigInt)]
+    count: i64,
+    #[diesel(sql_type = Double)]
+    longest_seconds: f64,
+    #[diesel(sql_type = BigInt)]
+    most_episodes: i64,
+}
+
 pub(super) fn number(connection: &mut SqliteConnection, query: &str) -> Result<f64> {
     Ok(diesel::sql_query(query)
         .get_result::<Number>(connection)?
@@ -228,28 +276,48 @@ impl Library {
     pub fn nerd_stats(&self, period: StatsPeriod) -> Result<NerdStats> {
         self.transaction(|connection| {
             let start = period.start();
-            let credit_filter = if period == StatsPeriod::AllTime { "1".into() } else { format!("c.watched_at>={start}") };
-            let seconds = |kind: &str| format!("SELECT COALESCE((SELECT SUM(h.seconds) FROM stats_hours h JOIN media m ON m.media_id=h.media_id WHERE h.hour>={start} AND {kind}),0.0)+COALESCE((SELECT SUM(c.credit) FROM stats_counted c JOIN media m ON m.media_id=c.media_id WHERE {credit_filter} AND {kind}),0.0) AS value");
+            let credit_filter = if period == StatsPeriod::AllTime {
+                "1".into()
+            } else {
+                format!("r.watched_at>={start}")
+            };
+            let history = include_str!("history.sql")
+                .replace("{start}", start)
+                .replace("{credit_filter}", &credit_filter);
+            let playback = diesel::sql_query(format!("{history} SELECT COALESCE(SUM(seconds),0.0) AS watch_seconds, COALESCE(SUM(CASE WHEN kind='movie' THEN seconds ELSE 0.0 END),0.0) AS movie_seconds, COALESCE(SUM(CASE WHEN kind='episode' THEN seconds ELSE 0.0 END),0.0) AS tv_seconds FROM history"))
+                .get_result::<PlaybackTotals>(connection)?;
+            let complete = crate::playback::watch_status::completion_sql("m.media_id", "unixepoch()");
+            let library = diesel::sql_query(
+                include_str!("library_totals.sql").replace("{complete}", &complete),
+            )
+            .get_result::<LibraryTotals>(connection)?;
+            let recorded = diesel::sql_query("SELECT COALESCE(SUM(completions),0) AS completions, COALESCE(SUM(seconds),0.0) AS seconds, COALESCE(SUM(rewatch_seconds),0.0) AS rewatch_seconds FROM stats_titles")
+                .get_result::<RecordedTotals>(connection)?;
+            let sessions = diesel::sql_query("SELECT COUNT(*) AS count, COALESCE(MAX(seconds),0.0) AS longest_seconds, COALESCE(MAX(episodes),0) AS most_episodes FROM stats_sessions")
+                .get_result::<SessionTotals>(connection)?;
             Ok(NerdStats {
                 started_at: count(connection, "SELECT started_at AS value FROM stats_tracking WHERE id=1")?,
-                watch_seconds: number(connection, &seconds("1"))?,
-                movie_seconds: number(connection, &seconds("m.kind='movie'"))?,
-                tv_seconds: number(connection, &seconds("m.kind='episode'"))?,
-                movies_watched: count(connection, "SELECT COUNT(*) AS value FROM media m JOIN effective_watched w USING(media_id) WHERE m.kind='movie' AND w.watched=1")?,
-                episodes_watched: count(connection, "SELECT COUNT(*) AS value FROM media m JOIN effective_watched w USING(media_id) WHERE m.kind='episode' AND w.watched=1")?,
-                series_completed: count(connection, "SELECT COUNT(*) AS value FROM media m JOIN effective_watched w USING(media_id) WHERE m.kind='series' AND w.watched=1")?,
-                unfinished_shows: count(connection, "SELECT COUNT(*) AS value FROM media m JOIN watchlist l USING(media_id) JOIN effective_watched w USING(media_id) WHERE m.kind='series' AND w.watched=0")?,
-                recorded_completions: count(connection, "SELECT COALESCE(SUM(completions),0) AS value FROM stats_titles")?,
-                recorded_seconds: number(connection, "SELECT COALESCE(SUM(seconds),0.0) AS value FROM stats_titles")?,
-                saved_titles: count(connection, "SELECT COUNT(*) AS value FROM watchlist")?,
-                saved_watched: count(connection, "SELECT COUNT(*) AS value FROM watchlist l JOIN effective_watched w USING(media_id) WHERE w.watched=1")?,
-                session_count: count(connection, "SELECT COUNT(*) AS value FROM stats_sessions")?,
-                rewatch_seconds: number(connection, "SELECT COALESCE(SUM(rewatch_seconds),0.0) AS value FROM stats_titles")?,
-                unknown_runtimes: count(connection, "SELECT COUNT(*) AS value FROM media m JOIN effective_watched w USING(media_id) LEFT JOIN media_runtime r USING(media_id) WHERE m.kind IN ('movie','episode') AND w.watched=1 AND r.seconds IS NULL")?,
-                longest_session_seconds: number(connection, "SELECT COALESCE(MAX(seconds),0.0) AS value FROM stats_sessions")?,
-                most_session_episodes: count(connection, "SELECT COALESCE(MAX(episodes),0) AS value FROM stats_sessions")?,
-                top_titles: diesel::sql_query(format!("SELECT COALESCE(parent.title,m.title) AS title,SUM(h.seconds) AS seconds FROM (SELECT media_id,seconds FROM stats_hours WHERE hour>={start} UNION ALL SELECT media_id,credit AS seconds FROM stats_counted c WHERE {credit_filter} AND credit>0) h JOIN media m ON m.media_id=h.media_id LEFT JOIN media parent ON parent.media_id=m.parent_id GROUP BY COALESCE(m.parent_id,m.media_id) ORDER BY seconds DESC, title LIMIT 5")).load(connection)?,
+                watch_seconds: playback.watch_seconds,
+                movie_seconds: playback.movie_seconds,
+                tv_seconds: playback.tv_seconds,
+                movies_watched: library.movies_watched,
+                episodes_watched: library.episodes_watched,
+                series_completed: library.series_completed,
+                unfinished_shows: library.unfinished_shows,
+                recorded_completions: recorded.completions,
+                recorded_seconds: recorded.seconds,
+                saved_titles: library.saved_titles,
+                saved_watched: library.saved_watched,
+                session_count: sessions.count,
+                rewatch_seconds: recorded.rewatch_seconds,
+                unknown_runtimes: library.unknown_runtimes,
+                longest_session_seconds: sessions.longest_seconds,
+                most_session_episodes: sessions.most_episodes,
+                top_titles: diesel::sql_query(format!("{history} SELECT COALESCE(parent.title,m.title) AS title,SUM(h.seconds) AS seconds FROM history h JOIN media m ON m.media_id=h.media_id LEFT JOIN media parent ON parent.media_id=m.parent_id GROUP BY COALESCE(m.parent_id,m.media_id) ORDER BY seconds DESC, title LIMIT 5")).load(connection)?,
             })
         })
     }
 }
+
+#[cfg(test)]
+mod tests;

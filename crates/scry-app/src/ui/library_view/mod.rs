@@ -359,7 +359,12 @@ impl State {
                 DbEvent::MissingMovieRuntimes { generation, items } => {
                     self.apply_missing_movie_runtimes(generation, items);
                 }
-                DbEvent::SeriesSynced { changed } => refresh |= changed,
+                DbEvent::SeriesSynced { changed } => {
+                    refresh |= changed;
+                    if changed {
+                        self.invalidate_stats();
+                    }
+                }
                 DbEvent::SeriesStates { generation, states } => {
                     if generation == self.library.series.generation {
                         self.library.series.states = states;
@@ -393,13 +398,14 @@ impl State {
                         self.fetch_calendar();
                     }
                 }
+                DbEvent::RuntimesStored => self.invalidate_stats(),
                 DbEvent::GuideMetadataStored
-                | DbEvent::RuntimesStored
                 | DbEvent::UpNext { .. }
                 | DbEvent::Browse { .. }
                 | DbEvent::Overview { .. }
                 | DbEvent::Flushed(_) => {}
                 DbEvent::Changed => {
+                    self.invalidate_stats();
                     let requested = self.library.pending.pop_front().unwrap_or(false);
                     refresh |= requested;
                     if requested {

@@ -17,6 +17,10 @@ pub(in crate::ui) struct MovieRuntimeUi {
 }
 
 impl State {
+    pub(super) fn movie_runtime_scan_pending(&self) -> bool {
+        self.library.movie_runtimes.busy
+    }
+
     pub(in crate::ui) fn retry_movie_runtimes(&mut self) {
         self.library.movie_runtimes.last_scan = None;
     }

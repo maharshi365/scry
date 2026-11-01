@@ -8,8 +8,10 @@ use crate::ui::{
         tokens::{self, type_},
     },
     primitives::{
-        button::tab as tab_button,
+        button::{Button, tab as tab_button},
+        feedback::{self, Tone},
         pattern::detail_header,
+        status::spinner,
         surface::{card, scroll},
         text::label,
     },
@@ -24,7 +26,7 @@ pub(super) fn view(s: &State) -> El {
             "stats-header",
             "Stats for Nerds",
             "Playback totals, library health, and achievements",
-            row(),
+            row().child(Button::new("stats-refresh", "Refresh").on_press(State::refresh_stats)),
         ));
     content = content.child(
         row()
@@ -50,10 +52,30 @@ pub(super) fn view(s: &State) -> El {
         return scroll("nerd-stats-scroll", content.child(achievements::view(s)));
     }
     if let Some(error) = s.stats.error {
-        content = content.child(label(error));
+        content = content.child(feedback::message(
+            "stats-error",
+            "Cannot load stats",
+            error,
+            Tone::Danger,
+            row().child(Button::new("stats-retry", "Retry").on_press(State::refresh_stats)),
+        ));
     }
     if s.stats.pending.is_some() && s.stats.data.is_none() {
-        content = content.child(label("Gathering the evidence…"));
+        return content.grow(1.0).min_h(0.0).child(
+            col()
+                .key("stats-loading")
+                .w_full()
+                .grow(1.0)
+                .center()
+                .gap(tokens::layout::SECTION_GAP)
+                .child(spinner("stats-loading-spinner", tokens::control::HEIGHT))
+                .child(feedback::status(
+                    "stats-loading-title",
+                    "Loading your stats",
+                    Tone::Neutral,
+                ))
+                .child(label("Gathering your watch history and library totals…")),
+        );
     }
     if let Some(stats) = &s.stats.data {
         content = content

@@ -292,6 +292,8 @@ const SCENES: &[Scene] = &[
     ("addons", super::scenes::scene_addons),
     ("subtitles", super::player::subtitles::scene),
     ("stats", super::stats::scene),
+    ("stats-loading", super::stats::scene_loading),
+    ("stats-refreshing", super::stats::scene_refreshing),
     ("discover", scene_discover),
     ("detail", scene_detail),
     ("detail-watched", scene_detail_watched),

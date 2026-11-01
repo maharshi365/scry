@@ -74,6 +74,7 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
         apply(s, event);
     }
     changed |= request_library_updates(s, tx);
+    changed |= s.poll_stats(tx);
     if let Some(delay) = s.metadata_retry_after() {
         tx.wake_after(delay);
     }
