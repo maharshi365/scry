@@ -128,7 +128,12 @@ pub(super) fn trigger(s: &State) -> El {
             s.show_subtitles();
             tx.instant();
         });
-    hover_overlay::trigger(trigger, s.player.playing, overlay)
+    hover_overlay::trigger(
+        trigger,
+        s.player.playing,
+        &s.player.subtitles.overlay,
+        overlay,
+    )
 }
 
 pub(in crate::ui) fn panel(s: &State) -> Option<El> {
@@ -217,9 +222,10 @@ pub(in crate::ui) fn panel(s: &State) -> Option<El> {
         )
         .focus_group()
         .focus_return("subtitles")
-        .on_layout(|s: &mut State, rect| {
+        .on_layout_tx(|s: &mut State, rect, tx| {
             s.player.subtitles.overlay.rect = Some(rect);
             s.cover_player();
+            tx.live_only();
         }),
     )
 }

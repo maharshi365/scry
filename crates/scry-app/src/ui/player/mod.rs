@@ -69,7 +69,7 @@ fn surface(s: &State, scale: f32, compact: bool) -> El {
         surface = surface.pixels_fit(pixels, rune::SurfaceFit::Fit);
     }
     if s.player.playing {
-        surface = surface.on_layout(move |s: &mut State, rect| {
+        surface = surface.on_layout_tx(move |s: &mut State, rect, tx| {
             s.player.interaction.video_rect = Some(rect);
             s.player.interaction.scale = scale;
             if s.player.playing && matches!(s.navigation.page, Page::Player | Page::Guide) {
@@ -79,6 +79,7 @@ fn surface(s: &State, scale: f32, compact: bool) -> El {
                     s.shell.host.show();
                 }
             }
+            tx.live_only();
         });
     }
     if s.navigation.page == Page::Guide && !s.player.ready {
@@ -374,9 +375,10 @@ fn control_panel(s: &State, buttons: El) -> El {
         .gap(6.0)
         .child(timeline(s))
         .child(buttons)
-        .on_layout(|s: &mut State, rect| {
+        .on_layout_tx(|s: &mut State, rect, tx| {
             s.player.interaction.controls_rect = Some(rect);
             s.cover_player();
+            tx.live_only();
         })
         .on_pointer_move(|s: &mut State, p| {
             s.player.interaction.pointer(

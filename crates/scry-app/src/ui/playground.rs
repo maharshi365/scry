@@ -22,6 +22,7 @@ use rune::{App, AppSpec, Cx, El, Key, KeyEvent, TextEdit, Tx, col, el, row};
 enum Category {
     #[default]
     Controls,
+    NestedActions,
     Settings,
     ListDetail,
     Feedback,
@@ -35,6 +36,7 @@ impl Category {
     const fn story(self) -> &'static str {
         match self {
             Self::Controls => "Examples/Controls",
+            Self::NestedActions => "Controls/Nested actions",
             Self::Settings => "Examples/Settings",
             Self::ListDetail => "Examples/List detail",
             Self::Feedback => "Feedback/Notice",
@@ -250,6 +252,33 @@ fn settings(s: &State) -> El {
     )
 }
 
+fn nested_actions(s: &State) -> El {
+    section(
+        "playground-nested-actions",
+        "Nested actions",
+        "Hover the row, then its button. Only the active target should highlight.",
+        col()
+            .gap(tokens::layout::ACTION_GAP)
+            .child(
+                Button::new("playground-action-row", "Select row")
+                    .frame()
+                    .w_full()
+                    .justify_between()
+                    .child(label("Select row"))
+                    .child(
+                        Button::new("playground-nested-action", "Mark example")
+                            .on_press(|s: &mut State| s.presses = s.presses.saturating_add(1)),
+                    )
+                    .on_press(|s: &mut State| s.selected = 1),
+            )
+            .child(label(format!(
+                "Row selected: {} · Examples marked: {}",
+                s.selected == 1,
+                s.presses
+            ))),
+    )
+}
+
 const ITEMS: [(&str, &str); 3] = [
     (
         "Quiet landscapes",
@@ -439,6 +468,7 @@ fn poster_gallery(s: &State, reduced_motion: bool) -> El {
 fn view(s: &State, cx: &mut Cx<State>) -> El {
     let examples = match s.category {
         Category::Controls => controls(s),
+        Category::NestedActions => nested_actions(s),
         Category::Settings => settings(s),
         Category::ListDetail => list_detail(s),
         Category::Feedback => feedback(s),
@@ -500,6 +530,10 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
 fn scene_controls(s: &mut State) {
     *s = init();
 }
+fn scene_nested_actions(s: &mut State) {
+    *s = init();
+    s.show(Category::NestedActions);
+}
 fn scene_settings(s: &mut State) {
     *s = init();
     s.show(Category::Settings);
@@ -543,6 +577,7 @@ fn app() -> App<State> {
         on_key: Some(on_key),
         scenes: &[
             ("Examples/Controls", scene_controls),
+            ("Controls/Nested actions", scene_nested_actions),
             ("Controls/Loading action", scene_loading),
             ("Examples/Settings", scene_settings),
             ("Examples/List detail", scene_list_detail),

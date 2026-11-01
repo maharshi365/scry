@@ -151,6 +151,62 @@ fn only_the_control_reacts_to_hover_and_it_reacts_without_a_fade() {
 }
 
 #[test]
+fn nested_button_hover_does_not_light_its_action_row() {
+    use super::super::{design::tokens, primitives::motion};
+
+    fn view(_: &Example, _: &mut rune::Cx<Example>) -> rune::El {
+        motion::hover(
+            rune::row()
+                .key("action-row")
+                .w(300.0)
+                .h(80.0)
+                .hover(tokens::theme().hover)
+                .on_press(|s: &mut Example| s.presses += 10)
+                .child(Button::new("nested", "Open").on_press(|s: &mut Example| s.presses += 1)),
+        )
+    }
+
+    let mut rt = rune::Runtime::new(
+        Example::default(),
+        view,
+        (400.0, 200.0),
+        rune::Env::default(),
+    );
+    rt.frame(0.0);
+    rt.pointer_move(250.0, 60.0);
+    rt.frame(0.0);
+    assert_eq!(
+        rt.elements()
+            .iter()
+            .find(|e| e.key.as_deref() == Some("action-row"))
+            .unwrap()
+            .hover,
+        1.0,
+        "The row's own target must still highlight"
+    );
+
+    let (x, y) = rt.find("nested").unwrap();
+    rt.pointer_move(x, y);
+    rt.frame(0.0);
+    let elements = rt.elements();
+    for (key, expected) in [("action-row", 0.0), ("nested", 1.0)] {
+        assert_eq!(
+            elements
+                .iter()
+                .find(|e| e.key.as_deref() == Some(key))
+                .unwrap()
+                .hover,
+            expected,
+            "Only the nested action should highlight: {key}"
+        );
+    }
+    rt.pointer_down(x, y);
+    rt.pointer_up(x, y);
+    rt.frame(0.0);
+    assert_eq!(rt.state.presses, 1, "Only the nested action should run");
+}
+
+#[test]
 fn feedback_status_is_not_an_action_and_recovery_is_clickable() {
     fn view(_: &Example, _: &mut rune::Cx<Example>) -> rune::El {
         rune::col()

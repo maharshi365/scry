@@ -306,7 +306,7 @@ impl Button {
             frame = frame.px(0.0).cursor(rune::Cursor::Pointer);
         }
         if active {
-            super::interaction::focus_ring(frame.hover(if transparent_dropdown {
+            super::interaction::focus_ring(frame.hover_alone().hover(if transparent_dropdown {
                 tokens::transparent()
             } else {
                 tokens::theme().hover

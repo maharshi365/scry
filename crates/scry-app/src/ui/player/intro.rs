@@ -80,9 +80,10 @@ pub(super) fn prompt(s: &State) -> Option<El> {
         .h(tokens::control::HEIGHT)
         .child(content)
         .transition(crate::ui::primitives::motion::fade())
-        .on_layout(|s: &mut State, rect| {
+        .on_layout_tx(|s: &mut State, rect, tx| {
             s.player.intro_rect = Some(rect);
             s.cover_player();
+            tx.live_only();
         });
     let mut lane = row().w_full();
     if s.player.fullscreen {

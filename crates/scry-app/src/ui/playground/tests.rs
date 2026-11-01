@@ -1,6 +1,45 @@
 use super::*;
 
 #[test]
+fn nested_actions_isolate_hover_and_keep_both_targets_clickable() -> Result<(), &'static str> {
+    for size in [(1106.0, 480.0), (1746.0, 820.0)] {
+        let mut rt = runtime(scene_nested_actions, size);
+        for _ in 0..60 {
+            rt.frame(1.0 / 60.0);
+        }
+        let row = rect(&rt, "playground-action-row");
+        let button = rect(&rt, "playground-nested-action");
+        assert!(button[0] >= row[0] && button[0] + button[2] <= row[0] + row[2]);
+        assert!(button[1] >= row[1] && button[1] + button[3] <= row[1] + row[3]);
+        rt.pointer_move(button[0] + button[2] / 2.0, button[1] + button[3] / 2.0);
+        rt.frame(0.0);
+        let button_hover = rt
+            .playground_element("playground-nested-action")
+            .ok_or("Missing nested action")?
+            .hover;
+        let row_hover = rt
+            .playground_element("playground-action-row")
+            .ok_or("Missing action row")?
+            .hover;
+        assert!((button_hover - 1.0).abs() < f32::EPSILON);
+        assert!(row_hover.abs() < f32::EPSILON);
+        tap(&mut rt, "playground-nested-action");
+        assert_eq!(stage(&rt).presses, 1);
+        assert_eq!(
+            stage(&rt).selected,
+            0,
+            "The button must not select its parent row"
+        );
+        rt.pointer_down(row[0] + 2.0, row[1] + row[3] / 2.0);
+        rt.pointer_up(row[0] + 2.0, row[1] + row[3] / 2.0);
+        rt.frame(0.0);
+        assert_eq!(stage(&rt).selected, 1, "The row must keep its own action");
+        assert_eq!(stage(&rt).presses, 1);
+    }
+    Ok(())
+}
+
+#[test]
 fn gallery_fixture_wraps_and_keeps_actions_local() {
     for size in [(640.0, 600.0), (1280.0, 820.0)] {
         let mut rt = runtime(scene_poster_gallery, size);
@@ -207,6 +246,7 @@ fn built_in_host_shows_fixture_scenes_without_custom_navigation() {
     for size in [(1106.0, 480.0), (1346.0, 600.0), (1746.0, 820.0)] {
         for scene in [
             scene_controls,
+            scene_nested_actions,
             scene_settings,
             scene_list_detail,
             scene_feedback,

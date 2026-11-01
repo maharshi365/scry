@@ -3990,7 +3990,7 @@ dependencies = [
 [[package]]
 name = "rune"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=664b69ed1e76806f9e3b3fa79c8594e3b154700b#664b69ed1e76806f9e3b3fa79c8594e3b154700b"
+source = "git+https://github.com/anomalyco/rune?rev=f5def6d4f9259580cbbd6472498e4de6b4d754b6#f5def6d4f9259580cbbd6472498e4de6b4d754b6"
 dependencies = [
  "arboard",
  "blake3",
@@ -4016,15 +4016,19 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "objc2-io-surface",
  "objc2-metal 0.3.2",
+ "objc2-quartz-core 0.3.2",
  "opuscule",
+ "parking_lot",
  "parley",
  "png 0.18.1",
  "pollster",
  "portable-atomic",
  "raw-window-handle",
+ "raw-window-metal",
  "resvg",
  "rune-motion",
  "rune-staging",
+ "rustc-demangle",
  "rustc-hash 2.1.3",
  "serde",
  "serde_json",
@@ -4044,6 +4048,7 @@ dependencies = [
  "wgpu",
  "wgpu-core",
  "wgpu-hal",
+ "wgpu-naga-bridge",
  "windows-sys 0.59.0",
  "winit",
  "x11rb",
@@ -4055,7 +4060,7 @@ dependencies = [
 [[package]]
 name = "rune-kit"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=664b69ed1e76806f9e3b3fa79c8594e3b154700b#664b69ed1e76806f9e3b3fa79c8594e3b154700b"
+source = "git+https://github.com/anomalyco/rune?rev=f5def6d4f9259580cbbd6472498e4de6b4d754b6#f5def6d4f9259580cbbd6472498e4de6b4d754b6"
 dependencies = [
  "rune",
  "rune-motion",
@@ -4065,15 +4070,21 @@ dependencies = [
 [[package]]
 name = "rune-motion"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/rune?rev=664b69ed1e76806f9e3b3fa79c8594e3b154700b#664b69ed1e76806f9e3b3fa79c8594e3b154700b"
+source = "git+https://github.com/anomalyco/rune?rev=f5def6d4f9259580cbbd6472498e4de6b4d754b6#f5def6d4f9259580cbbd6472498e4de6b4d754b6"
 
 [[package]]
 name = "rune-staging"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=664b69ed1e76806f9e3b3fa79c8594e3b154700b#664b69ed1e76806f9e3b3fa79c8594e3b154700b"
+source = "git+https://github.com/anomalyco/rune?rev=f5def6d4f9259580cbbd6472498e4de6b4d754b6#f5def6d4f9259580cbbd6472498e4de6b4d754b6"
 dependencies = [
  "wgpu",
 ]
+
+[[package]]
+name = "rustc-demangle"
+version = "0.1.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b74b56ffa8bb2830709a538c2cbcae9aa062db0d2a42563bfb09bdaae44020eb"
 
 [[package]]
 name = "rustc-hash"

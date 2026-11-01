@@ -26,7 +26,7 @@ pub(super) fn trigger(s: &State) -> El {
             show(s);
             tx.instant();
         });
-    hover_overlay::trigger(trigger, s.player.playing, overlay)
+    hover_overlay::trigger(trigger, s.player.playing, &s.player.stats_overlay, overlay)
 }
 
 fn show(s: &mut State) {
@@ -89,9 +89,10 @@ pub(in crate::ui) fn panel(s: &State) -> Option<El> {
         )
         .padding(14.0)
         .label("Stream stats")
-        .on_layout(|s: &mut State, rect| {
+        .on_layout_tx(|s: &mut State, rect, tx| {
             s.player.stats_overlay.rect = Some(rect);
             s.cover_player();
+            tx.live_only();
         }),
     )
 }

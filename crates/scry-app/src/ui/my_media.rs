@@ -284,7 +284,10 @@ pub(super) fn view(s: &State) -> El {
         actions,
         content,
     )
-    .on_layout(|s: &mut State, rect| s.my_media.viewport = Some(rect))
+    .on_layout_tx(|s: &mut State, rect, tx| {
+        s.my_media.viewport = Some(rect);
+        tx.live_only();
+    })
 }
 
 fn filters(s: &State) -> El {
@@ -396,8 +399,9 @@ fn title_list(s: &State) -> El {
                 .w_full()
                 .min_w(0.0)
                 .gap(tokens::layout::ACTION_GAP)
-                .on_layout(move |s: &mut State, rect| {
+                .on_layout_tx(move |s: &mut State, rect, tx| {
                     s.my_media.rects.insert(layout_id.clone(), rect);
+                    tx.live_only();
                 })
                 .child(thumbnail(s, item, index))
                 .child(

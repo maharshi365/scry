@@ -87,7 +87,7 @@ fn check_source(path: &Path, violations: &mut Vec<String>) {
             };
             let inline_svg = !is_icons && text.contains("body: r#");
             let inline_focus = parent != "primitives"
-                && [".focus_ring(", ".radius(", ".border("]
+                && [".focus_ring(", ".radius(", ".border(", ".hover_alone("]
                     .iter()
                     .any(|pattern| text.contains(pattern));
             let inline_control = parent != "primitives"

@@ -44,7 +44,7 @@ pub(super) fn trigger(s: &State) -> El {
             s.show_audio();
             tx.instant();
         });
-    hover_overlay::trigger(trigger, s.player.playing, overlay)
+    hover_overlay::trigger(trigger, s.player.playing, &s.player.audio.overlay, overlay)
 }
 
 pub(in crate::ui) fn panel(s: &State) -> Option<El> {
@@ -95,9 +95,10 @@ pub(in crate::ui) fn panel(s: &State) -> Option<El> {
         hover_overlay::panel("player-audio-overlay", "audio", 420.0, content, overlay)
             .focus_group()
             .focus_return("audio")
-            .on_layout(|s: &mut State, rect| {
+            .on_layout_tx(|s: &mut State, rect, tx| {
                 s.player.audio.overlay.rect = Some(rect);
                 s.cover_player();
+                tx.live_only();
             }),
     )
 }

@@ -23,8 +23,8 @@ reqwest = { version = "0.12", default-features = false, features = ["native-tls"
 tokio = { version = "1", default-features = false }
 url = "2"
 tempfile = "3"
-rune = { git = "https://github.com/anomalyco/rune", rev = "664b69ed1e76806f9e3b3fa79c8594e3b154700b" }
-rune-kit = { git = "https://github.com/anomalyco/rune", rev = "664b69ed1e76806f9e3b3fa79c8594e3b154700b" }
+rune = { git = "https://github.com/anomalyco/rune", rev = "f5def6d4f9259580cbbd6472498e4de6b4d754b6" }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "f5def6d4f9259580cbbd6472498e4de6b4d754b6" }
 uuid = { version = "1", features = ["v4"] }
 windows-sys = "0.59"
 
