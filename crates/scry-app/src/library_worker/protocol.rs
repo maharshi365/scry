@@ -1,5 +1,7 @@
 //! Messages shared by the UI handle and the database thread.
-use scry_library::{Media, MediaKey, Progress, WatchedState};
+use scry_library::{Media, MediaKey, Progress};
+
+pub use scry_library::{DetailSnapshot as Snapshot, SelectedState, SeriesState};
 
 #[derive(Clone, Debug)]
 pub enum Command {
@@ -86,36 +88,10 @@ pub enum Command {
 }
 
 #[derive(Debug)]
-pub struct SelectedState {
-    pub key: MediaKey,
-    pub watched: WatchedState,
-    pub watchlist: bool,
-    pub progress: Option<Progress>,
-}
-
-#[derive(Debug)]
 pub struct MovieState {
     pub key: MediaKey,
     pub watched: bool,
     pub progress: Option<Progress>,
-}
-
-#[derive(Debug)]
-pub struct SeriesState {
-    pub key: MediaKey,
-    pub tracked: bool,
-    pub watched: bool,
-    pub progress: Option<Progress>,
-    pub summary: Option<scry_library::SeriesProgress>,
-}
-
-#[derive(Debug)]
-pub struct Snapshot {
-    /// `None` also covers a selected key not yet stored locally.
-    pub selected_state: Option<SelectedState>,
-    /// First 200 registered episodes of the selected series, or the selected
-    /// episode's parent series. No provider calls are made here.
-    pub episode_states: Vec<(MediaKey, WatchedState)>,
 }
 
 #[derive(Debug)]

@@ -29,12 +29,15 @@ impl Library {
         season: u32,
         episode: u32,
     ) -> Result<Option<SkipSegmentsRecord>> {
-        Ok(diesel::sql_query("SELECT payload, etag, fetched_at FROM skip_segments WHERE provider = ? AND imdb_id = ? AND season = ? AND episode = ?")
-            .bind::<Text, _>(provider)
-            .bind::<Text, _>(imdb_id)
-            .bind::<BigInt, _>(i64::from(season))
-            .bind::<BigInt, _>(i64::from(episode))
-            .get_result(&mut *self.connection.borrow_mut()).optional()?)
+        self.with_connection(|connection| {
+            Ok(diesel::sql_query("SELECT payload, etag, fetched_at FROM skip_segments WHERE provider = ? AND imdb_id = ? AND season = ? AND episode = ?")
+                .bind::<Text, _>(provider)
+                .bind::<Text, _>(imdb_id)
+                .bind::<BigInt, _>(i64::from(season))
+                .bind::<BigInt, _>(i64::from(episode))
+                .get_result(connection)
+                .optional()?)
+        })
     }
 
     /// Replace one episode's response atomically; other providers and episodes are untouched.
@@ -62,16 +65,18 @@ impl Library {
                 && record.etag.as_ref().is_none_or(|tag| tag.len() <= 512),
             "invalid skip segment record"
         );
-        diesel::sql_query("INSERT INTO skip_segments (provider, imdb_id, season, episode, payload, etag, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (provider, imdb_id, season, episode) DO UPDATE SET payload = excluded.payload, etag = excluded.etag, fetched_at = excluded.fetched_at")
-            .bind::<Text, _>(provider)
-            .bind::<Text, _>(imdb_id)
-            .bind::<BigInt, _>(i64::from(season))
-            .bind::<BigInt, _>(i64::from(episode))
-            .bind::<Text, _>(&record.payload)
-            .bind::<Nullable<Text>, _>(&record.etag)
-            .bind::<BigInt, _>(record.fetched_at)
-            .execute(&mut *self.connection.borrow_mut())?;
-        Ok(())
+        self.with_connection(|connection| {
+            diesel::sql_query("INSERT INTO skip_segments (provider, imdb_id, season, episode, payload, etag, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (provider, imdb_id, season, episode) DO UPDATE SET payload = excluded.payload, etag = excluded.etag, fetched_at = excluded.fetched_at")
+                .bind::<Text, _>(provider)
+                .bind::<Text, _>(imdb_id)
+                .bind::<BigInt, _>(i64::from(season))
+                .bind::<BigInt, _>(i64::from(episode))
+                .bind::<Text, _>(&record.payload)
+                .bind::<Nullable<Text>, _>(&record.etag)
+                .bind::<BigInt, _>(record.fetched_at)
+                .execute(connection)?;
+            Ok(())
+        })
     }
 }
 

@@ -380,9 +380,7 @@ impl Library {
     /// # Errors
     /// Returns an error if a rule query or unlock write fails. No partial unlocks are saved.
     pub fn evaluate_achievements(&mut self) -> Result<AchievementEvaluation> {
-        self.connection
-            .borrow_mut()
-            .immediate_transaction(|connection| evaluate(connection, ACHIEVEMENTS))
+        self.immediate_transaction(|connection| evaluate(connection, ACHIEVEMENTS))
     }
 }
 
@@ -391,9 +389,11 @@ mod tests {
     use super::*;
     use diesel::connection::SimpleConnection;
 
-    fn seed(connection: &mut SqliteConnection, sql: &str) -> Result<()> {
-        connection.batch_execute(sql)?;
-        Ok(())
+    fn seed(library: &Library, sql: &str) -> Result<()> {
+        library.with_connection(|connection| {
+            connection.batch_execute(sql)?;
+            Ok(())
+        })
     }
 
     fn assert_hidden(library: &mut Library, id: &str, unlocked: bool) -> Result<()> {
@@ -416,7 +416,7 @@ mod tests {
     fn double_feature_needs_two_distinct_movies_over_threshold_on_the_same_day() -> Result<()> {
         let mut library = Library::memory()?;
         seed(
-            &mut library.connection.borrow_mut(),
+            &library,
             "
             INSERT INTO media(media_id,namespace,kind,external_id,title) VALUES
                 (1,'test','movie','one','One'),(2,'test','movie','two','Two'),
@@ -427,17 +427,14 @@ mod tests {
         )?;
         assert_hidden(&mut library, "double-feature", false)?;
         seed(
-            &mut library.connection.borrow_mut(),
+            &library,
             "
             INSERT INTO stats_hours VALUES (86400,1,5000),(90000,1,5000),
                 (86400,3,5000),(86400,2,4200),(172800,2,5000);
         ",
         )?;
         assert_hidden(&mut library, "double-feature", false)?;
-        seed(
-            &mut library.connection.borrow_mut(),
-            "INSERT INTO stats_hours VALUES (90000,2,1);",
-        )?;
+        seed(&library, "INSERT INTO stats_hours VALUES (90000,2,1);")?;
         assert_hidden(&mut library, "double-feature", true)
     }
 
@@ -445,7 +442,7 @@ mod tests {
     fn channel_surfer_groups_episodes_by_series_and_day() -> Result<()> {
         let mut library = Library::memory()?;
         seed(
-            &mut library.connection.borrow_mut(),
+            &library,
             "
             INSERT INTO media(media_id,namespace,kind,external_id,title) VALUES
                 (1,'test','series','one','One'),(2,'test','series','two','Two'),
@@ -458,10 +455,7 @@ mod tests {
         ",
         )?;
         assert_hidden(&mut library, "channel-surfer", false)?;
-        seed(
-            &mut library.connection.borrow_mut(),
-            "INSERT INTO stats_hours VALUES (90000,8,1);",
-        )?;
+        seed(&library, "INSERT INTO stats_hours VALUES (90000,8,1);")?;
         assert_hidden(&mut library, "channel-surfer", true)
     }
 
@@ -469,7 +463,7 @@ mod tests {
     fn standing_appointment_needs_seven_consecutive_qualifying_days() -> Result<()> {
         let mut library = Library::memory()?;
         seed(
-            &mut library.connection.borrow_mut(),
+            &library,
             "
             INSERT INTO media(media_id,namespace,kind,external_id,title) VALUES
                 (1,'test','movie','one','One');
@@ -479,10 +473,7 @@ mod tests {
         ",
         )?;
         assert_hidden(&mut library, "standing-appointment", false)?;
-        seed(
-            &mut library.connection.borrow_mut(),
-            "INSERT INTO stats_hours VALUES (349200,1,1);",
-        )?;
+        seed(&library, "INSERT INTO stats_hours VALUES (349200,1,1);")?;
         assert_hidden(&mut library, "standing-appointment", true)
     }
 
@@ -518,7 +509,7 @@ mod tests {
         let mut library = Library::memory()?;
         assert_visible_progress(&mut library, "silver-screen", 0.0, 25.0)?;
         seed(
-            &mut library.connection.borrow_mut(),
+            &library,
             "
             WITH RECURSIVE n(id) AS (VALUES(1) UNION ALL SELECT id+1 FROM n WHERE id<25)
             INSERT INTO media(media_id,namespace,kind,external_id,title)
@@ -532,7 +523,7 @@ mod tests {
         )?;
         assert_visible_progress(&mut library, "silver-screen", 24.0, 25.0)?;
         seed(
-            &mut library.connection.borrow_mut(),
+            &library,
             "INSERT INTO stats_titles(media_id,seconds,completions) VALUES (25,100,1);",
         )?;
         assert_visible_progress(&mut library, "silver-screen", 25.0, 25.0)
@@ -543,7 +534,7 @@ mod tests {
         let mut library = Library::memory()?;
         assert_visible_progress(&mut library, "encore-club", 0.0, 5.0)?;
         seed(
-            &mut library.connection.borrow_mut(),
+            &library,
             "
             WITH RECURSIVE n(id) AS (VALUES(1) UNION ALL SELECT id+1 FROM n WHERE id<5)
             INSERT INTO media(media_id,namespace,kind,external_id,title)
@@ -557,7 +548,7 @@ mod tests {
         )?;
         assert_visible_progress(&mut library, "encore-club", 4.0, 5.0)?;
         seed(
-            &mut library.connection.borrow_mut(),
+            &library,
             "UPDATE stats_titles SET completions=2 WHERE media_id=5;",
         )?;
         assert_visible_progress(&mut library, "encore-club", 5.0, 5.0)
@@ -568,7 +559,7 @@ mod tests {
         let mut library = Library::memory()?;
         assert_hidden(&mut library, "roll-credits", false)?;
         seed(
-            &mut library.connection.borrow_mut(),
+            &library,
             "
             WITH RECURSIVE n(id) AS (VALUES(1) UNION ALL SELECT id+1 FROM n WHERE id<11)
             INSERT INTO media(media_id,namespace,kind,external_id,title)
@@ -581,15 +572,9 @@ mod tests {
         ",
         )?;
         assert_hidden(&mut library, "roll-credits", false)?;
-        seed(
-            &mut library.connection.borrow_mut(),
-            "INSERT INTO watchlist(media_id) VALUES (10);",
-        )?;
+        seed(&library, "INSERT INTO watchlist(media_id) VALUES (10);")?;
         assert_hidden(&mut library, "roll-credits", false)?;
-        seed(
-            &mut library.connection.borrow_mut(),
-            "INSERT INTO watched VALUES (10,1);",
-        )?;
+        seed(&library, "INSERT INTO watched VALUES (10,1);")?;
         assert_hidden(&mut library, "roll-credits", true)
     }
 
@@ -598,7 +583,7 @@ mod tests {
         let mut library = Library::memory()?;
         assert_hidden(&mut library, "intermission", false)?;
         seed(
-            &mut library.connection.borrow_mut(),
+            &library,
             "
             INSERT INTO media(media_id,namespace,kind,external_id,title) VALUES
                 (1,'test','movie','long','Long'),(2,'test','movie','short','Short'),
@@ -609,7 +594,7 @@ mod tests {
         )?;
         assert_hidden(&mut library, "intermission", false)?;
         seed(
-            &mut library.connection.borrow_mut(),
+            &library,
             "
             INSERT INTO stats_titles(media_id,seconds) VALUES
                 (1,7560),(2,10800),(3,10800),(4,10800);
@@ -617,7 +602,7 @@ mod tests {
         )?;
         assert_hidden(&mut library, "intermission", false)?;
         seed(
-            &mut library.connection.borrow_mut(),
+            &library,
             "UPDATE stats_titles SET seconds=7561 WHERE media_id=1;",
         )?;
         assert_hidden(&mut library, "intermission", true)
@@ -630,25 +615,26 @@ mod tests {
     #[test]
     fn earned_rules_are_skipped_and_new_definitions_get_one_catch_up() -> Result<()> {
         let library = Library::memory()?;
-        let connection = &mut *library.connection.borrow_mut();
-        let mut definition = achievement!("test", "Test", "Test", "Test", false, |_| Ok(
-            Evaluation::Unlocked
-        ));
-        assert_eq!(
-            evaluate(connection, std::slice::from_ref(&definition))?
-                .newly_unlocked
-                .len(),
-            1
-        );
-        definition.evaluate = forbidden;
-        let result = evaluate(connection, &[definition])?;
-        assert!(result.newly_unlocked.is_empty());
-        assert!(
-            result
-                .entries
-                .first()
-                .is_some_and(|entry| entry.unlocked && entry.historical)
-        );
-        Ok(())
+        library.with_connection(|connection| {
+            let mut definition = achievement!("test", "Test", "Test", "Test", false, |_| Ok(
+                Evaluation::Unlocked
+            ));
+            assert_eq!(
+                evaluate(connection, std::slice::from_ref(&definition))?
+                    .newly_unlocked
+                    .len(),
+                1
+            );
+            definition.evaluate = forbidden;
+            let result = evaluate(connection, &[definition])?;
+            assert!(result.newly_unlocked.is_empty());
+            assert!(
+                result
+                    .entries
+                    .first()
+                    .is_some_and(|entry| entry.unlocked && entry.historical)
+            );
+            Ok(())
+        })
     }
 }

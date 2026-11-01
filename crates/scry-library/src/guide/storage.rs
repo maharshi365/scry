@@ -1,7 +1,7 @@
 use super::{Channel, ChannelSource, Collection, GuideAction, MAX_CHANNELS, Snapshot, Stored};
 use crate::{
     Library, Media, MediaKind,
-    catalog::media::{MediaRecord, hydrate, media_id, upsert_media},
+    catalog::media::{MediaRecord, hydrate, upsert_media},
     storage::schema::{media, playlist_items, playlists},
 };
 use anyhow::{Context, Result, ensure};
@@ -42,10 +42,8 @@ impl Library {
             metadata.genres.len() <= 64 && metadata.description.len() <= 32_768,
             "guide metadata is too large"
         );
-        let connection = &mut *self.connection.borrow_mut();
-        connection.immediate_transaction::<_, anyhow::Error, _>(|connection| {
-            upsert_media(connection, media)?;
-            let id = media_id(connection, &media.key)?;
+        self.immediate_transaction(|connection| {
+            let id = upsert_media(connection, media)?;
             diesel::sql_query("INSERT INTO guide_metadata(media_id,payload) VALUES (?,?) ON CONFLICT(media_id) DO UPDATE SET payload=excluded.payload")
                 .bind::<BigInt,_>(id).bind::<Text,_>(serde_json::to_string(metadata)?).execute(connection)?;
             Ok(())
@@ -57,9 +55,7 @@ impl Library {
     /// Returns an error for invalid changes or failed database operations.
     pub fn guide_update(&mut self, action: GuideAction, now: i64) -> Result<Snapshot> {
         ensure!((0..=253_402_000_000).contains(&now), "invalid guide clock");
-        self.connection
-            .borrow_mut()
-            .immediate_transaction(|connection| update(connection, action, now))
+        self.immediate_transaction(|connection| update(connection, action, now))
     }
 }
 
@@ -163,8 +159,7 @@ fn update(connection: &mut SqliteConnection, action: GuideAction, now: i64) -> R
                     .all(|channel| channel.kind == media.key.kind),
                 "an enabled channel cannot change between TV and movies"
             );
-            upsert_media(connection, &media)?;
-            let id = media_id(connection, &media.key)?;
+            let id = upsert_media(connection, &media)?;
             if included {
                 ensure!(group.members.len() < 200, "collection limit reached");
                 let position = playlist_items::table

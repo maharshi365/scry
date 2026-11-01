@@ -1,6 +1,6 @@
 use crate::{
     EpisodeRelease, Library, Media, MediaKey, MediaKind, Page, Progress,
-    catalog::media::{MediaProgressRecord, hydrate_progress, media_id, upsert_media},
+    catalog::media::{MediaProgressRecord, hydrate_progress, media_id, upsert_media_with_parent},
     playback::watch_status::{ReleaseScope, clear_future_watches},
     storage::schema::{episode_releases, media, series_inventory, watched},
 };
@@ -37,33 +37,34 @@ impl Library {
         parent: &MediaKey,
         releases: &[EpisodeRelease],
     ) -> Result<bool> {
-        self.connection
-            .borrow_mut()
-            .immediate_transaction(|connection| sync_episode_releases(connection, parent, releases))
+        self.immediate_transaction(|connection| sync_episode_releases(connection, parent, releases))
     }
 
     /// Next known release time. Used to wake the UI when stored state changes with time.
     /// # Errors
     /// Returns an error on database reads.
     pub fn next_release_at(&self, now: i64) -> Result<Option<i64>> {
-        Ok(episode_releases::table
-            .filter(episode_releases::released_at.gt(now))
-            .select(diesel::dsl::min(episode_releases::released_at))
-            .first::<Option<i64>>(&mut *self.connection.borrow_mut())?)
+        self.with_connection(|connection| {
+            Ok(episode_releases::table
+                .filter(episode_releases::released_at.gt(now))
+                .select(diesel::dsl::min(episode_releases::released_at))
+                .first::<Option<i64>>(connection)?)
+        })
     }
 
     /// Unwatched saved movies and one next released, unwatched episode per saved show.
     /// # Errors
     /// Returns an error on database reads.
     pub fn list_up_next(&self, now: i64, page: Page) -> Result<Vec<(Media, Option<Progress>)>> {
-        let connection = &mut *self.connection.borrow_mut();
-        let records = diesel::sql_query("SELECT m.*, p.position_seconds, p.duration_seconds FROM watchlist w JOIN media m ON m.media_id=COALESCE((SELECT e.media_id FROM media e JOIN episode_releases r ON r.media_id=e.media_id WHERE e.parent_id=w.media_id AND r.released_at<=? AND NOT EXISTS(SELECT 1 FROM watched v WHERE v.media_id=e.media_id AND v.watched=1) ORDER BY CASE WHEN r.season IS NULL THEN 2 WHEN r.season=0 THEN 1 ELSE 0 END, r.season, r.episode, e.media_id LIMIT 1), w.media_id) LEFT JOIN progress p ON p.media_id=m.media_id WHERE m.kind IN ('movie','episode') AND NOT EXISTS(SELECT 1 FROM episode_releases r WHERE r.media_id=m.media_id AND r.released_at>?) AND NOT EXISTS(SELECT 1 FROM watched v WHERE v.media_id=m.media_id AND v.watched=1) ORDER BY w.entry_id DESC LIMIT ? OFFSET ?")
-            .bind::<diesel::sql_types::BigInt, _>(now)
-            .bind::<diesel::sql_types::BigInt, _>(now)
-            .bind::<diesel::sql_types::BigInt, _>(i64::from(page.limit))
-            .bind::<diesel::sql_types::BigInt, _>(i64::from(page.offset))
-            .load::<MediaProgressRecord>(connection)?;
-        hydrate_progress(connection, records)
+        self.with_connection(|connection| {
+            let records = diesel::sql_query("SELECT m.*, p.position_seconds, p.duration_seconds FROM watchlist w JOIN media m ON m.media_id=COALESCE((SELECT e.media_id FROM media e JOIN episode_releases r ON r.media_id=e.media_id WHERE e.parent_id=w.media_id AND r.released_at<=? AND NOT EXISTS(SELECT 1 FROM watched v WHERE v.media_id=e.media_id AND v.watched=1) ORDER BY CASE WHEN r.season IS NULL THEN 2 WHEN r.season=0 THEN 1 ELSE 0 END, r.season, r.episode, e.media_id LIMIT 1), w.media_id) LEFT JOIN progress p ON p.media_id=m.media_id WHERE m.kind IN ('movie','episode') AND NOT EXISTS(SELECT 1 FROM episode_releases r WHERE r.media_id=m.media_id AND r.released_at>?) AND NOT EXISTS(SELECT 1 FROM watched v WHERE v.media_id=m.media_id AND v.watched=1) ORDER BY w.entry_id DESC LIMIT ? OFFSET ?")
+                .bind::<diesel::sql_types::BigInt, _>(now)
+                .bind::<diesel::sql_types::BigInt, _>(now)
+                .bind::<diesel::sql_types::BigInt, _>(i64::from(page.limit))
+                .bind::<diesel::sql_types::BigInt, _>(i64::from(page.offset))
+                .load::<MediaProgressRecord>(connection)?;
+            hydrate_progress(connection, records)
+        })
     }
 }
 
@@ -149,8 +150,7 @@ pub(crate) fn sync_episode_releases(
         if unchanged {
             continue;
         }
-        upsert_media(connection, &release.media)?;
-        let episode_id = media_id(connection, &release.media.key)?;
+        let episode_id = upsert_media_with_parent(connection, &release.media, Some(id))?;
         diesel::insert_into(episode_releases::table)
             .values((
                 episode_releases::media_id.eq(episode_id),

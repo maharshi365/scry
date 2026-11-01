@@ -138,6 +138,32 @@ pub struct MediaState {
     pub watched_seconds: f64,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct SeriesState {
+    pub key: MediaKey,
+    pub tracked: bool,
+    pub watched: bool,
+    pub progress: Option<Progress>,
+    pub summary: Option<SeriesProgress>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SelectedState {
+    pub key: MediaKey,
+    pub watched: WatchedState,
+    pub watchlist: bool,
+    pub progress: Option<Progress>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DetailSnapshot {
+    /// `None` also covers a selected key not yet stored locally.
+    pub selected_state: Option<SelectedState>,
+    /// First 200 registered episodes of the selected series, or the selected
+    /// episode's parent series. No provider calls are made here.
+    pub episode_states: Vec<(MediaKey, WatchedState)>,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Page {
     pub(crate) limit: u32,

@@ -1,5 +1,5 @@
 //! Synchronous database requests. This module does not depend on the UI.
-use super::{Command, Event, MovieState, SelectedState, SeriesState, Snapshot};
+use super::{Command, Event, MovieState};
 use anyhow::Result;
 use scry_library::{Library, MAX_PAGE_SIZE, MediaKind, Page};
 
@@ -84,29 +84,10 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
             )?;
         }
         Command::SeriesStates { generation, keys } => {
-            anyhow::ensure!(
-                keys.len() <= MAX_PAGE_SIZE as usize
-                    && keys.iter().all(|key| key.kind == MediaKind::Series),
-                "Too many series poster keys"
-            );
-            let mut states = Vec::new();
-            for state in library.media_states(&keys)? {
-                let tracked = state.stored;
-                let summary = if tracked {
-                    Some(library.series_progress(&state.key, chrono::Utc::now().timestamp())?)
-                } else {
-                    None
-                };
-                let progress = summary.and_then(scry_library::SeriesProgress::normalized_progress);
-                states.push(SeriesState {
-                    key: state.key,
-                    tracked,
-                    watched: state.watched.watched,
-                    progress,
-                    summary,
-                });
-            }
-            return Ok(Event::SeriesStates { generation, states });
+            return Ok(Event::SeriesStates {
+                generation,
+                states: library.series_states(&keys, chrono::Utc::now().timestamp())?,
+            });
         }
         Command::MovieStates { generation, keys } => {
             anyhow::ensure!(
@@ -181,57 +162,9 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
             selected,
             episodes,
         } => {
-            let page = Page::new(MAX_PAGE_SIZE, 0)?;
-            let selected_media = match selected {
-                Some(key) => library.get_media(&key)?,
-                None => None,
-            };
-            let series = selected_media
-                .as_ref()
-                .and_then(|media| match media.key.kind {
-                    MediaKind::Series => Some(&media.key),
-                    MediaKind::Episode => media.parent.as_ref(),
-                    MediaKind::Movie => None,
-                });
-            let mut episode_states = Vec::new();
-            anyhow::ensure!(
-                episodes.len() <= MAX_PAGE_SIZE as usize,
-                "Too many visible episodes"
-            );
-            if !episodes.is_empty() {
-                episode_states = library
-                    .media_states(&episodes)?
-                    .into_iter()
-                    .map(|state| (state.key, state.watched))
-                    .collect();
-            } else if let Some(series) = series {
-                let keys: Vec<_> = library
-                    .list_episodes(series, page)?
-                    .into_iter()
-                    .map(|media| media.key)
-                    .collect();
-                episode_states = library
-                    .media_states(&keys)?
-                    .into_iter()
-                    .map(|state| (state.key, state.watched))
-                    .collect();
-            }
-            let selected_state = match selected_media {
-                Some(media) => Some(SelectedState {
-                    watched: library.watched_state(&media.key)?,
-                    watchlist: library
-                        .is_in_watchlist(media.parent.as_ref().unwrap_or(&media.key))?,
-                    progress: library.load_progress(&media.key)?,
-                    key: media.key,
-                }),
-                None => None,
-            };
             return Ok(Event::Snapshot {
                 generation,
-                data: Snapshot {
-                    selected_state,
-                    episode_states,
-                },
+                data: library.detail_snapshot(selected.as_ref(), &episodes)?,
             });
         }
         Command::Upsert(items) => {

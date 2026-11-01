@@ -520,3 +520,86 @@ fn stored_inventory_and_episode_actions_update_all_library_views_without_reconci
     assert_eq!(db.series_progress(&parent.key, 100)?.fraction(), None);
     Ok(())
 }
+
+#[test]
+fn batched_series_states_preserve_order_duplicates_untracked_keys_and_shared_clock()
+-> anyhow::Result<()> {
+    let mut db = Library::memory()?;
+    let parent = show();
+    db.upsert_media(&parent)?;
+    let first = episode(&parent, 1);
+    let second = episode(&parent, 2);
+    db.sync_episode_releases(
+        &parent.key,
+        &[
+            EpisodeRelease {
+                media: first.clone(),
+                released_at: Some(100),
+                season: Some(1),
+                episode: Some(1),
+            },
+            EpisodeRelease {
+                media: second.clone(),
+                released_at: Some(200),
+                season: Some(1),
+                episode: Some(2),
+            },
+        ],
+    )?;
+    db.set_watched(&first.key, true)?;
+
+    let missing = MediaKey::new("other", MediaKind::Series, "missing");
+    let keys = vec![missing.clone(), parent.key.clone(), parent.key.clone()];
+    let before_second = db.series_states(&keys, 150)?;
+    assert_eq!(before_second.len(), 3);
+    assert_eq!(
+        before_second[0],
+        scry_library::SeriesState {
+            key: missing.clone(),
+            tracked: false,
+            watched: false,
+            progress: None,
+            summary: None,
+        }
+    );
+    assert!(before_second[1].tracked);
+    assert!(!before_second[1].watched);
+    assert_eq!(
+        before_second[1].summary.map(|s| (
+            s.total_episodes,
+            s.released_episodes,
+            s.watched_episodes
+        )),
+        Some((2, 1, 1))
+    );
+    assert_eq!(
+        before_second[1]
+            .progress
+            .and_then(scry_library::Progress::fraction),
+        Some(0.5)
+    );
+    assert_eq!(before_second[1], before_second[2]);
+
+    db.set_watched(&second.key, true)?;
+    // At t=150, episode 2 is still in the future so the shared clock must not mark the series complete.
+    let still_future = db.series_states(std::slice::from_ref(&parent.key), 150)?;
+    assert!(!still_future[0].watched);
+    assert_eq!(still_future[0].summary.map(|s| s.watched_episodes), Some(1));
+    // At t=250, both episodes are released and watched under the shared clock.
+    let completed = db.series_states(std::slice::from_ref(&parent.key), 250)?;
+    assert!(completed[0].watched);
+    assert_eq!(completed[0].summary.map(|s| s.watched_episodes), Some(2));
+    assert_eq!(
+        completed[0]
+            .progress
+            .and_then(scry_library::Progress::fraction),
+        Some(1.0)
+    );
+
+    assert!(db.series_states(&[], 250)?.is_empty());
+    assert!(db.series_states(&vec![missing; 201], 250).is_err());
+    for invalid in [MediaKey::new("test", MediaKind::Movie, "movie"), first.key] {
+        assert!(db.series_states(&[invalid], 250).is_err());
+    }
+    Ok(())
+}

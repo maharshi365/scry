@@ -182,13 +182,14 @@ impl Library {
             after.is_none_or(|key| key.kind == crate::MediaKind::Movie),
             "invalid movie runtime cursor"
         );
-        let connection = &mut *self.connection.borrow_mut();
-        let records = diesel::sql_query("SELECT m.* FROM media m JOIN effective_watched w USING(media_id) LEFT JOIN media_runtime r USING(media_id) WHERE m.kind='movie' AND w.watched=1 AND r.seconds IS NULL AND (m.namespace,m.external_id)>(?,?) ORDER BY m.namespace,m.external_id LIMIT ?")
-            .bind::<Text, _>(after.map_or("", |key| key.namespace.as_str()))
-            .bind::<Text, _>(after.map_or("", |key| key.id.as_str()))
-            .bind::<BigInt, _>(i64::from(page.limit))
-            .load::<crate::catalog::media::MediaRecord>(connection)?;
-        crate::catalog::media::hydrate(connection, records)
+        self.with_connection(|connection| {
+            let records = diesel::sql_query("SELECT m.* FROM media m JOIN effective_watched w USING(media_id) LEFT JOIN media_runtime r USING(media_id) WHERE m.kind='movie' AND w.watched=1 AND r.seconds IS NULL AND (m.namespace,m.external_id)>(?,?) ORDER BY m.namespace,m.external_id LIMIT ?")
+                .bind::<Text, _>(after.map_or("", |key| key.namespace.as_str()))
+                .bind::<Text, _>(after.map_or("", |key| key.id.as_str()))
+                .bind::<BigInt, _>(i64::from(page.limit))
+                .load::<crate::catalog::media::MediaRecord>(connection)?;
+            crate::catalog::media::hydrate(connection, records)
+        })
     }
 
     /// Store known runtimes without changing watched state. Missing titles are skipped.
@@ -204,31 +205,28 @@ impl Library {
                         && *seconds > 0.0),
             "invalid runtime batch"
         );
-        self.connection
-            .borrow_mut()
-            .immediate_transaction(|connection| {
-                for (key, seconds) in runtimes {
-                    if let Some(id) = crate::storage::schema::media::table
-                        .filter(crate::storage::schema::media::namespace.eq(&key.namespace))
-                        .filter(crate::storage::schema::media::kind.eq(key.kind.as_str()))
-                        .filter(crate::storage::schema::media::external_id.eq(&key.id))
-                        .select(crate::storage::schema::media::media_id)
-                        .first::<i64>(connection)
-                        .optional()?
-                    {
-                        runtime(connection, id, *seconds)?;
-                    }
+        self.immediate_transaction(|connection| {
+            for (key, seconds) in runtimes {
+                if let Some(id) = crate::storage::schema::media::table
+                    .filter(crate::storage::schema::media::namespace.eq(&key.namespace))
+                    .filter(crate::storage::schema::media::kind.eq(key.kind.as_str()))
+                    .filter(crate::storage::schema::media::external_id.eq(&key.id))
+                    .select(crate::storage::schema::media::media_id)
+                    .first::<i64>(connection)
+                    .optional()?
+                {
+                    runtime(connection, id, *seconds)?;
                 }
-                Ok(())
-            })
+            }
+            Ok(())
+        })
     }
     /// Read bounded display data. Playback filters use UTC calendar boundaries;
     /// library completion counts always describe current saved state.
     /// # Errors
     /// Returns an error if statistics cannot be read.
     pub fn nerd_stats(&self, period: StatsPeriod) -> Result<NerdStats> {
-        let connection = &mut *self.connection.borrow_mut();
-        connection.transaction(|connection| {
+        self.transaction(|connection| {
             let start = period.start();
             let credit_filter = if period == StatsPeriod::AllTime { "1".into() } else { format!("c.watched_at>={start}") };
             let seconds = |kind: &str| format!("SELECT COALESCE((SELECT SUM(h.seconds) FROM stats_hours h JOIN media m ON m.media_id=h.media_id WHERE h.hour>={start} AND {kind}),0.0)+COALESCE((SELECT SUM(c.credit) FROM stats_counted c JOIN media m ON m.media_id=c.media_id WHERE {credit_filter} AND {kind}),0.0) AS value");

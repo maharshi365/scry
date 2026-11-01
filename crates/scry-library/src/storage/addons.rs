@@ -16,10 +16,12 @@ impl Library {
     /// # Errors
     /// Returns an error on database reads.
     pub fn load_addons(&self) -> Result<Vec<AddonRecord>> {
-        Ok(addons::table
-            .order(addons::position)
-            .select(AddonRecord::as_select())
-            .load(&mut *self.connection.borrow_mut())?)
+        self.with_connection(|connection| {
+            Ok(addons::table
+                .order(addons::position)
+                .select(AddonRecord::as_select())
+                .load(connection)?)
+        })
     }
 
     /// Atomically replace installed add-ons in display order.
@@ -30,21 +32,19 @@ impl Library {
             records.len() <= 32,
             "at most 32 installed add-ons are supported"
         );
-        self.connection
-            .borrow_mut()
-            .immediate_transaction(|connection| {
-                diesel::delete(addons::table).execute(connection)?;
-                for (position, record) in records.iter().enumerate() {
-                    diesel::insert_into(addons::table)
-                        .values((
-                            addons::id.eq(&record.id),
-                            addons::position.eq(i64::try_from(position)?),
-                            addons::manifest_url.eq(&record.manifest_url),
-                            addons::manifest_json.eq(&record.manifest_json),
-                        ))
-                        .execute(connection)?;
-                }
-                Ok(())
-            })
+        self.immediate_transaction(|connection| {
+            diesel::delete(addons::table).execute(connection)?;
+            for (position, record) in records.iter().enumerate() {
+                diesel::insert_into(addons::table)
+                    .values((
+                        addons::id.eq(&record.id),
+                        addons::position.eq(i64::try_from(position)?),
+                        addons::manifest_url.eq(&record.manifest_url),
+                        addons::manifest_json.eq(&record.manifest_json),
+                    ))
+                    .execute(connection)?;
+            }
+            Ok(())
+        })
     }
 }

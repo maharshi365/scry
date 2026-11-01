@@ -1,9 +1,13 @@
 //! Single owner of release eligibility, series counts, progress, and completion.
 //! The database view uses the same summary query as explicit-time status reads.
+use std::collections::HashMap;
+
 use anyhow::{Result, ensure};
 use diesel::{connection::SimpleConnection, prelude::*, sql_types::BigInt};
 
-use crate::{Library, MediaKey, MediaKind, Progress, SeriesProgress, catalog::media::media_id};
+use crate::{
+    Library, MediaKey, MediaKind, Progress, SeriesProgress, SeriesState, catalog::media::media_id,
+};
 
 const ELIGIBLE: &str = "COALESCE(r.released_at <= {now}, 0)";
 const RETAINED: &str = "r.released_at IS NULL OR r.released_at <= {now}";
@@ -125,23 +129,32 @@ impl Summary {
     }
 }
 
+fn series_status_by_id(
+    connection: &mut SqliteConnection,
+    parent_id: i64,
+    now: i64,
+) -> Result<Summary> {
+    // One bound clock value is shared by all release checks in the query.
+    let sql = format!(
+        "WITH clock(now) AS (VALUES (?)) {}",
+        summary_sql("(SELECT now FROM clock)", "?")
+    );
+    Ok(diesel::sql_query(sql)
+        .bind::<BigInt, _>(now)
+        .bind::<BigInt, _>(parent_id)
+        .get_result(connection)?)
+}
+
 impl Library {
     fn series_status(&self, parent: &MediaKey, now: i64) -> Result<Summary> {
         ensure!(
             parent.kind == MediaKind::Series,
             "invalid series progress key"
         );
-        let connection = &mut *self.connection.borrow_mut();
-        let parent_id = media_id(connection, parent)?;
-        // One bound clock value is shared by all release checks in the query.
-        let sql = format!(
-            "WITH clock(now) AS (VALUES (?)) {}",
-            summary_sql("(SELECT now FROM clock)", "?")
-        );
-        Ok(diesel::sql_query(sql)
-            .bind::<BigInt, _>(now)
-            .bind::<BigInt, _>(parent_id)
-            .get_result(connection)?)
+        self.with_connection(|connection| {
+            let parent_id = media_id(connection, parent)?;
+            series_status_by_id(connection, parent_id, now)
+        })
     }
 
     /// Aggregate regular episodes across the full inventory, excluding season zero.
@@ -164,5 +177,62 @@ impl Library {
         let status = self.series_status(parent, now)?;
         let progress = status.progress()?.normalized_progress();
         Ok((status.complete, progress))
+    }
+
+    /// Read a bounded batch of series poster and summary states under one clock.
+    /// Preserves caller order, duplicates, and untracked series.
+    /// # Errors
+    /// Returns an error for non-series keys, an oversized batch, or failed reads.
+    pub fn series_states(&self, keys: &[MediaKey], now: i64) -> Result<Vec<SeriesState>> {
+        #[derive(QueryableByName)]
+        struct Stored {
+            #[diesel(sql_type = diesel::sql_types::Nullable<BigInt>)]
+            media_id: Option<i64>,
+        }
+        ensure!(
+            keys.len() <= crate::MAX_PAGE_SIZE as usize
+                && keys.iter().all(|key| key.kind == MediaKind::Series),
+            "invalid series state batch"
+        );
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.transaction(|connection| {
+            let ids = diesel::sql_query("SELECT m.media_id FROM json_each(?) k LEFT JOIN media m ON m.namespace=json_extract(k.value,'$.namespace') AND m.kind=json_extract(k.value,'$.kind') AND m.external_id=json_extract(k.value,'$.id') ORDER BY CAST(k.key AS INTEGER)")
+                .bind::<diesel::sql_types::Text, _>(serde_json::to_string(keys)?)
+                .load::<Stored>(connection)?;
+            let mut summaries = HashMap::new();
+            keys.iter()
+                .cloned()
+                .zip(ids)
+                .map(|(key, stored)| {
+                    let Some(id) = stored.media_id else {
+                        return Ok(SeriesState {
+                            key,
+                            tracked: false,
+                            watched: false,
+                            progress: None,
+                            summary: None,
+                        });
+                    };
+                    let (watched, progress, summary) = if let Some(&cached) = summaries.get(&id) {
+                        cached
+                    } else {
+                        let status = series_status_by_id(connection, id, now)?;
+                        let summary = status.progress()?;
+                        let value = (status.complete, summary.normalized_progress(), summary);
+                        summaries.insert(id, value);
+                        value
+                    };
+                    Ok(SeriesState {
+                        key,
+                        tracked: true,
+                        watched,
+                        progress,
+                        summary: Some(summary),
+                    })
+                })
+                .collect()
+        })
     }
 }

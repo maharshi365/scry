@@ -34,20 +34,17 @@ impl Library {
     /// Returns an error for invalid metadata, missing parents, or failed reads/writes.
     pub fn update_media_watchlist(&mut self, item: &Media, added: Option<bool>) -> Result<()> {
         validate_media(item)?;
-        self.connection
-            .borrow_mut()
-            .immediate_transaction(|connection| {
-                let id = if let Some(parent) = &item.parent {
-                    media_id(connection, parent)?
-                } else {
-                    upsert_media(connection, item)?;
-                    media_id(connection, &item.key)?
-                };
-                let added = match added {
-                    Some(added) => added,
-                    None => !contains(connection, id)?,
-                };
-                set(connection, id, added)
-            })
+        self.immediate_transaction(|connection| {
+            let id = if let Some(parent) = &item.parent {
+                media_id(connection, parent)?
+            } else {
+                upsert_media(connection, item)?
+            };
+            let added = match added {
+                Some(added) => added,
+                None => !contains(connection, id)?,
+            };
+            set(connection, id, added)
+        })
     }
 }

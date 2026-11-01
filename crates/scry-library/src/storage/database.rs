@@ -23,10 +23,35 @@ const SCHEMA_VERSION: i64 = 8;
 static INITIALIZE: Mutex<()> = Mutex::new(());
 
 pub struct Library {
-    pub(crate) connection: RefCell<SqliteConnection>,
+    connection: RefCell<SqliteConnection>,
 }
 
 impl Library {
+    pub(crate) fn with_connection<T>(
+        &self,
+        f: impl FnOnce(&mut SqliteConnection) -> Result<T>,
+    ) -> Result<T> {
+        let mut connection = self
+            .connection
+            .try_borrow_mut()
+            .map_err(|_| anyhow::anyhow!("database connection is already borrowed"))?;
+        f(&mut connection)
+    }
+
+    pub(crate) fn transaction<T>(
+        &self,
+        f: impl FnOnce(&mut SqliteConnection) -> Result<T>,
+    ) -> Result<T> {
+        self.with_connection(|connection| connection.transaction(f))
+    }
+
+    pub(crate) fn immediate_transaction<T>(
+        &self,
+        f: impl FnOnce(&mut SqliteConnection) -> Result<T>,
+    ) -> Result<T> {
+        self.with_connection(|connection| connection.immediate_transaction(f))
+    }
+
     /// # Errors
     /// Returns an error if the database cannot be opened, initialized, or validated.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
@@ -162,6 +187,19 @@ impl Library {
                 .is_empty(),
             "app database contains invalid foreign keys"
         );
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reentrant_connection_borrow_returns_error_instead_of_panicking() -> Result<()> {
+        let library = Library::memory()?;
+        let nested = library.with_connection(|_| library.with_connection(|_| Ok(())));
+        assert!(nested.is_err());
         Ok(())
     }
 }

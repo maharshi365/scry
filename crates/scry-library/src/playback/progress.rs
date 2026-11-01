@@ -2,9 +2,12 @@ use anyhow::{Context, Result, ensure};
 use diesel::{dsl::max, prelude::*, upsert::excluded};
 
 use crate::{
-    COMPLETION_THRESHOLD, Library, Media, MediaKey, MediaKind, MediaState, Page, Progress,
-    WATCHED_THRESHOLD, WatchedState,
-    catalog::media::{MediaProgressRecord, hydrate_progress, media_id, upsert_media},
+    COMPLETION_THRESHOLD, DetailSnapshot, Library, Media, MediaKey, MediaKind, MediaState, Page,
+    Progress, SelectedState, WATCHED_THRESHOLD, WatchedState,
+    catalog::media::{
+        MediaProgressRecord, get_media, hydrate_progress, media_id, upsert_media,
+        upsert_media_with_parent,
+    },
     playback::{
         up_next,
         watch_status::{ReleaseScope, can_mark_stored_watched, clear_future_watches},
@@ -38,6 +41,68 @@ fn watched_state(connection: &mut SqliteConnection, id: i64) -> Result<WatchedSt
     Ok(WatchedState {
         watched: state.unwrap_or(false),
     })
+}
+
+fn load_progress_by_id(connection: &mut SqliteConnection, id: i64) -> Result<Option<Progress>> {
+    Ok(progress::table
+        .find(id)
+        .select((progress::position_seconds, progress::duration_seconds))
+        .first::<(f64, f64)>(connection)
+        .optional()?
+        .map(|(position_seconds, duration_seconds)| Progress {
+            position_seconds,
+            duration_seconds,
+        }))
+}
+
+fn media_states_in(
+    connection: &mut SqliteConnection,
+    keys: &[MediaKey],
+) -> Result<Vec<MediaState>> {
+    #[derive(QueryableByName)]
+    struct Record {
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        stored: bool,
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        watched: bool,
+        #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Double>)]
+        position_seconds: Option<f64>,
+        #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Double>)]
+        duration_seconds: Option<f64>,
+        #[diesel(sql_type = diesel::sql_types::Double)]
+        watched_seconds: f64,
+    }
+    ensure!(
+        keys.len() <= crate::MAX_PAGE_SIZE as usize,
+        "too many media state keys"
+    );
+    if keys.is_empty() {
+        return Ok(Vec::new());
+    }
+    // A LEFT JOIN to the derived view can materialize the entire library.
+    // A keyed scalar read keeps this query proportional to the requested batch.
+    let records = diesel::sql_query("SELECT m.media_id IS NOT NULL AS stored, COALESCE((SELECT ew.watched FROM effective_watched ew WHERE ew.media_id=m.media_id),0) AS watched, p.position_seconds, p.duration_seconds, COALESCE(v.watched_seconds,0.0) AS watched_seconds FROM json_each(?) k LEFT JOIN media m ON m.namespace=json_extract(k.value,'$.namespace') AND m.kind=json_extract(k.value,'$.kind') AND m.external_id=json_extract(k.value,'$.id') LEFT JOIN progress p ON p.media_id=m.media_id LEFT JOIN viewing v ON v.media_id=m.media_id ORDER BY CAST(k.key AS INTEGER)")
+        .bind::<diesel::sql_types::Text, _>(serde_json::to_string(keys)?)
+        .load::<Record>(connection)?;
+    Ok(keys
+        .iter()
+        .cloned()
+        .zip(records)
+        .map(|(key, record)| MediaState {
+            key,
+            stored: record.stored,
+            watched_seconds: record.watched_seconds,
+            watched: WatchedState {
+                watched: record.watched,
+            },
+            progress: record.position_seconds.zip(record.duration_seconds).map(
+                |(position_seconds, duration_seconds)| Progress {
+                    position_seconds,
+                    duration_seconds,
+                },
+            ),
+        })
+        .collect())
 }
 
 fn set_watched(connection: &mut SqliteConnection, id: i64, value: bool) -> Result<()> {
@@ -143,19 +208,26 @@ fn activate(connection: &mut SqliteConnection, id: i64, delta: f64) -> Result<f6
     Ok(total)
 }
 
-fn record_sample(
-    connection: &mut SqliteConnection,
-    key: &MediaKey,
+fn validate_sample(
+    kind: MediaKind,
     position: f64,
     duration: f64,
     watched_delta: f64,
-) -> Result<()> {
+) -> Result<Progress> {
     ensure!(
-        key.kind != MediaKind::Series && watched_delta.is_finite() && watched_delta >= 0.0,
+        kind != MediaKind::Series && watched_delta.is_finite() && watched_delta >= 0.0,
         "invalid playback sample"
     );
-    let sample = Progress::new(position, duration).context("invalid playback sample")?;
-    let id = media_id(connection, key)?;
+    Progress::new(position, duration).context("invalid playback sample")
+}
+
+fn record_sample_by_id(
+    connection: &mut SqliteConnection,
+    id: i64,
+    sample: Progress,
+    watched_delta: f64,
+) -> Result<()> {
+    let duration = sample.duration_seconds;
     stats::runtime(connection, id, duration)?;
     save_progress(
         connection,
@@ -191,13 +263,10 @@ impl Library {
     /// # Errors
     /// Returns an error for invalid metadata or failed writes.
     pub fn register_release(&mut self, item: &Media, date: Option<i64>) -> Result<()> {
-        self.connection
-            .borrow_mut()
-            .immediate_transaction(|connection| {
-                upsert_media(connection, item)?;
-                let id = media_id(connection, &item.key)?;
-                store_release(connection, id, date)
-            })
+        self.immediate_transaction(|connection| {
+            let id = upsert_media(connection, item)?;
+            store_release(connection, id, date)
+        })
     }
 
     /// Register a captured metadata snapshot and apply a watched action atomically.
@@ -212,84 +281,119 @@ impl Library {
         inventory: Option<&[crate::EpisodeRelease]>,
         value: bool,
     ) -> Result<()> {
-        self.connection
-            .borrow_mut()
-            .immediate_transaction(|connection| {
-                upsert_media(connection, item)?;
-                if let Some(inventory) = inventory {
-                    up_next::sync_episode_releases(connection, &item.key, inventory)?;
-                }
-                let id = media_id(connection, &item.key)?;
-                if item.key.kind != MediaKind::Series {
-                    store_release(connection, id, date)?;
-                }
-                set_watched(connection, id, value)
-            })
+        self.immediate_transaction(|connection| {
+            let id = upsert_media(connection, item)?;
+            if let Some(inventory) = inventory {
+                up_next::sync_episode_releases(connection, &item.key, inventory)?;
+            }
+            if item.key.kind != MediaKind::Series {
+                store_release(connection, id, date)?;
+            }
+            set_watched(connection, id, value)
+        })
     }
     /// Read a bounded set of identities in one query, preserving order and missing entries.
     /// # Errors
     /// Returns an error for an oversized request or failed reads.
     pub fn media_states(&self, keys: &[MediaKey]) -> Result<Vec<MediaState>> {
-        #[derive(QueryableByName)]
-        struct Record {
-            #[diesel(sql_type = diesel::sql_types::Bool)]
-            stored: bool,
-            #[diesel(sql_type = diesel::sql_types::Bool)]
-            watched: bool,
-            #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Double>)]
-            position_seconds: Option<f64>,
-            #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Double>)]
-            duration_seconds: Option<f64>,
-            #[diesel(sql_type = diesel::sql_types::Double)]
-            watched_seconds: f64,
-        }
+        self.with_connection(|connection| media_states_in(connection, keys))
+    }
+
+    /// Read the selected media state and up to one page of episode watched flags atomically.
+    /// # Errors
+    /// Returns an error for an oversized episode list or failed reads.
+    pub fn detail_snapshot(
+        &self,
+        selected: Option<&MediaKey>,
+        episodes: &[MediaKey],
+    ) -> Result<DetailSnapshot> {
         ensure!(
-            keys.len() <= crate::MAX_PAGE_SIZE as usize,
-            "too many media state keys"
+            episodes.len() <= crate::MAX_PAGE_SIZE as usize,
+            "too many visible episodes"
         );
-        // A LEFT JOIN to the derived view can materialize the entire library.
-        // A keyed scalar read keeps this query proportional to the requested batch.
-        let records = diesel::sql_query("SELECT m.media_id IS NOT NULL AS stored, COALESCE((SELECT ew.watched FROM effective_watched ew WHERE ew.media_id=m.media_id),0) AS watched, p.position_seconds, p.duration_seconds, COALESCE(v.watched_seconds,0.0) AS watched_seconds FROM json_each(?) k LEFT JOIN media m ON m.namespace=json_extract(k.value,'$.namespace') AND m.kind=json_extract(k.value,'$.kind') AND m.external_id=json_extract(k.value,'$.id') LEFT JOIN progress p ON p.media_id=m.media_id LEFT JOIN viewing v ON v.media_id=m.media_id ORDER BY CAST(k.key AS INTEGER)")
-            .bind::<diesel::sql_types::Text, _>(serde_json::to_string(keys)?)
-            .load::<Record>(&mut *self.connection.borrow_mut())?;
-        Ok(keys
-            .iter()
-            .cloned()
-            .zip(records)
-            .map(|(key, record)| MediaState {
-                key,
-                stored: record.stored,
-                watched_seconds: record.watched_seconds,
-                watched: WatchedState {
-                    watched: record.watched,
-                },
-                progress: record.position_seconds.zip(record.duration_seconds).map(
-                    |(position_seconds, duration_seconds)| Progress {
-                        position_seconds,
-                        duration_seconds,
-                    },
-                ),
+        self.transaction(|connection| {
+            let record = match selected {
+                Some(key) => media::table
+                    .filter(media::namespace.eq(&key.namespace))
+                    .filter(media::kind.eq(key.kind.as_str()))
+                    .filter(media::external_id.eq(&key.id))
+                    .select((media::media_id, media::parent_id))
+                    .first::<(i64, Option<i64>)>(connection)
+                    .optional()?
+                    .map(|(id, parent_id)| (key, id, parent_id)),
+                None => None,
+            };
+            let series_id = record.and_then(|(key, id, parent_id)| match key.kind {
+                MediaKind::Series => Some(id),
+                MediaKind::Episode => parent_id,
+                MediaKind::Movie => None,
+            });
+            let episode_states = if !episodes.is_empty() {
+                media_states_in(connection, episodes)?
+                    .into_iter()
+                    .map(|state| (state.key, state.watched))
+                    .collect()
+            } else if let Some(series_id) = series_id {
+                media::table
+                    .left_join(watched::table)
+                    .filter(media::parent_id.eq(series_id))
+                    .order(media::media_id)
+                    .limit(i64::from(crate::MAX_PAGE_SIZE))
+                    .select((
+                        media::namespace,
+                        media::kind,
+                        media::external_id,
+                        watched::is_watched.nullable(),
+                    ))
+                    .load::<(String, String, String, Option<bool>)>(connection)?
+                    .into_iter()
+                    .map(|(namespace, kind, external_id, is_watched)| {
+                        Ok((
+                            MediaKey::new(namespace, MediaKind::parse(&kind)?, external_id),
+                            WatchedState {
+                                watched: is_watched.unwrap_or(false),
+                            },
+                        ))
+                    })
+                    .collect::<Result<Vec<_>>>()?
+            } else {
+                Vec::new()
+            };
+            let selected_state = match record {
+                Some((key, id, parent_id)) => Some(SelectedState {
+                    key: key.clone(),
+                    watched: watched_state(connection, id)?,
+                    watchlist: crate::collections::watchlist::contains(
+                        connection,
+                        parent_id.unwrap_or(id),
+                    )?,
+                    progress: load_progress_by_id(connection, id)?,
+                }),
+                None => None,
+            };
+            Ok(DetailSnapshot {
+                selected_state,
+                episode_states,
             })
-            .collect())
+        })
     }
 
     /// # Errors
     /// Returns an error for missing media or failed reads.
     pub fn watched_state(&self, key: &MediaKey) -> Result<WatchedState> {
-        let connection = &mut *self.connection.borrow_mut();
-        let id = media_id(connection, key)?;
-        watched_state(connection, id)
+        self.with_connection(|connection| {
+            let id = media_id(connection, key)?;
+            watched_state(connection, id)
+        })
     }
 
     /// # Errors
     /// Returns an error for missing media or failed writes.
     pub fn set_watched(&mut self, key: &MediaKey, value: bool) -> Result<()> {
-        self.connection
-            .borrow_mut()
-            .immediate_transaction(|connection| {
-                let id = media_id(connection, key)?;
-                set_watched(connection, id, value)
-            })
+        self.immediate_transaction(|connection| {
+            let id = media_id(connection, key)?;
+            set_watched(connection, id, value)
+        })
     }
 
     /// Mark a captured set of episodes in one transaction, including episodes not yet registered.
@@ -323,20 +427,17 @@ impl Library {
                         && item.parent.as_ref() == Some(&parent.key)),
             "invalid episode batch"
         );
-        self.connection
-            .borrow_mut()
-            .immediate_transaction(|connection| {
-                upsert_media(connection, parent)?;
-                if let Some(inventory) = inventory {
-                    up_next::sync_episode_releases(connection, &parent.key, inventory)?;
-                }
-                for item in episodes {
-                    upsert_media(connection, item)?;
-                    let id = media_id(connection, &item.key)?;
-                    set_watched(connection, id, value)?;
-                }
-                Ok(())
-            })
+        self.immediate_transaction(|connection| {
+            let parent_id = upsert_media(connection, parent)?;
+            if let Some(inventory) = inventory {
+                up_next::sync_episode_releases(connection, &parent.key, inventory)?;
+            }
+            for item in episodes {
+                let id = upsert_media_with_parent(connection, item, Some(parent_id))?;
+                set_watched(connection, id, value)?;
+            }
+            Ok(())
+        })
     }
 
     /// Save resume position only. Seeking must never mark an item watched.
@@ -354,34 +455,25 @@ impl Library {
         );
         let sample = Progress::new(position_seconds, duration_seconds)
             .context("progress must be finite with a positive duration")?;
-        self.connection
-            .borrow_mut()
-            .immediate_transaction(|connection| {
-                let id = media_id(connection, key)?;
-                stats::runtime(connection, id, sample.duration_seconds)?;
-                save_progress(
-                    connection,
-                    id,
-                    sample.position_seconds,
-                    sample.duration_seconds,
-                )
-            })
+        self.immediate_transaction(|connection| {
+            let id = media_id(connection, key)?;
+            stats::runtime(connection, id, sample.duration_seconds)?;
+            save_progress(
+                connection,
+                id,
+                sample.position_seconds,
+                sample.duration_seconds,
+            )
+        })
     }
 
     /// # Errors
     /// Returns an error for missing media or failed reads.
     pub fn load_progress(&self, key: &MediaKey) -> Result<Option<Progress>> {
-        let connection = &mut *self.connection.borrow_mut();
-        let id = media_id(connection, key)?;
-        Ok(progress::table
-            .find(id)
-            .select((progress::position_seconds, progress::duration_seconds))
-            .first::<(f64, f64)>(connection)
-            .optional()?
-            .map(|(position_seconds, duration_seconds)| Progress {
-                position_seconds,
-                duration_seconds,
-            }))
+        self.with_connection(|connection| {
+            let id = media_id(connection, key)?;
+            load_progress_by_id(connection, id)
+        })
     }
 
     /// Store a playback sample and actual playback time, excluding seeks.
@@ -394,11 +486,11 @@ impl Library {
         duration: f64,
         watched_delta: f64,
     ) -> Result<()> {
-        self.connection
-            .borrow_mut()
-            .immediate_transaction(|connection| {
-                record_sample(connection, key, position, duration, watched_delta)
-            })
+        let sample = validate_sample(key.kind, position, duration, watched_delta)?;
+        self.immediate_transaction(|connection| {
+            let id = media_id(connection, key)?;
+            record_sample_by_id(connection, id, sample, watched_delta)
+        })
     }
 
     /// Register metadata and save its sample atomically. Parents must already exist.
@@ -411,12 +503,11 @@ impl Library {
         duration: f64,
         watched_delta: f64,
     ) -> Result<()> {
-        self.connection
-            .borrow_mut()
-            .immediate_transaction(|connection| {
-                upsert_media(connection, item)?;
-                record_sample(connection, &item.key, position, duration, watched_delta)
-            })
+        let sample = validate_sample(item.key.kind, position, duration, watched_delta)?;
+        self.immediate_transaction(|connection| {
+            let id = upsert_media(connection, item)?;
+            record_sample_by_id(connection, id, sample, watched_delta)
+        })
     }
 
     /// Reconcile resume state when playback stops beyond the credits threshold.
@@ -424,56 +515,51 @@ impl Library {
     /// # Errors
     /// Returns an error for missing media, invalid next identity, or failed writes.
     pub fn finish_playback(&mut self, key: &MediaKey, next: Option<&Media>) -> Result<()> {
-        let Some(sample) = self.load_progress(key)? else {
-            return Ok(());
-        };
-        if sample.position_seconds <= sample.duration_seconds * COMPLETION_THRESHOLD {
-            let connection = &mut *self.connection.borrow_mut();
+        self.immediate_transaction(|connection| {
             let id = media_id(connection, key)?;
-            stats::finish_run(connection, id)?;
-            return Ok(());
-        }
-        if let Some(next) = next {
-            let current = self.get_media(key)?.context("missing current media")?;
-            ensure!(
-                key.kind == MediaKind::Episode
-                    && next.key.kind == MediaKind::Episode
-                    && current.parent.is_some()
-                    && next.parent == current.parent
-                    && next.key != *key,
-                "invalid next episode"
-            );
-        }
-        self.connection
-            .borrow_mut()
-            .immediate_transaction(|connection| {
-                let id = media_id(connection, key)?;
-                diesel::update(viewing::table.find(id))
-                    .set(viewing::active.eq(false))
-                    .execute(connection)?;
+            let Some(sample) = load_progress_by_id(connection, id)? else {
+                return Ok(());
+            };
+            if sample.position_seconds <= sample.duration_seconds * COMPLETION_THRESHOLD {
                 stats::finish_run(connection, id)?;
-                diesel::update(progress::table.find(id))
-                    .set(progress::position_seconds.eq(0.0))
-                    .execute(connection)?;
-                if let Some(next) = next {
-                    upsert_media(connection, next)?;
-                    let next_id = media_id(connection, &next.key)?;
-                    if watched_state(connection, next_id)?.watched {
-                        return Ok(());
-                    }
-                    diesel::insert_into(progress::table)
-                        .values((
-                            progress::media_id.eq(next_id),
-                            progress::position_seconds.eq(0.0),
-                            progress::duration_seconds.eq(1.0),
-                        ))
-                        .on_conflict(progress::media_id)
-                        .do_nothing()
-                        .execute(connection)?;
-                    activate(connection, next_id, 0.0)?;
+                return Ok(());
+            }
+            if let Some(next) = next {
+                let current = get_media(connection, key)?.context("missing current media")?;
+                ensure!(
+                    key.kind == MediaKind::Episode
+                        && next.key.kind == MediaKind::Episode
+                        && current.parent.is_some()
+                        && next.parent == current.parent
+                        && next.key != *key,
+                    "invalid next episode"
+                );
+            }
+            diesel::update(viewing::table.find(id))
+                .set(viewing::active.eq(false))
+                .execute(connection)?;
+            stats::finish_run(connection, id)?;
+            diesel::update(progress::table.find(id))
+                .set(progress::position_seconds.eq(0.0))
+                .execute(connection)?;
+            if let Some(next) = next {
+                let next_id = upsert_media(connection, next)?;
+                if watched_state(connection, next_id)?.watched {
+                    return Ok(());
                 }
-                Ok(())
-            })
+                diesel::insert_into(progress::table)
+                    .values((
+                        progress::media_id.eq(next_id),
+                        progress::position_seconds.eq(0.0),
+                        progress::duration_seconds.eq(1.0),
+                    ))
+                    .on_conflict(progress::media_id)
+                    .do_nothing()
+                    .execute(connection)?;
+                activate(connection, next_id, 0.0)?;
+            }
+            Ok(())
+        })
     }
 
     /// Hide a movie or a show's episodes from Currently watching without
@@ -482,47 +568,46 @@ impl Library {
     /// # Errors
     /// Returns an error for missing media or failed writes.
     pub fn dismiss_currently_watching(&mut self, key: &MediaKey) -> Result<()> {
-        self.connection
-            .borrow_mut()
-            .immediate_transaction(|connection| {
-                let id = media_id(connection, key)?;
-                let parent = if key.kind == MediaKind::Series {
-                    Some(id)
-                } else {
-                    media::table
-                        .find(id)
-                        .select(media::parent_id)
-                        .first::<Option<i64>>(connection)?
-                };
-                if let Some(parent) = parent {
-                    let episodes = media::table
-                        .filter(media::parent_id.eq(parent))
-                        .select(media::media_id);
-                    diesel::update(viewing::table.filter(viewing::media_id.eq_any(episodes)))
-                        .set(viewing::active.eq(false))
-                        .execute(connection)?;
-                } else {
-                    diesel::update(viewing::table.find(id))
-                        .set(viewing::active.eq(false))
-                        .execute(connection)?;
-                }
-                Ok(())
-            })
+        self.immediate_transaction(|connection| {
+            let id = media_id(connection, key)?;
+            let parent = if key.kind == MediaKind::Series {
+                Some(id)
+            } else {
+                media::table
+                    .find(id)
+                    .select(media::parent_id)
+                    .first::<Option<i64>>(connection)?
+            };
+            if let Some(parent) = parent {
+                let episodes = media::table
+                    .filter(media::parent_id.eq(parent))
+                    .select(media::media_id);
+                diesel::update(viewing::table.filter(viewing::media_id.eq_any(episodes)))
+                    .set(viewing::active.eq(false))
+                    .execute(connection)?;
+            } else {
+                diesel::update(viewing::table.find(id))
+                    .set(viewing::active.eq(false))
+                    .execute(connection)?;
+            }
+            Ok(())
+        })
     }
 
     /// # Errors
     /// Returns an error on database reads. One most-recent entry per series.
     pub fn list_currently_watching(&self, page: Page) -> Result<Vec<(Media, Progress)>> {
-        let connection = &mut *self.connection.borrow_mut();
-        let records = diesel::sql_query("SELECT m.*, p.position_seconds, p.duration_seconds FROM media m JOIN viewing v ON v.media_id=m.media_id JOIN progress p ON p.media_id=m.media_id WHERE v.active=1 AND NOT EXISTS(SELECT 1 FROM viewing newer JOIN media nm ON nm.media_id=newer.media_id WHERE newer.active=1 AND m.parent_id IS NOT NULL AND nm.parent_id=m.parent_id AND newer.touched>v.touched) ORDER BY v.touched DESC LIMIT ? OFFSET ?")
-            .bind::<diesel::sql_types::BigInt, _>(i64::from(page.limit)).bind::<diesel::sql_types::BigInt, _>(i64::from(page.offset)).load::<MediaProgressRecord>(connection)?;
-        let items = hydrate_progress(connection, records)?;
-        items
-            .into_iter()
-            .map(|(item, progress)| {
-                let sample = progress.context("missing viewing progress")?;
-                Ok((item, sample))
-            })
-            .collect()
+        self.with_connection(|connection| {
+            let records = diesel::sql_query("SELECT m.*, p.position_seconds, p.duration_seconds FROM media m JOIN viewing v ON v.media_id=m.media_id JOIN progress p ON p.media_id=m.media_id WHERE v.active=1 AND NOT EXISTS(SELECT 1 FROM viewing newer JOIN media nm ON nm.media_id=newer.media_id WHERE newer.active=1 AND m.parent_id IS NOT NULL AND nm.parent_id=m.parent_id AND newer.touched>v.touched) ORDER BY v.touched DESC LIMIT ? OFFSET ?")
+                .bind::<diesel::sql_types::BigInt, _>(i64::from(page.limit)).bind::<diesel::sql_types::BigInt, _>(i64::from(page.offset)).load::<MediaProgressRecord>(connection)?;
+            let items = hydrate_progress(connection, records)?;
+            items
+                .into_iter()
+                .map(|(item, progress)| {
+                    let sample = progress.context("missing viewing progress")?;
+                    Ok((item, sample))
+                })
+                .collect()
+        })
     }
 }

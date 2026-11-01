@@ -9,8 +9,9 @@ mod stats;
 mod storage;
 
 pub use catalog::models::{
-    COMPLETION_THRESHOLD, EpisodeRelease, MAX_PAGE_SIZE, Media, MediaKey, MediaKind, MediaState,
-    Page, Playlist, Progress, SeriesProgress, WATCHED_THRESHOLD, WatchedState, is_complete,
+    COMPLETION_THRESHOLD, DetailSnapshot, EpisodeRelease, MAX_PAGE_SIZE, Media, MediaKey,
+    MediaKind, MediaState, Page, Playlist, Progress, SelectedState, SeriesProgress, SeriesState,
+    WATCHED_THRESHOLD, WatchedState, is_complete,
 };
 pub use playback::{skip_segments::SkipSegmentsRecord, watch_status::can_mark_watched};
 pub use stats::{
