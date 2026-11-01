@@ -469,7 +469,10 @@ mod tests {
             };
             let loader = bounds("stats-loading")?;
             let spinner = bounds("stats-loading-spinner")?;
-            assert!(loader[3] > 410.0, "Loader must fill most of the content area");
+            assert!(
+                loader[3] > 410.0,
+                "Loader must fill most of the content area"
+            );
             assert!(
                 (spinner[0] + spinner[2] / 2.0 - loader[0] - loader[2] / 2.0).abs() < 0.5,
                 "Spinner must be centered in the content area"

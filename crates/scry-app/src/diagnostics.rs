@@ -299,12 +299,7 @@ impl Fixture {
     )]
     fn create(seconds: f64) -> Result<Self> {
         let fixture = Self {
-            path: std::env::var_os("LOCALAPPDATA")
-                .map(PathBuf::from)
-                .map(|p| p.join("Temp/opencode"))
-                .filter(|p| p.is_dir())
-                .unwrap_or_else(std::env::temp_dir)
-                .join(format!("scry-self-test-{}.y4m", uuid::Uuid::new_v4())),
+            path: std::env::temp_dir().join(format!("scry-self-test-{}.y4m", uuid::Uuid::new_v4())),
         };
         let mut file = BufWriter::new(File::create(&fixture.path)?);
         // Original synthetic 32x24 YUV420 at 12 fps. No downloaded or encoded media.

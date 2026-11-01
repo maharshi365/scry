@@ -171,40 +171,13 @@ impl HttpCache {
 
     /// # Errors
     /// Returns an error without storing malformed resource responses.
-    pub async fn get_json<T: serde::de::DeserializeOwned + 'static>(
+    pub async fn get_json<T: serde::de::DeserializeOwned + Clone + Send + Sync + 'static>(
         &self,
         url: url::Url,
         limit: usize,
         allow_stale: bool,
-    ) -> Result<Response> {
-        self.get_json_checked::<T, _>(url, limit, allow_stale, |_| Ok(()))
-            .await
-    }
-
-    pub(crate) async fn get_json_checked<T, F>(
-        &self,
-        url: url::Url,
-        limit: usize,
-        allow_stale: bool,
-        check: F,
-    ) -> Result<Response>
-    where
-        T: serde::de::DeserializeOwned + 'static,
-        F: Fn(&T) -> Result<()> + Send + Sync + 'static,
-    {
-        self.get_inner(
-            url,
-            limit,
-            allow_stale,
-            Some(TypeId::of::<(T, F)>()),
-            move |bytes: &[u8]| {
-                let value = serde_json::from_slice::<T>(bytes)
-                    .map_err(|_| anyhow!("Invalid add-on response"))?;
-                check(&value)
-            },
-        )
-        .await?
-        .bytes()
+    ) -> Result<T> {
+        self.json_checked(url, limit, allow_stale, |_| Ok(())).await
     }
 
     pub(crate) async fn json_checked<T, F>(
@@ -241,15 +214,6 @@ impl HttpCache {
                 Ok(value)
             }
         }
-    }
-
-    /// Image requests can stop when their last visible consumer goes away.
-    /// # Errors
-    /// Returns a URL-free error on cancellation or HTTP failure.
-    pub async fn get_cancellable(&self, url: url::Url, limit: usize) -> Result<Response> {
-        self.get_inner(url, limit, false, None, |_: &[u8]| Ok(()))
-            .await?
-            .bytes()
     }
 
     async fn get_inner(

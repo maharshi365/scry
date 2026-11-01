@@ -48,10 +48,12 @@ impl VideoHost for Host {
 }
 
 #[derive(Clone, Default)]
-pub(super) struct Window(Arc<Mutex<Option<rune::WindowHandle>>>);
+pub struct Window(Arc<Mutex<Option<rune::WindowHandle>>>);
 
 impl Window {
-    pub(super) fn attach(
+    /// # Errors
+    /// Returns an error if native window integration cannot be attached.
+    pub fn attach(
         &self,
         window: &rune::WindowHandle,
         _: rune::Color,
@@ -64,11 +66,13 @@ impl Window {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error if the subtitle picker cannot open on the main thread.
     #[expect(
         clippy::unused_self,
         reason = "Matches the platform Window interface; macOS uses an application-modal picker"
     )]
-    pub(super) fn pick_subtitle(&self) -> Result<Option<std::path::PathBuf>> {
+    pub fn pick_subtitle(&self) -> Result<Option<std::path::PathBuf>> {
         let mtm = MainThreadMarker::new()
             .ok_or_else(|| anyhow::anyhow!("File picker requires the main thread"))?;
         let panel = NSOpenPanel::openPanel(mtm);
@@ -83,7 +87,9 @@ impl Window {
             .and_then(|url| url.path())
             .map(|path| std::path::PathBuf::from(path.to_string())))
     }
-    pub(super) fn set_fullscreen(&self, mode: Fullscreen) -> Result<()> {
+    /// # Errors
+    /// Returns an error if the native window cannot change fullscreen state.
+    pub fn set_fullscreen(&self, mode: Fullscreen) -> Result<()> {
         let window = self
             .0
             .lock()

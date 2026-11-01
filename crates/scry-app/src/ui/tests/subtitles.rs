@@ -461,14 +461,14 @@ fn native_subtitle_adapter_supports_the_pinned_runtime_and_two_tracks() -> anyho
         "Spanish",
         "spa",
     ])?;
-    let snapshot = Snapshot::read(&engine);
+    let snapshot = Snapshot::read(|name| engine.property(name));
     assert_eq!(snapshot.tracks.len(), 2);
     assert_eq!(snapshot.tracks[0].language, "eng");
     assert_eq!(snapshot.tracks[1].language, "spa");
     engine.command(&["set", "sid", &snapshot.tracks[0].id.to_string()])?;
     engine.command(&["set", "secondary-sid", &snapshot.tracks[1].id.to_string()])?;
     assert_eq!(
-        Snapshot::read(&engine).selected,
+        Snapshot::read(|name| engine.property(name)).selected,
         [Some(snapshot.tracks[0].id), Some(snapshot.tracks[1].id)]
     );
     Ok(())

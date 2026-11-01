@@ -19,7 +19,7 @@ use windows_sys::Win32::{
 };
 
 #[derive(Clone, Default)]
-pub(in crate::platform) struct Window(Arc<NativeWindow>);
+pub struct Window(Arc<NativeWindow>);
 
 #[derive(Default)]
 struct NativeWindow {
@@ -34,7 +34,9 @@ struct Windowed {
 }
 
 impl Window {
-    pub(in crate::platform) fn attach(
+    /// # Errors
+    /// Returns an error if native window integration cannot be attached.
+    pub fn attach(
         &self,
         window: &rune::WindowHandle,
         background: rune::Color,
@@ -93,7 +95,9 @@ impl Window {
             .map_err(anyhow::Error::msg)?
     }
 
-    pub(in crate::platform) fn pick_subtitle(&self) -> Result<Option<std::path::PathBuf>> {
+    /// # Errors
+    /// Returns an error if the subtitle picker cannot open or fails.
+    pub fn pick_subtitle(&self) -> Result<Option<std::path::PathBuf>> {
         let window = self
             .0
             .handle
@@ -105,7 +109,9 @@ impl Window {
         super::subtitle_dialog::pick(&window)
     }
 
-    pub(in crate::platform) fn set_fullscreen(&self, mode: Fullscreen) -> Result<()> {
+    /// # Errors
+    /// Returns an error if the native window cannot change fullscreen state.
+    pub fn set_fullscreen(&self, mode: Fullscreen) -> Result<()> {
         let window = self
             .0
             .handle

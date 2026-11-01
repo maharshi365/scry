@@ -84,15 +84,8 @@ struct Segments {
     season: u32,
     episode: u32,
     intro: Option<Segment>,
-    recap: Option<Segment>,
-    outro: Option<Segment>,
-    post_credits: Option<Segment>,
     #[serde(default)]
     no_intro: bool,
-    #[serde(default)]
-    no_recap: bool,
-    #[serde(default)]
-    no_outro: bool,
 }
 
 impl Segments {
@@ -102,12 +95,7 @@ impl Segments {
             season: key.season,
             episode: key.episode,
             intro: None,
-            recap: None,
-            outro: None,
-            post_credits: None,
             no_intro: false,
-            no_recap: false,
-            no_outro: false,
         }
     }
 
@@ -117,16 +105,11 @@ impl Segments {
             data.imdb_id == key.imdb_id && data.season == key.season && data.episode == key.episode,
             "segment identity mismatch"
         );
-        for segment in [&data.intro, &data.recap, &data.outro, &data.post_credits]
-            .into_iter()
-            .flatten()
-        {
+        if let Some(segment) = &data.intro {
             segment.validate()?;
         }
         ensure!(
-            !(data.no_intro && data.intro.is_some()
-                || data.no_recap && data.recap.is_some()
-                || data.no_outro && data.outro.is_some()),
+            !(data.no_intro && data.intro.is_some()),
             "contradictory segment response"
         );
         Ok(data)

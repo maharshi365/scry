@@ -61,33 +61,32 @@ fn invalid_watchlist_metadata_cannot_change_parent_membership() -> anyhow::Resul
 
 #[test]
 fn guide_rejects_mixed_and_episode_playlists_without_enabling_channels() -> anyhow::Result<()> {
-    let mut library = Library::memory()?;
+    use diesel::{Connection, SqliteConnection, connection::SimpleConnection};
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("library.sqlite3");
+    let mut library = Library::open(&path)?;
     let show = media("test", MediaKind::Series, "show");
     let movie = media("test", MediaKind::Movie, "movie");
     let episode = media("test", MediaKind::Episode, "episode");
     library.upsert_media_batch(&[show.clone(), movie.clone(), episode.clone()])?;
-    let mixed = library.create_playlist("Mixed")?;
-    library.add_playlist_item(mixed.id, &show.key)?;
-    library.add_playlist_item(mixed.id, &movie.key)?;
-    let episodes = library.create_playlist("Episodes")?;
-    library.add_playlist_item(episodes.id, &episode.key)?;
-    for id in [mixed.id, episodes.id] {
+    let mut connection = SqliteConnection::establish(
+        path.to_str()
+            .ok_or_else(|| anyhow::anyhow!("invalid test path"))?,
+    )?;
+    connection.batch_execute("INSERT INTO playlists(playlist_id,name) VALUES (1,'Mixed'),(2,'Episodes');
+        INSERT INTO playlist_items SELECT 1,media_id,media_id FROM media WHERE kind IN ('series','movie');
+        INSERT INTO playlist_items SELECT 2,media_id,media_id FROM media WHERE kind='episode';")?;
+    for id in [1, 2] {
         assert!(
             library
                 .guide_update(GuideAction::EnableCollection(id), 10_000)
                 .is_err()
         );
     }
-    assert!(
-        library
-            .guide_update(GuideAction::Refresh, 10_000)?
-            .channels
-            .is_empty()
-    );
-    assert_eq!(
-        library.list_playlist_items(mixed.id, Page::default())?,
-        vec![show, movie]
-    );
+    let snapshot = library.guide_update(GuideAction::Refresh, 10_000)?;
+    assert!(snapshot.channels.is_empty());
+    assert_eq!(snapshot.collections[0].members, vec![show, movie]);
+    assert_eq!(snapshot.collections[1].members, vec![episode]);
     Ok(())
 }
 

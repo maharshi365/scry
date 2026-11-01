@@ -1,5 +1,3 @@
-use crate::PlaybackEngine;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Track {
     pub id: i64,
@@ -15,15 +13,14 @@ pub struct Snapshot {
 
 impl Snapshot {
     #[must_use]
-    pub fn read(engine: &dyn PlaybackEngine) -> Self {
-        let count = engine
-            .property("track-list/count")
+    pub fn read(property: impl Fn(&str) -> Option<String>) -> Self {
+        let count = property("track-list/count")
             .and_then(|v| v.parse::<usize>().ok())
             .unwrap_or(0)
             .min(256);
         let mut tracks = Vec::new();
         for index in 0..count {
-            let get = |name: &str| engine.property(&format!("track-list/{index}/{name}"));
+            let get = |name: &str| property(&format!("track-list/{index}/{name}"));
             if get("type").as_deref() != Some("audio") {
                 continue;
             }
@@ -39,8 +36,7 @@ impl Snapshot {
                 title: get("title").unwrap_or_default(),
             });
         }
-        let selected = engine
-            .property("aid")
+        let selected = property("aid")
             .and_then(|v| v.parse().ok())
             .filter(|id| tracks.iter().any(|track| track.id == *id));
         Self { tracks, selected }
@@ -50,7 +46,6 @@ impl Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{PlaybackEvent, telemetry::Sample};
     use std::{cell::Cell, collections::HashMap};
 
     #[derive(Default)]
@@ -59,22 +54,10 @@ mod tests {
         reads: Cell<usize>,
     }
 
-    impl PlaybackEngine for Engine {
+    impl Engine {
         fn property(&self, name: &str) -> Option<String> {
             self.reads.set(self.reads.get() + 1);
             self.properties.get(name).cloned()
-        }
-        fn load(&self, _: &str) -> anyhow::Result<()> {
-            Ok(())
-        }
-        fn command(&self, _: &[&str]) -> anyhow::Result<()> {
-            Ok(())
-        }
-        fn event(&self, _: f64) -> Option<PlaybackEvent> {
-            None
-        }
-        fn sample(&self, _: f64) -> Sample {
-            Sample::default()
         }
     }
 
@@ -104,7 +87,7 @@ mod tests {
             ("track-list/4/id", "invalid"),
             ("aid", "9"),
         ]);
-        let snapshot = Snapshot::read(&engine);
+        let snapshot = Snapshot::read(|name| engine.property(name));
         assert_eq!(
             snapshot.tracks,
             vec![
@@ -123,20 +106,24 @@ mod tests {
         assert_eq!(snapshot.selected, Some(9));
         for selected in ["no", "auto", "99"] {
             engine.properties.insert("aid".into(), selected.into());
-            assert_eq!(Snapshot::read(&engine).selected, None);
+            assert_eq!(Snapshot::read(|name| engine.property(name)).selected, None);
         }
     }
 
     #[test]
     fn unavailable_tracks_are_empty_and_large_track_counts_are_bounded() {
         for count in ["", "invalid", "-1"] {
+            let engine = engine(&[("track-list/count", count)]);
             assert_eq!(
-                Snapshot::read(&engine(&[("track-list/count", count)])),
+                Snapshot::read(|name| engine.property(name)),
                 Snapshot::default()
             );
         }
         let engine = engine(&[("track-list/count", "1000000")]);
-        assert_eq!(Snapshot::read(&engine), Snapshot::default());
+        assert_eq!(
+            Snapshot::read(|name| engine.property(name)),
+            Snapshot::default()
+        );
         assert_eq!(
             engine.reads.get(),
             258,

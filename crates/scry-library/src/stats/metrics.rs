@@ -71,11 +71,11 @@ struct Number {
 #[derive(QueryableByName)]
 struct PlaybackTotals {
     #[diesel(sql_type = Double)]
-    watch_seconds: f64,
+    total: f64,
     #[diesel(sql_type = Double)]
-    movie_seconds: f64,
+    movies: f64,
     #[diesel(sql_type = Double)]
-    tv_seconds: f64,
+    tv: f64,
 }
 
 #[derive(QueryableByName)]
@@ -276,15 +276,8 @@ impl Library {
     pub fn nerd_stats(&self, period: StatsPeriod) -> Result<NerdStats> {
         self.transaction(|connection| {
             let start = period.start();
-            let credit_filter = if period == StatsPeriod::AllTime {
-                "1".into()
-            } else {
-                format!("r.watched_at>={start}")
-            };
-            let history = include_str!("history.sql")
-                .replace("{start}", start)
-                .replace("{credit_filter}", &credit_filter);
-            let playback = diesel::sql_query(format!("{history} SELECT COALESCE(SUM(seconds),0.0) AS watch_seconds, COALESCE(SUM(CASE WHEN kind='movie' THEN seconds ELSE 0.0 END),0.0) AS movie_seconds, COALESCE(SUM(CASE WHEN kind='episode' THEN seconds ELSE 0.0 END),0.0) AS tv_seconds FROM history"))
+            let history = include_str!("history.sql").replace("{start}", start);
+            let playback = diesel::sql_query(format!("{history} SELECT COALESCE(SUM(seconds),0.0) AS total, COALESCE(SUM(CASE WHEN kind='movie' THEN seconds ELSE 0.0 END),0.0) AS movies, COALESCE(SUM(CASE WHEN kind='episode' THEN seconds ELSE 0.0 END),0.0) AS tv FROM history"))
                 .get_result::<PlaybackTotals>(connection)?;
             let complete = crate::playback::watch_status::completion_sql("m.media_id", "unixepoch()");
             let library = diesel::sql_query(
@@ -297,9 +290,9 @@ impl Library {
                 .get_result::<SessionTotals>(connection)?;
             Ok(NerdStats {
                 started_at: count(connection, "SELECT started_at AS value FROM stats_tracking WHERE id=1")?,
-                watch_seconds: playback.watch_seconds,
-                movie_seconds: playback.movie_seconds,
-                tv_seconds: playback.tv_seconds,
+                watch_seconds: playback.total,
+                movie_seconds: playback.movies,
+                tv_seconds: playback.tv,
                 movies_watched: library.movies_watched,
                 episodes_watched: library.episodes_watched,
                 series_completed: library.series_completed,

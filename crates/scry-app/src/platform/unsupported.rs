@@ -17,10 +17,12 @@ impl VideoHost for Host {
 }
 
 #[derive(Clone, Default)]
-pub(super) struct Window;
+pub struct Window;
 
 impl Window {
-    pub(super) fn attach(
+    /// # Errors
+    /// This operation does not fail.
+    pub fn attach(
         &self,
         _: &rune::WindowHandle,
         _: rune::Color,
@@ -29,11 +31,15 @@ impl Window {
         Ok(())
     }
 
-    pub(super) fn set_fullscreen(&self, _: Fullscreen) -> Result<()> {
+    /// # Errors
+    /// This operation does not fail.
+    pub fn set_fullscreen(&self, _: Fullscreen) -> Result<()> {
         Ok(())
     }
 
-    pub(super) fn pick_subtitle(&self) -> Result<Option<std::path::PathBuf>> {
+    /// # Errors
+    /// Returns an error because subtitle selection is not supported on this platform.
+    pub fn pick_subtitle(&self) -> Result<Option<std::path::PathBuf>> {
         bail!("Subtitle file selection is not supported on this platform")
     }
 }

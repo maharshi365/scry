@@ -88,40 +88,42 @@ impl Lookup {
         Ok(choices)
     }
 
-    async fn json<T: DeserializeOwned + 'static>(&self, path: &str) -> Result<T> {
+    async fn json<T: DeserializeOwned + Clone + Send + Sync + 'static>(
+        &self,
+        path: &str,
+    ) -> Result<T> {
         let url = url::Url::parse(&format!("https://api.tvmaze.com/{path}"))?;
-        let response = self.http.get_json::<T>(url, MAX_RESPONSE, true).await?;
-        Ok(serde_json::from_slice(&response.bytes)?)
+        self.http.get_json(url, MAX_RESPONSE, true).await
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct Show {
     id: u64,
     externals: Externals,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct Externals {
     imdb: Option<String>,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct DvdList {
     id: u64,
     url: String,
     dvd_release: bool,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct DvdEpisode {
     season: u32,
     number: Option<u32>,
     #[serde(rename = "_embedded")]
     embedded: Embedded,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct Embedded {
     episodes: Vec<AiredEpisode>,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct AiredEpisode {
     season: u32,
     number: Option<u32>,

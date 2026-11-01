@@ -187,7 +187,7 @@ async fn json_consumers_use_their_own_response_schema() {
     })
     .await;
     release.send(()).unwrap();
-    assert_eq!(first.await.unwrap().unwrap().bytes.as_slice(), b"42");
+    assert_eq!(first.await.unwrap().unwrap(), 42);
     assert_eq!(
         second.await.unwrap().err().unwrap().to_string(),
         "Invalid add-on response"
@@ -206,19 +206,27 @@ async fn raw_and_json_consumers_do_not_share_validation_failures() {
                 first_cache
                     .get_json::<serde_json::Value>(first_url, 100, true)
                     .await
+                    .map(|_| Vec::new())
             } else {
-                first_cache.get(first_url, 100, true).await
+                first_cache
+                    .get(first_url, 100, true)
+                    .await
+                    .map(|response| response.bytes.as_ref().clone())
             }
         });
         received.await.unwrap();
         let second_cache = cache.clone();
         let second = tokio::spawn(async move {
             if json_first {
-                second_cache.get(url, 100, true).await
+                second_cache
+                    .get(url, 100, true)
+                    .await
+                    .map(|response| response.bytes.as_ref().clone())
             } else {
                 second_cache
                     .get_json::<serde_json::Value>(url, 100, true)
                     .await
+                    .map(|_| Vec::new())
             }
         });
         // Both consumers must join or start their own request before releasing the first.
@@ -243,7 +251,7 @@ async fn raw_and_json_consumers_do_not_share_validation_failures() {
             json.is_err(),
             "Malformed JSON must be rejected for either arrival order"
         );
-        assert_eq!(raw.unwrap().bytes.as_slice(), b"body");
+        assert_eq!(raw.unwrap(), b"body");
         server.await.unwrap();
     }
 }

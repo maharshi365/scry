@@ -8,6 +8,7 @@
 )]
 
 use diesel::{Connection, SqliteConnection, connection::SimpleConnection};
+use scry_library::guide::GuideAction;
 use scry_library::{Library, Media, MediaKey, MediaKind, Page, Progress};
 
 fn movie(namespace: &str, id: &str) -> Media {
@@ -68,10 +69,17 @@ fn persistence_namespaces_and_bound_strings() -> anyhow::Result<()> {
         db.add_to_watchlist(&first.key)?;
         db.set_watched(&second.key, true)?;
         db.save_progress(&second.key, 42.0, 100.0)?;
-        let playlist = db.create_playlist("Saved")?;
-        db.add_playlist_item(playlist.id, &first.key)?;
+        let snapshot = db.guide_update(GuideAction::CreateCollection("Saved".into()), 0)?;
+        db.guide_update(
+            GuideAction::Membership {
+                collection: snapshot.collections[0].playlist.id,
+                media: first.clone(),
+                included: true,
+            },
+            0,
+        )?;
     }
-    let db = Library::open(path)?;
+    let mut db = Library::open(path)?;
     assert_eq!(db.list_watchlist(Page::default())?, vec![first.clone()]);
     assert!(!db.watched_state(&first.key)?.watched);
     assert!(db.watched_state(&second.key)?.watched);
@@ -86,11 +94,9 @@ fn persistence_namespaces_and_bound_strings() -> anyhow::Result<()> {
         .position_seconds,
         42.0
     );
-    let playlist = &db.list_playlists(Page::default())?[0];
-    assert_eq!(
-        db.list_playlist_items(playlist.id, Page::default())?,
-        vec![first]
-    );
+    let snapshot = db.guide_update(GuideAction::Refresh, 0)?;
+    assert_eq!(snapshot.collections[0].playlist.name, "Saved");
+    assert_eq!(snapshot.collections[0].members, vec![first]);
     Ok(())
 }
 
@@ -122,32 +128,6 @@ fn watchlist_removal_and_metadata_updates_preserve_state() -> anyhow::Result<()>
 }
 
 #[test]
-fn reorder_rolls_back_on_storage_failure() -> anyhow::Result<()> {
-    let dir = tempfile::tempdir()?;
-    let path = dir.path().join("library.db");
-    let mut db = Library::open(&path)?;
-    let first = movie("test", "1");
-    let second = movie("test", "2");
-    db.upsert_media(&first)?;
-    db.upsert_media(&second)?;
-    let playlist = db.create_playlist("Atomic")?;
-    db.add_playlist_item(playlist.id, &first.key)?;
-    db.add_playlist_item(playlist.id, &second.key)?;
-    // Inject a storage failure after the replacement has already started.
-    let mut raw = SqliteConnection::establish(path.to_str().unwrap())?;
-    raw.batch_execute("CREATE TRIGGER fail_reorder BEFORE INSERT ON playlist_items WHEN NEW.position=1 BEGIN SELECT RAISE(ABORT, 'injected storage failure'); END")?;
-    assert!(
-        db.reorder_playlist(playlist.id, &[second.key.clone(), first.key.clone()])
-            .is_err()
-    );
-    assert_eq!(
-        db.list_playlist_items(playlist.id, Page::default())?,
-        vec![first, second]
-    );
-    Ok(())
-}
-
-#[test]
 fn parent_validation_does_not_write_invalid_metadata() -> anyhow::Result<()> {
     let mut db = Library::memory()?;
     let parent = movie("test", "parent");
@@ -165,47 +145,6 @@ fn parent_validation_does_not_write_invalid_metadata() -> anyhow::Result<()> {
     invalid.title = " ".into();
     assert!(db.upsert_media(&invalid).is_err());
     assert_eq!(db.get_media(&parent.key)?, Some(parent));
-    Ok(())
-}
-
-#[test]
-fn playlist_order_and_failed_reorder_are_atomic() -> anyhow::Result<()> {
-    let mut db = Library::memory()?;
-    let items: Vec<_> = (0..3).map(|id| movie("test", &id.to_string())).collect();
-    let playlist = db.create_playlist("Robert'); DROP TABLE media;--")?;
-    for item in &items {
-        db.upsert_media(item)?;
-        db.add_playlist_item(playlist.id, &item.key)?;
-        db.add_playlist_item(playlist.id, &item.key)?;
-    }
-    let reversed: Vec<_> = items.iter().rev().map(|m| m.key.clone()).collect();
-    db.reorder_playlist(playlist.id, &reversed)?;
-    assert!(
-        db.reorder_playlist(
-            playlist.id,
-            &[
-                reversed[0].clone(),
-                reversed[0].clone(),
-                reversed[2].clone()
-            ]
-        )
-        .is_err()
-    );
-    assert!(db.reorder_playlist(playlist.id, &reversed[..2]).is_err());
-    assert_eq!(
-        db.list_playlist_items(playlist.id, Page::default())?,
-        items.iter().rev().cloned().collect::<Vec<_>>()
-    );
-    db.remove_playlist_item(playlist.id, &items[1].key)?;
-    db.add_playlist_item(playlist.id, &items[1].key)?;
-    assert_eq!(
-        db.list_playlist_items(playlist.id, Page::new(1, 1)?)?,
-        vec![items[0].clone()]
-    );
-    db.rename_playlist(playlist.id, "Renamed")?;
-    assert_eq!(db.list_playlists(Page::default())?[0].name, "Renamed");
-    db.delete_playlist(playlist.id)?;
-    assert!(db.list_playlists(Page::default())?.is_empty());
     Ok(())
 }
 

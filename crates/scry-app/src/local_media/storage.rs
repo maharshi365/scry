@@ -20,26 +20,11 @@ pub(crate) fn load(data: &Path) -> Result<Index> {
 }
 
 pub(crate) fn save(data: &Path, index: &Index) -> Result<()> {
-    use std::io::Write;
     let bytes = serde_json::to_vec(index)?;
     ensure!(
         bytes.len() as u64 <= INDEX_LIMIT,
         "Media index is too large"
     );
-    fs::create_dir_all(data)?;
-    let pending = data.join(format!("my-media-{}.pending", uuid::Uuid::new_v4()));
-    let result = (|| {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&pending)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        drop(file);
-        fs::rename(&pending, data.join("my-media.json"))
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(pending);
-    }
-    result.context("Cannot save My Media")
+    crate::storage::atomic_write(&data.join("my-media.json"), &bytes)
+        .context("Cannot save My Media")
 }

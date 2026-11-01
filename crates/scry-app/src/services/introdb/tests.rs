@@ -79,7 +79,7 @@ fn episode() -> EpisodeKey {
 }
 
 fn payload(intro: &serde_json::Value, no_intro: bool) -> String {
-    serde_json::json!({"imdb_id":"tt2560140", "season":1, "episode":2, "intro":intro, "recap":null, "outro":null, "post_credits":null, "no_intro":no_intro, "no_recap":false, "no_outro":false}).to_string()
+    serde_json::json!({"imdb_id":"tt2560140", "season":1, "episode":2, "intro":intro, "no_intro":no_intro}).to_string()
 }
 
 fn intro() -> serde_json::Value {

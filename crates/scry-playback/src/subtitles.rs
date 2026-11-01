@@ -1,5 +1,4 @@
 //! Subtitle preferences and bounded discovery through the playback adapter.
-use crate::PlaybackEngine;
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 
@@ -172,15 +171,14 @@ pub struct Snapshot {
 
 impl Snapshot {
     #[must_use]
-    pub fn read(engine: &dyn PlaybackEngine) -> Self {
-        let count = engine
-            .property("track-list/count")
+    pub fn read(property: impl Fn(&str) -> Option<String>) -> Self {
+        let count = property("track-list/count")
             .and_then(|v| v.parse::<usize>().ok())
             .unwrap_or(0)
             .min(256);
         let mut tracks = Vec::new();
         for index in 0..count {
-            let get = |name: &str| engine.property(&format!("track-list/{index}/{name}"));
+            let get = |name: &str| property(&format!("track-list/{index}/{name}"));
             if get("type").as_deref() != Some("sub") {
                 continue;
             }
@@ -199,8 +197,7 @@ impl Snapshot {
             });
         }
         let selected = ["sid", "secondary-sid"].map(|key| {
-            engine
-                .property(key)
+            property(key)
                 .and_then(|v| v.parse().ok())
                 .filter(|id| tracks.iter().any(|track| track.id == *id))
         });
@@ -278,28 +275,15 @@ pub fn language_label(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{PlaybackEvent, telemetry::Sample};
 
     struct Engine(Vec<(String, String)>);
 
-    impl PlaybackEngine for Engine {
+    impl Engine {
         fn property(&self, name: &str) -> Option<String> {
             self.0
                 .iter()
                 .find(|(key, _)| key == name)
                 .map(|(_, value)| value.clone())
-        }
-        fn load(&self, _: &str) -> Result<()> {
-            Ok(())
-        }
-        fn command(&self, _: &[&str]) -> Result<()> {
-            Ok(())
-        }
-        fn event(&self, _: f64) -> Option<PlaybackEvent> {
-            None
-        }
-        fn sample(&self, _: f64) -> Sample {
-            Sample::default()
         }
     }
 
@@ -314,7 +298,8 @@ mod tests {
             ("sid".into(), "3".into()),
             ("secondary-sid".into(), "99".into()),
         ]);
-        let snapshot = Snapshot::read(&Engine(properties));
+        let engine = Engine(properties);
+        let snapshot = Snapshot::read(|name| engine.property(name));
         assert_eq!(
             snapshot
                 .tracks

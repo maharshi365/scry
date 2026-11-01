@@ -8,6 +8,7 @@ mod local_media;
 mod media_metadata;
 mod search;
 mod services;
+mod storage;
 mod ui;
 
 fn main() -> anyhow::Result<()> {

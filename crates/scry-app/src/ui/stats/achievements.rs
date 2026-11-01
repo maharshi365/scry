@@ -212,8 +212,18 @@ mod tests {
             entry("unavailable", false, false, Evaluation::Unavailable),
             entry("partial", false, false, Evaluation::threshold(2.0, 10.0)),
             entry("earned", true, false, Evaluation::Unlocked),
-            entry("hidden-progress", false, true, Evaluation::threshold(1.0, 5.0)),
-            entry("zero-progress", false, false, Evaluation::threshold(0.0, 10.0)),
+            entry(
+                "hidden-progress",
+                false,
+                true,
+                Evaluation::threshold(1.0, 5.0),
+            ),
+            entry(
+                "zero-progress",
+                false,
+                false,
+                Evaluation::threshold(0.0, 10.0),
+            ),
             entry("hidden-earned", true, true, Evaluation::Unlocked),
             entry(
                 "invalid-target",

@@ -8,17 +8,7 @@ pub(super) enum Focus {
     TextInput,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum Scope {
-    Local,
-    Screen,
-    App,
-}
-
-pub(super) struct Registration {
-    pub scope: Scope,
-    pub handle: fn(&mut State, &KeyEvent, Focus) -> bool,
-}
+pub(super) type Handler = fn(&mut State, &KeyEvent, Focus) -> bool;
 
 pub(super) enum KeyMatch {
     Text(&'static str),
@@ -72,21 +62,14 @@ pub(super) fn resolve<A: Copy>(
     })
 }
 
-/// Scope takes priority over registration order. The first handled key stops dispatch.
+/// Handler order sets priority. The first handled key stops dispatch.
 pub(super) fn dispatch(
     state: &mut State,
     event: &KeyEvent,
     focus: Focus,
-    registrations: &[Registration],
+    handlers: &[Handler],
 ) -> bool {
-    for scope in [Scope::Local, Scope::Screen, Scope::App] {
-        for registration in registrations.iter().filter(|entry| entry.scope == scope) {
-            if (registration.handle)(state, event, focus) {
-                return true;
-            }
-        }
-    }
-    false
+    handlers.iter().any(|handle| handle(state, event, focus))
 }
 
 #[cfg(test)]
@@ -111,42 +94,19 @@ mod tests {
         true
     }
 
-    fn local(s: &mut State, _: &KeyEvent, _: Focus) -> bool {
-        s.player.status.push_str("local");
-        true
-    }
-
     #[test]
-    fn nearest_scope_wins_even_when_registered_last() {
+    fn first_handled_key_stops_dispatch() {
         let mut state = init();
-        let registrations = [
-            Registration {
-                scope: Scope::App,
-                handle: app,
-            },
-            Registration {
-                scope: Scope::Screen,
-                handle: screen,
-            },
-            Registration {
-                scope: Scope::Local,
-                handle: local,
-            },
-        ];
-        assert!(dispatch(&mut state, &key(), Focus::Screen, &registrations));
-        assert_eq!(state.player.status, "local");
-        state.player.status.clear();
-        assert!(dispatch(
-            &mut state,
-            &key(),
-            Focus::Screen,
-            &registrations[..2]
-        ));
+        let handlers: &[Handler] = &[screen, app];
+        assert!(dispatch(&mut state, &key(), Focus::Screen, handlers));
         assert_eq!(state.player.status, "screen");
+        state.player.status.clear();
+        assert!(dispatch(&mut state, &key(), Focus::Screen, &handlers[1..]));
+        assert_eq!(state.player.status, "app");
     }
 
     #[test]
-    fn unhandled_scopes_fall_through_and_unknown_keys_remain_unhandled() {
+    fn unhandled_keys_fall_through_and_unknown_keys_remain_unhandled() {
         fn only_k(s: &mut State, event: &KeyEvent, _: Focus) -> bool {
             if event.key != Key::Text("k".into()) {
                 return false;
@@ -155,33 +115,15 @@ mod tests {
             true
         }
         let mut state = init();
-        let registrations = [
-            Registration {
-                scope: Scope::Local,
-                handle: |_, _, _| false,
-            },
-            Registration {
-                scope: Scope::Screen,
-                handle: |_, _, _| false,
-            },
-            Registration {
-                scope: Scope::App,
-                handle: only_k,
-            },
-        ];
-        assert!(dispatch(&mut state, &key(), Focus::Screen, &registrations));
+        let handlers: &[Handler] = &[|_, _, _| false, only_k];
+        assert!(dispatch(&mut state, &key(), Focus::Screen, handlers));
         assert_eq!(state.player.status, "app");
         state.player.status.clear();
         let unknown = KeyEvent {
             key: Key::Enter,
             mods: rune::Mods::default(),
         };
-        assert!(!dispatch(
-            &mut state,
-            &unknown,
-            Focus::Screen,
-            &registrations
-        ));
+        assert!(!dispatch(&mut state, &unknown, Focus::Screen, handlers));
         assert!(state.player.status.is_empty());
     }
 

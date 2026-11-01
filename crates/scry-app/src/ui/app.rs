@@ -10,7 +10,7 @@ use super::{
         scene_source_wrap, scene_watching,
     },
     shell::view,
-    shortcuts::{Focus, Registration, Scope, dispatch},
+    shortcuts::{Focus, Handler, dispatch},
 };
 use crate::services::Services;
 use rune::{App, AppSpec};
@@ -29,23 +29,11 @@ pub(super) struct AppRuntime {
     pub profiling: Option<super::profiling::Driver>,
 }
 
-const SHORTCUTS: &[Registration] = &[
-    Registration {
-        scope: Scope::Screen,
-        handle: super::guide::shortcut,
-    },
-    Registration {
-        scope: Scope::Screen,
-        handle: super::player::shortcuts::handle,
-    },
-    Registration {
-        scope: Scope::Screen,
-        handle: super::navigation::shortcuts::screen,
-    },
-    Registration {
-        scope: Scope::App,
-        handle: super::navigation::shortcuts::history,
-    },
+const SHORTCUTS: &[Handler] = &[
+    super::guide::shortcut,
+    super::player::shortcuts::handle,
+    super::navigation::shortcuts::screen,
+    super::navigation::shortcuts::history,
 ];
 
 pub(super) fn on_key(s: &mut State, event: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {

@@ -1,6 +1,6 @@
 use super::VideoHost;
 mod window;
-pub(super) use window::Window;
+pub use window::Window;
 pub(super) mod navigation;
 mod subtitle_dialog;
 mod titlebar;

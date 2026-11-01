@@ -9,5 +9,6 @@ WITH history AS (
     JOIN media_runtime r USING(media_id)
     LEFT JOIN stats_titles t USING(media_id)
     WHERE m.kind IN ('movie', 'episode') AND w.watched = 1
-        AND r.seconds > COALESCE(t.seconds, 0.0) AND {credit_filter}
+        AND r.seconds > COALESCE(t.seconds, 0.0)
+        AND ({start} = 0 OR r.watched_at >= {start})
 )

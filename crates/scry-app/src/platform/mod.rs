@@ -21,10 +21,14 @@ pub struct VideoOverlay {
 }
 mod browser;
 mod navigation;
-mod window;
 pub use browser::validate_browser_url;
 pub use navigation::{HistoryDirection, NavigationInput};
-pub use window::{Fullscreen, Window};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fullscreen {
+    Windowed,
+    Fullscreen,
+}
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -34,7 +38,7 @@ use macos as native;
 mod unsupported;
 #[cfg(windows)]
 mod windows;
-pub use native::Host;
+pub use native::{Host, Window};
 #[cfg(not(any(windows, target_os = "macos")))]
 use unsupported as native;
 #[cfg(windows)]

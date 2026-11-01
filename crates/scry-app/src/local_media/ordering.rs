@@ -108,20 +108,11 @@ impl Ordering {
             "Episode order is empty or too large"
         );
         let mut positions = BTreeSet::new();
-        let mut links = BTreeSet::new();
         let mut targets = BTreeSet::new();
         for episode in &self.episodes {
             ensure!(
                 !episode.id.is_empty(),
                 "Episode order has an empty provider ID"
-            );
-            ensure!(
-                links.insert((
-                    episode.file_season,
-                    episode.file_episode,
-                    episode.id.as_str()
-                )),
-                "Episode order repeats a mapping"
             );
             ensure!(
                 positions.insert((episode.file_season, episode.file_episode))
@@ -220,6 +211,21 @@ mod tests {
             available: true,
         };
         assert!(order.resolve(&file).is_empty());
+    }
+
+    #[test]
+    fn repeated_provider_episodes_are_rejected_even_at_different_file_positions() {
+        for position in [None, Some((99, 99))] {
+            let mut order = Ordering::from_meta(&meta(), EpisodeOrder::Aired).unwrap();
+            order.mode = EpisodeOrder::Dvd;
+            let mut repeated = order.episodes[0].clone();
+            if let Some((season, episode)) = position {
+                repeated.file_season = season;
+                repeated.file_episode = episode;
+            }
+            order.episodes.push(repeated);
+            assert!(order.validate().is_err(), "file position {position:?}");
+        }
     }
 
     #[test]

@@ -57,7 +57,7 @@ pub(super) fn view(s: &State) -> El {
             "Cannot load stats",
             error,
             Tone::Danger,
-            row().child(Button::new("stats-retry", "Retry").on_press(State::refresh_stats)),
+            Button::new("stats-retry", "Retry").on_press(State::refresh_stats),
         ));
     }
     if s.stats.pending.is_some() && s.stats.data.is_none() {

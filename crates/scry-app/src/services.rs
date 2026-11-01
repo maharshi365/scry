@@ -1152,8 +1152,8 @@ async fn player_loop(
                         }
                     }
                     let sample = engine.sample(started.elapsed().as_secs_f64());
-                    inbox.notify(Event::Subtitles(generation, scry_playback::subtitles::Snapshot::read(engine.as_ref())));
-                    inbox.notify(Event::Audio(generation, scry_playback::audio::Snapshot::read(engine.as_ref())));
+                    inbox.notify(Event::Subtitles(generation, scry_playback::subtitles::Snapshot::read(|name| engine.property(name))));
+                    inbox.notify(Event::Audio(generation, scry_playback::audio::Snapshot::read(|name| engine.property(name))));
                     if let Some(active) = &mut report
                         && active.sample(&sample).is_err() {
                         ended = Some(true);

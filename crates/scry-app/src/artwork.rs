@@ -497,7 +497,7 @@ async fn download(
 ) -> std::result::Result<scry_addons::http_cache::Response, ()> {
     client
         .ok_or(())?
-        .get_cancellable(url::Url::parse(url).map_err(|_| ())?, MAX_DOWNLOAD)
+        .get(url::Url::parse(url).map_err(|_| ())?, MAX_DOWNLOAD, false)
         .await
         .map_err(|_| ())
 }

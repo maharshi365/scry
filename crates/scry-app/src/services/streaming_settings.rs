@@ -2,7 +2,7 @@ use super::{Event, Inbox};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
-    io::{Read, Write},
+    io::Read,
     path::{Path, PathBuf},
 };
 use tokio::{runtime::Runtime, sync::mpsc};
@@ -90,26 +90,11 @@ fn load(data: &Path) -> Result<Preferences> {
 
 fn save(data: &Path, preferences: &Preferences) -> Result<()> {
     preferences.validate()?;
-    std::fs::create_dir_all(data)?;
-    let pending = data.join(format!(
-        "streaming-settings-{}.pending",
-        uuid::Uuid::new_v4()
-    ));
-    let result: Result<()> = (|| {
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&pending)?;
-        file.write_all(&serde_json::to_vec(preferences)?)?;
-        file.sync_all()?;
-        drop(file);
-        std::fs::rename(&pending, data.join("streaming-settings.json"))?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(pending);
-    }
-    result.context("Cannot persist streaming preferences")
+    crate::storage::atomic_write(
+        &data.join("streaming-settings.json"),
+        &serde_json::to_vec(preferences)?,
+    )
+    .context("Cannot persist streaming preferences")
 }
 
 #[cfg(test)]

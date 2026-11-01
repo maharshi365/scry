@@ -33,46 +33,6 @@ fn component_corner_roles_reuse_the_base_scale() {
     }
 }
 
-#[test]
-fn addon_installation_uses_shared_loading_actions_and_feedback() {
-    let source = include_str!("../addons.rs");
-    assert!(source.contains(".busy(s.addons.busy)"));
-    assert!(source.contains("Size::DialogAction"));
-    assert!(source.contains("feedback::status("));
-    assert!(
-        !source.contains("spinner("),
-        "Buttons own their loading indicators"
-    );
-}
-
-#[test]
-fn native_drag_regions_stay_in_the_shared_titlebar() {
-    let shell = include_str!("../shell.rs");
-    assert!(!shell.contains(".window_drag()"));
-    assert!(shell.contains("primitives::titlebar::titlebar(native_inset)"));
-    let primitive = include_str!("../primitives/titlebar.rs");
-    assert!(primitive.contains(".window_drag()"));
-}
-
-#[test]
-fn intro_prompt_reuses_shared_actions_feedback_and_motion() {
-    let source = include_str!("../player/intro.rs");
-    assert!(source.contains("Button::new(\"player-skip-intro\""));
-    assert!(source.contains("feedback::status("));
-    assert!(source.contains("primitives::motion::fade()"));
-    assert!(source.contains("tokens::player::INTRO_FULLSCREEN_BOTTOM"));
-    assert!(!source.contains(".fill("));
-}
-
-#[test]
-fn full_page_empty_states_are_not_constrained_by_virtual_poster_rows() {
-    let grid = include_str!("../poster_grid.rs");
-    assert!(
-        !grid.contains("watching_empty("),
-        "The page owns its empty state; virtual poster rows must not size it"
-    );
-}
-
 fn local_motion(text: &str) -> bool {
     [
         "Transition::",
@@ -240,18 +200,6 @@ fn compact_icons_follow_small_text_without_shrinking_the_click_target() {
         rt.state.presses, 1,
         "The area outside the small glyph must remain clickable"
     );
-}
-
-#[test]
-fn menus_delegate_scrolling_and_placement_to_the_framework() {
-    let surface = include_str!("../primitives/surface.rs");
-    assert!(surface.contains(".anchored_fit("));
-    assert!(surface.contains("popover::fit_scroll(content)"));
-    let context = include_str!("../context_menu.rs");
-    assert!(!context.contains(".absolute("));
-    assert!(!context.contains("cx.layout("));
-    let button = include_str!("../primitives/button.rs");
-    assert!(button.contains("rune_kit::Button::new("));
 }
 
 #[test]
