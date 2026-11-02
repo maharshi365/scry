@@ -1,5 +1,6 @@
 //! Background work and the narrow, bounded boundary to the native UI.
 mod addon_storage;
+mod history_import;
 pub(crate) mod introdb;
 mod metadata;
 pub(crate) mod my_media;
@@ -67,6 +68,8 @@ impl LibraryPoster {
 
 #[derive(Debug)]
 pub enum Event {
+    HistoryProgress(u64, usize, usize),
+    HistoryPreview(u64, Result<crate::history_import::Preview, String>),
     MyMedia(Result<crate::local_media::Index, String>, String, bool),
     MediaCandidates(u64, Result<Vec<Meta>, String>),
     MediaOrders(
@@ -185,6 +188,7 @@ pub struct Services {
     series_tracking_task: Option<tokio::task::JoinHandle<()>>,
     movie_runtime_task: Option<tokio::task::JoinHandle<()>>,
     guide_task: Option<tokio::task::JoinHandle<()>>,
+    history_task: Option<tokio::task::JoinHandle<()>>,
     watch_tasks: Vec<tokio::task::JoinHandle<()>>,
     control: Option<watch::Sender<Option<Control>>>,
     commands: Option<mpsc::Sender<Control>>,
@@ -231,6 +235,7 @@ impl Services {
                 series_tracking_task: None,
                 movie_runtime_task: None,
                 guide_task: None,
+                history_task: None,
                 watch_tasks: Vec::new(),
                 control: None,
                 commands: None,
@@ -338,6 +343,7 @@ impl Services {
             series_tracking_task: None,
             movie_runtime_task: None,
             guide_task: None,
+            history_task: None,
             watch_tasks: Vec::new(),
             control: Some(control),
             commands: Some(commands),
@@ -1074,6 +1080,7 @@ impl Services {
             &mut self.series_tracking_task,
             &mut self.movie_runtime_task,
             &mut self.guide_task,
+            &mut self.history_task,
         ] {
             if let Some(task) = task.take() {
                 task.abort();

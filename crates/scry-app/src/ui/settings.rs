@@ -1,4 +1,5 @@
 //! App preferences. Guide policies keep their existing storage and scope.
+pub(super) mod history;
 pub(super) mod streaming;
 use super::player::subtitles::Slot;
 use super::{
@@ -21,6 +22,7 @@ pub(super) struct SettingsState {
     pub subtitle_preferences: Preferences,
     pub subtitles: super::player::subtitles::SettingsUi,
     pub streaming: streaming::SettingsUi,
+    pub history: history::SettingsUi,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -29,6 +31,7 @@ pub(super) enum SettingsTab {
     Streaming,
     Subtitles,
     Guide,
+    Data,
 }
 
 pub(super) fn view(s: &State) -> El {
@@ -50,6 +53,7 @@ pub(super) fn view(s: &State) -> El {
             SettingsTab::Subtitles,
         ),
         ("settings-tab-guide", "Guide", SettingsTab::Guide),
+        ("settings-tab-data", "Data", SettingsTab::Data),
     ] {
         tabs = tabs.child(tab(
             key,
@@ -65,6 +69,7 @@ pub(super) fn view(s: &State) -> El {
         SettingsTab::Streaming => streaming::view(s),
         SettingsTab::Subtitles => subtitle_settings(s),
         SettingsTab::Guide => guide_settings(s),
+        SettingsTab::Data => history::view(s),
     };
     let content = col()
         .w_full()

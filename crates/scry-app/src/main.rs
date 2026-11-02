@@ -3,6 +3,7 @@
 mod artwork;
 mod artwork_cache;
 mod diagnostics;
+mod history_import;
 mod library_worker;
 mod local_media;
 mod media_metadata;

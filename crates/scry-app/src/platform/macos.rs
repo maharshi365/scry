@@ -87,6 +87,12 @@ impl Window {
             .and_then(|url| url.path())
             .map(|path| std::path::PathBuf::from(path.to_string())))
     }
+
+    /// # Errors
+    /// Returns an error if file selection cannot open on the main thread.
+    pub fn pick_history(&self) -> Result<Option<std::path::PathBuf>> {
+        self.pick_subtitle()
+    }
     /// # Errors
     /// Returns an error if the native window cannot change fullscreen state.
     pub fn set_fullscreen(&self, mode: Fullscreen) -> Result<()> {

@@ -329,6 +329,9 @@ impl State {
         let mut refresh = false;
         for event in events {
             match event {
+                DbEvent::HistoryImported(generation, result) => {
+                    self.apply_history_result(generation, result);
+                }
                 DbEvent::Guide { generation, data } => self.apply_guide(generation, data),
                 DbEvent::GuideError { generation } => self.guide_failed(generation),
                 DbEvent::NerdStats { generation, data } => self.apply_stats(generation, data),

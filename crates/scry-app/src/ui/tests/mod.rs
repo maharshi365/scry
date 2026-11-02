@@ -20,6 +20,7 @@ mod controls;
 mod design_contract;
 mod dropdowns;
 mod episodes;
+mod history_import;
 mod layout;
 mod library;
 mod mechanical;

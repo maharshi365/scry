@@ -275,6 +275,11 @@ const SCENES: &[Scene] = &[
         super::scenes::scene_player_intro_upcoming,
     ),
     ("settings", super::scenes::scene_settings),
+    ("history-import", super::settings::history::scene),
+    (
+        "history-import-complete",
+        super::settings::history::scene_complete,
+    ),
     ("addon-dialog", super::scenes::scene_addon_dialog),
     ("addon-installing", super::scenes::scene_addon_installing),
     ("addons", super::scenes::scene_addons),

@@ -4,6 +4,7 @@
 mod catalog;
 mod collections;
 pub mod guide;
+mod history_import;
 mod playback;
 mod stats;
 mod storage;
@@ -13,6 +14,7 @@ pub use catalog::models::{
     MediaKind, MediaState, Page, Playlist, Progress, SelectedState, SeriesProgress, SeriesState,
     WATCHED_THRESHOLD, WatchedState, is_complete,
 };
+pub use history_import::{HistoryEntry, HistoryImport, HistoryImportNotice, HistoryImportResult};
 pub use playback::{skip_segments::SkipSegmentsRecord, watch_status::can_mark_watched};
 pub use stats::{
     achievements::{

@@ -5,6 +5,10 @@ pub use scry_library::{DetailSnapshot as Snapshot, SelectedState, SeriesState};
 
 #[derive(Clone, Debug)]
 pub enum Command {
+    ImportHistory {
+        generation: u64,
+        input: scry_library::HistoryImport,
+    },
     SavedStream {
         generation: u64,
         key: MediaKey,
@@ -96,6 +100,7 @@ pub struct MovieState {
 
 #[derive(Debug)]
 pub enum Event {
+    HistoryImported(u64, Result<scry_library::HistoryImportResult, String>),
     SavedStream {
         generation: u64,
         stream: Option<String>,

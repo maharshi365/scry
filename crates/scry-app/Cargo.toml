@@ -35,6 +35,8 @@ same-file = "1"
 notify = "8"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 blake3 = "1"
+base64 = "0.22"
+flate2 = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dev-dependencies]

@@ -4232,9 +4232,11 @@ name = "scry-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "blake3",
  "chrono",
  "directories",
+ "flate2",
  "ico",
  "image",
  "notify",

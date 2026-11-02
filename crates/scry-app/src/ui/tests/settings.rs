@@ -27,6 +27,7 @@ fn settings_tabs_show_one_heading() {
         (SettingsTab::Streaming, "Streaming"),
         (SettingsTab::Subtitles, "Subtitles"),
         (SettingsTab::Guide, "Guide"),
+        (SettingsTab::Data, "Data"),
     ] {
         let mut state = init();
         state.navigation.page = Page::Settings;

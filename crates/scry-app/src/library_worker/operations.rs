@@ -9,6 +9,14 @@ use scry_library::{Library, MAX_PAGE_SIZE, MediaKind, Page};
 )]
 pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
     match command {
+        Command::ImportHistory { generation, input } => {
+            return Ok(Event::HistoryImported(
+                generation,
+                library
+                    .import_history(&input)
+                    .map_err(|_| "Cannot import history. No changes were saved.".into()),
+            ));
+        }
         Command::Guide { generation, action } => {
             return Ok(
                 match library.guide_update(action, chrono::Utc::now().timestamp()) {

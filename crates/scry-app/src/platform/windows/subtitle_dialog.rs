@@ -7,17 +7,34 @@ use windows_sys::Win32::UI::Controls::Dialogs::{
 };
 
 pub(super) fn pick(window: &rune::WindowHandle) -> Result<Option<PathBuf>> {
+    pick_filtered(
+        window,
+        "Subtitle files (*.srt;*.vtt;*.ass;*.ssa)\0*.srt;*.vtt;*.ass;*.ssa\0\0",
+        "Load subtitle file\0",
+    )
+}
+
+pub(super) fn pick_history(window: &rune::WindowHandle) -> Result<Option<PathBuf>> {
+    pick_filtered(
+        window,
+        "Stremio library JSON (*.json)\0*.json\0\0",
+        "Select Stremio watch history\0",
+    )
+}
+
+fn pick_filtered(
+    window: &rune::WindowHandle,
+    filter: &str,
+    title: &str,
+) -> Result<Option<PathBuf>> {
     window
         .with_raw_handle(|handle| {
             let RawWindowHandle::Win32(raw) = handle.as_raw() else {
                 bail!("Expected a Windows window");
             };
             let mut path = vec![0_u16; 32768];
-            let filter: Vec<_> =
-                "Subtitle files (*.srt;*.vtt;*.ass;*.ssa)\0*.srt;*.vtt;*.ass;*.ssa\0\0"
-                    .encode_utf16()
-                    .collect();
-            let title: Vec<_> = "Load subtitle file\0".encode_utf16().collect();
+            let filter: Vec<_> = filter.encode_utf16().collect();
+            let title: Vec<_> = title.encode_utf16().collect();
             // SAFETY: OPENFILENAMEW is a plain Win32 structure whose optional members
             // accept null/zero. The owner is borrowed live on its UI thread. All UTF-16
             // buffers remain allocated for the synchronous dialog call, and nMaxFile
@@ -37,7 +54,7 @@ pub(super) fn pick(window: &rune::WindowHandle) -> Result<Option<PathBuf>> {
                     | OFN_DONTADDTORECENT;
                 if GetOpenFileNameW(&raw mut dialog) == 0 {
                     if CommDlgExtendedError() != 0 {
-                        bail!("Cannot open the subtitle file picker");
+                        bail!("Cannot open the file picker");
                     }
                     return Ok(None);
                 }

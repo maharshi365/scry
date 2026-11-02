@@ -110,6 +110,19 @@ impl Window {
     }
 
     /// # Errors
+    /// Returns an error if the history file picker cannot open.
+    pub fn pick_history(&self) -> Result<Option<std::path::PathBuf>> {
+        let window = self
+            .0
+            .handle
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Window lock failed"))?
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("The history file picker needs an app window"))?;
+        super::subtitle_dialog::pick_history(&window)
+    }
+
+    /// # Errors
     /// Returns an error if the native window cannot change fullscreen state.
     pub fn set_fullscreen(&self, mode: Fullscreen) -> Result<()> {
         let window = self

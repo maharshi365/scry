@@ -42,4 +42,10 @@ impl Window {
     pub fn pick_subtitle(&self) -> Result<Option<std::path::PathBuf>> {
         bail!("Subtitle file selection is not supported on this platform")
     }
+
+    /// # Errors
+    /// Returns an error because file selection is not supported on this platform.
+    pub fn pick_history(&self) -> Result<Option<std::path::PathBuf>> {
+        bail!("History file selection is not supported on this platform")
+    }
 }

@@ -99,6 +99,16 @@ fn request_library_updates(s: &mut State, tx: &mut Tx) -> bool {
 )]
 fn apply(s: &mut State, event: Event) {
     match event {
+        Event::HistoryPreview(generation, result) => s.apply_history_preview(generation, result),
+        Event::HistoryProgress(generation, processed, total) => {
+            let history = &mut s.settings.history;
+            if generation == history.generation
+                && history.phase == super::settings::history::Phase::Preparing
+            {
+                history.processed = processed;
+                history.total = total;
+            }
+        }
         Event::MediaOrders(token, id, result) => s.apply_media_orders(token, &id, result),
         Event::MyMedia(result, status, done) => {
             s.my_media.busy = !done;
