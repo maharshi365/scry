@@ -337,8 +337,9 @@ fn apply(s: &mut State, event: Event) {
                 s.command(&["seek", &position.to_string(), "absolute"]);
                 s.library.observed = None;
             }
-            if s.navigation.page == Page::Player
-                || (s.navigation.page == Page::Guide && !s.guide.collections_open)
+            if !s.player.interaction.feedback.loading()
+                && (s.navigation.page == Page::Player
+                    || (s.navigation.page == Page::Guide && !s.guide.collections_open))
             {
                 s.shell.host.show();
             }

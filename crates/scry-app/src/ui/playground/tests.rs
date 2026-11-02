@@ -1,6 +1,45 @@
 use super::*;
 
 #[test]
+fn loading_logo_fixture_reveals_without_moving_its_layout() {
+    for size in [(640.0, 480.0), (1280.0, 820.0)] {
+        let mut rt = runtime(scene_loading_indicator, size);
+        let before = rect(&rt, "playground-loading-indicator");
+        let reveal = rect(&rt, "playground-loading-reveal");
+        let dim = rect(&rt, "playground-loading-dim");
+        let bright = rect(&rt, "playground-loading-bright");
+        assert!(
+            dim.into_iter()
+                .zip(bright)
+                .all(|(base, front)| (base - front).abs() < 0.5),
+            "Revealing the logo must not shrink or move the bright copy"
+        );
+        assert!(before[0] >= 0.0 && before[0] + before[2] <= size.0);
+        tap(&mut rt, "playground-loading-step");
+        let after = rect(&rt, "playground-loading-indicator");
+        let next_reveal = rect(&rt, "playground-loading-reveal");
+        assert!(next_reveal[2] > reveal[2]);
+        assert!(
+            (before[0] + before[2] / 2.0 - after[0] - after[2] / 2.0).abs() < 0.5,
+            "The pulse must stay centered"
+        );
+        assert_eq!(stage(&rt).presses, 2);
+        assert_eq!(rt.state.presses, 0, "The fixture is isolated from the host");
+        rt.set_system_reduced_motion(true);
+        rt.frame(0.0);
+        let still = rect(&rt, "playground-loading-reveal");
+        tap(&mut rt, "playground-loading-step");
+        assert!(
+            rect(&rt, "playground-loading-reveal")
+                .into_iter()
+                .zip(still)
+                .all(|(actual, expected)| (actual - expected).abs() < 0.01),
+            "Reduced motion keeps the entire logo visible and still"
+        );
+    }
+}
+
+#[test]
 fn nested_actions_isolate_hover_and_keep_both_targets_clickable() -> Result<(), &'static str> {
     for size in [(1106.0, 480.0), (1746.0, 820.0)] {
         let mut rt = runtime(scene_nested_actions, size);

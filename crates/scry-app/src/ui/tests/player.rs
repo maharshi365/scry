@@ -703,7 +703,10 @@ fn opening_player_shows_loading_instead_of_an_empty_video_surface() {
     let rt = player_runtime();
     assert!(rt.find("player-loading").is_some());
     assert!(rt.find("player-loading-title").is_some());
-    assert!(rt.find("player-loading-spinner").is_some());
+    assert!(rt.find("player-loading-spinner").is_none());
+    assert!(rt.find("player-loading-indicator").is_some());
+    assert!(rt.find("player-loading-dim").is_some());
+    assert!(rt.find("player-loading-reveal").is_some());
     assert!(rt.find("player-back").is_some());
     assert_eq!(rect(&rt, "player-loading"), rect(&rt, "video"));
 }
@@ -830,5 +833,33 @@ fn loading_artwork_is_prefetched_and_owned_by_the_playing_title() {
         ]
     );
     s.player.ready = true;
-    assert!(player_artwork(&s).is_empty());
+    assert_eq!(
+        player_artwork(&s).len(),
+        2,
+        "Keep artwork ready for a later seek"
+    );
+}
+
+#[test]
+fn buffering_reuses_the_logo_surface_and_recovery_restores_video() {
+    let mut rt = player_runtime();
+    rt.update(|s, tx| {
+        s.player.ready = true;
+        s.player.sample.buffering = true;
+        s.poll_player_interaction(tx);
+    });
+    rt.frame(0.0);
+    assert!(rt.find("player-loading-indicator").is_some());
+    assert!(rt.find("player-loading-spinner").is_none());
+    assert!(
+        rt.state.player.ready,
+        "Buffering must not reset initial readiness"
+    );
+    rt.update(|s, tx| {
+        s.player.sample.buffering = false;
+        s.poll_player_interaction(tx);
+    });
+    rt.frame(0.0);
+    assert!(rt.find("player-loading").is_none());
+    assert!(rt.find("video").is_some());
 }

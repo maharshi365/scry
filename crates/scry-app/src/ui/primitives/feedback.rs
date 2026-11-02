@@ -3,6 +3,55 @@ use super::super::design::tokens::{self, layout, type_};
 use super::text::label;
 use rune::{Color, El, col, row, text};
 
+pub(in crate::ui) fn loading_indicator(
+    key: &str,
+    title: &str,
+    logo: Option<&rune::Pixels>,
+    motion: super::motion::LoadingMotion,
+) -> El {
+    let (scale, opacity, reveal) = super::motion::loading_pose(motion);
+    let artwork = |key: String| {
+        let frame = rune::el()
+            .key(key)
+            .w_full()
+            .h(tokens::player::LOADING_HEIGHT)
+            .center();
+        if let Some(logo) = logo {
+            frame.pixels_fit(logo, rune::SurfaceFit::Fit)
+        } else {
+            frame.child(
+                text(title)
+                    .font(type_::LOADING_TITLE)
+                    .color(tokens::theme().text)
+                    .wrap(),
+            )
+        }
+    };
+    rune::el()
+        .key(format!("{key}-indicator"))
+        .role("status")
+        .label(format!("Loading {title}"))
+        .w_full()
+        .max_w(tokens::player::LOADING_WIDTH)
+        .h(tokens::player::LOADING_HEIGHT)
+        .scale(scale)
+        .child(artwork(format!("{key}-dim")).opacity(tokens::player::LOADING_DIM))
+        .child(
+            rune::el()
+                .key(format!("{key}-reveal"))
+                .absolute(0.0, 0.0)
+                .w_frac(reveal)
+                .h(tokens::player::LOADING_HEIGHT)
+                .clip_rounded(tokens::radius::NONE)
+                .opacity(opacity)
+                .child(
+                    artwork(format!("{key}-bright"))
+                        .absolute(0.0, 0.0)
+                        .w_frac(1.0 / reveal.max(f32::EPSILON)),
+                ),
+        )
+}
+
 #[derive(Clone, Copy)]
 pub(in crate::ui) enum VideoCue {
     Play,

@@ -2,6 +2,26 @@
 use super::super::design::tokens;
 use rune::{El, Transition};
 
+#[derive(Clone, Copy)]
+pub(in crate::ui) enum LoadingMotion {
+    Animated(std::time::Duration),
+    Reduced,
+}
+
+pub(in crate::ui) fn loading_pose(motion: LoadingMotion) -> (f32, f32, f32) {
+    let LoadingMotion::Animated(elapsed) = motion else {
+        return (1.0, tokens::motion::LOADING_OPACITY_HIGH, 1.0);
+    };
+    let phase = (elapsed.as_secs_f32() / tokens::motion::LOADING_PERIOD).fract();
+    let pulse = (1.0 - (phase * std::f32::consts::TAU).cos()) / 2.0;
+    (
+        1.0 + (tokens::motion::LOADING_SCALE - 1.0) * pulse,
+        tokens::motion::LOADING_OPACITY_LOW
+            + (tokens::motion::LOADING_OPACITY_HIGH - tokens::motion::LOADING_OPACITY_LOW) * pulse,
+        phase,
+    )
+}
+
 pub(in crate::ui) fn playback_feedback(elapsed: std::time::Duration) -> Option<(f32, f32)> {
     if elapsed >= tokens::motion::PLAYBACK_FEEDBACK {
         return None;
@@ -54,6 +74,22 @@ pub(in crate::ui) fn notification() -> Transition {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loading_logo_pulses_and_sweeps_without_claiming_progress() {
+        use std::time::Duration;
+        let start = loading_pose(LoadingMotion::Animated(Duration::ZERO));
+        let middle = loading_pose(LoadingMotion::Animated(Duration::from_secs(1)));
+        let next = loading_pose(LoadingMotion::Animated(Duration::from_secs(2)));
+        assert!(middle.0 > start.0, "The logo gently grows");
+        assert!(middle.1 > start.1, "The bright layer pulses");
+        assert!(middle.2 > start.2, "The bright reveal moves right");
+        assert_eq!(
+            next, start,
+            "The reveal repeats instead of implying completion"
+        );
+        assert_eq!(loading_pose(LoadingMotion::Reduced), (1.0, 1.0, 1.0));
+    }
 
     #[test]
     fn playback_feedback_grows_and_fades_then_disappears() -> Result<(), &'static str> {

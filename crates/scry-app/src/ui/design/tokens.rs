@@ -197,6 +197,11 @@ pub(in crate::ui) mod opacity {
 }
 
 pub(in crate::ui) mod motion {
+    pub const LOADING_PERIOD: f32 = 2.0;
+    pub const LOADING_SCALE: f32 = 1.05;
+    pub const LOADING_OPACITY_LOW: f32 = 0.4;
+    pub const LOADING_OPACITY_HIGH: f32 = 1.0;
+    pub const SEEK_FEEDBACK_DELAY: std::time::Duration = std::time::Duration::from_millis(200);
     pub const PLAYBACK_FEEDBACK: std::time::Duration = std::time::Duration::from_millis(500);
     pub const PLAYBACK_FRAME: std::time::Duration = std::time::Duration::from_millis(16);
     pub const PLAYBACK_GROWTH: f32 = 0.25;
@@ -209,6 +214,9 @@ pub(in crate::ui) mod motion {
 }
 
 pub(in crate::ui) mod player {
+    pub const LOADING_WIDTH: f32 = 360.0;
+    pub const LOADING_HEIGHT: f32 = 120.0;
+    pub const LOADING_DIM: f32 = 0.2;
     // Keep the intro prompt above the fullscreen controls, even while they are hidden.
     pub const INTRO_FULLSCREEN_BOTTOM: f32 = 128.0;
     pub const INTRO_PROMPT_WIDTH: f32 = 160.0;

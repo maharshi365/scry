@@ -43,7 +43,7 @@ pub(super) fn title(slot: &Slot) -> String {
 
 pub(in crate::ui) fn view(s: &State, cx: &Cx<State>) -> El {
     if s.player.fullscreen {
-        return super::super::player::player(s, cx.env().scale);
+        return super::super::player::player(s, cx);
     }
     if s.guide.collections_open {
         return super::collections::view(s);
@@ -80,7 +80,7 @@ pub(in crate::ui) fn view(s: &State, cx: &Cx<State>) -> El {
             .min_h(tokens::guide::PREVIEW_HEIGHT)
             .gap(tokens::layout::PAGE_GAP)
             .child(details(s, now))
-            .child(super::super::player::player(s, cx.env().scale).w(tokens::guide::PLAYER_WIDTH)),
+            .child(super::super::player::player(s, cx).w(tokens::guide::PLAYER_WIDTH)),
     );
     content.child(grid(s,cx,now)).child(label("↑ / ↓ browse · Enter tune · F fullscreen · M mute · schedules continue while Scry is closed"))
 }

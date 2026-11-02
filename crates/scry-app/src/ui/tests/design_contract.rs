@@ -155,6 +155,7 @@ fn motion_policy_rejects_local_tuning_but_allows_shared_intent() {
         "motion::surface(panel)",
         "motion::playback_feedback(elapsed)",
         "motion::poster_zoom(artwork, Zoom::Hovered)",
+        "motion::loading_pose(motion)",
     ] {
         assert!(!local_motion(source), "{source}");
     }

@@ -29,6 +29,7 @@ enum Category {
     Motion,
     Titlebar,
     PosterGallery,
+    LoadingIndicator,
 }
 
 impl Category {
@@ -43,6 +44,7 @@ impl Category {
             Self::Motion => "Examples/Motion",
             Self::Titlebar => "Examples/Title bar",
             Self::PosterGallery => "Browse/Quiet gallery",
+            Self::LoadingIndicator => "Feedback/Loading logo",
         }
     }
 }
@@ -474,6 +476,29 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
         Category::Feedback => feedback(s),
         Category::Motion => motion(s),
         Category::PosterGallery => poster_gallery(s, cx.is_reduced_motion()),
+        Category::LoadingIndicator => section(
+            "playground-loading-logo",
+            "Loading logo",
+            "A repeating reveal, not a download percentage. No services or saved data.",
+            col()
+                .gap(tokens::layout::SECTION_GAP)
+                .child(feedback::loading_indicator(
+                    "playground-loading",
+                    "SCRY",
+                    None,
+                    if cx.is_reduced_motion() {
+                        motion::LoadingMotion::Reduced
+                    } else {
+                        motion::LoadingMotion::Animated(std::time::Duration::from_millis(
+                            u64::from(s.presses % 4) * 500,
+                        ))
+                    },
+                ))
+                .child(
+                    Button::new("playground-loading-step", "Next animation phase")
+                        .on_press(|s: &mut State| s.presses = s.presses.wrapping_add(1)),
+                ),
+        ),
         Category::Titlebar => {
             super::primitives::titlebar::titlebar(tokens::shell::CHROME.titlebar_inset())
                 .key("playground-titlebar")
@@ -570,6 +595,12 @@ fn scene_poster_gallery(s: &mut State) {
     s.show(Category::PosterGallery);
 }
 
+fn scene_loading_indicator(s: &mut State) {
+    *s = init();
+    s.show(Category::LoadingIndicator);
+    s.presses = 1;
+}
+
 fn app() -> App<State> {
     App::new(AppSpec {
         fonts: tokens::fonts::FILES,
@@ -583,6 +614,7 @@ fn app() -> App<State> {
             ("Examples/List detail", scene_list_detail),
             ("Feedback/Notice", scene_feedback),
             ("Feedback/Dialog", scene_dialog),
+            ("Feedback/Loading logo", scene_loading_indicator),
             ("Examples/Motion", scene_motion),
             ("Examples/Title bar", scene_titlebar),
             ("Browse/Quiet gallery", scene_poster_gallery),

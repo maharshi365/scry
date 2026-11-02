@@ -30,7 +30,7 @@ pub(super) struct ShellState {
 
 pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
     if matches!(s.navigation.page, Page::Guide | Page::Player) && s.player.fullscreen {
-        return fullscreen_player(s, cx.env().scale);
+        return fullscreen_player(s, cx);
     }
     let content = page_content(s, cx);
     window_chrome(s, cx, content)
@@ -70,7 +70,7 @@ fn page_content(s: &State, cx: &mut Cx<State>) -> El {
             )
             .child(super::detail::preview(s)),
         Page::Detail => detail(s),
-        Page::Player => player(s, cx.env().scale),
+        Page::Player => player(s, cx),
     });
     content
 }
@@ -132,14 +132,14 @@ fn on_window_focus(s: &mut State, focused: bool, tx: &mut rune::Tx) {
     }
 }
 
-fn fullscreen_player(s: &State, scale: f32) -> El {
+fn fullscreen_player(s: &State, cx: &mut Cx<State>) -> El {
     let mut content = col()
         .key("fullscreen-player")
         .w_full()
         .h_full()
         .fill(tokens::video())
         .on_window_focus(on_window_focus)
-        .child(player(s, scale));
+        .child(player(s, cx));
     content = content.children(super::stats::toast(s));
     if let Some(panel) = super::player::stats::panel(s) {
         content = content.child(panel);

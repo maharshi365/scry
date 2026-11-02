@@ -18,6 +18,7 @@ pub struct Sample {
     #[cfg(feature = "profiling")]
     pub cache_limit_bytes: Option<u64>,
     pub buffering: bool,
+    pub seeking: bool,
     pub paused: bool,
     pub dropped_frames: Option<u64>,
     pub decoder_drops: Option<u64>,

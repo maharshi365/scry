@@ -27,7 +27,12 @@ use actions::PlayerAction;
 use rune::{El, Icon, Phase, col, el, row, text};
 use scry_app::platform::VideoHost;
 
-fn surface(s: &State, scale: f32, compact: bool) -> El {
+fn surface(
+    s: &State,
+    scale: f32,
+    compact: bool,
+    motion: super::primitives::motion::LoadingMotion,
+) -> El {
     let mut surface = el()
         .key(if compact { "guide-video" } else { "video" })
         .w_full()
@@ -75,7 +80,7 @@ fn surface(s: &State, scale: f32, compact: bool) -> El {
             if s.player.playing && matches!(s.navigation.page, Page::Player | Page::Guide) {
                 s.shell.host.place(rect, scale);
                 s.cover_player();
-                if s.player.ready {
+                if s.player.ready && !s.player.interaction.feedback.loading() {
                     s.shell.host.show();
                 }
             }
@@ -96,18 +101,25 @@ fn surface(s: &State, scale: f32, compact: bool) -> El {
             );
         }
         surface = surface.child(label(super::guide::preview_status(s)).padding(12.0));
-    } else if s.player.playing && !s.player.ready {
-        surface = surface.child(loading(s));
+    } else if s.player.playing && (!s.player.ready || s.player.interaction.feedback.loading()) {
+        surface = surface.child(loading(s, motion));
     } else if !s.player.playing {
         surface = surface.child(label("Choose another source to continue."));
     }
     surface.children(intro::prompt(s))
 }
 
-pub(super) fn player(s: &State, scale: f32) -> El {
+pub(super) fn player(s: &State, cx: &rune::Cx<State>) -> El {
     let t = theme();
+    let motion = if cx.is_reduced_motion() {
+        super::primitives::motion::LoadingMotion::Reduced
+    } else {
+        super::primitives::motion::LoadingMotion::Animated(
+            s.player.interaction.feedback.loading_elapsed(),
+        )
+    };
     let compact = s.navigation.page == Page::Guide && !s.player.fullscreen;
-    let surface = surface(s, scale, compact);
+    let surface = surface(s, cx.env().scale, compact, motion);
     if compact {
         return col()
             .key("guide-preview")
@@ -173,7 +185,7 @@ pub(super) fn player(s: &State, scale: f32) -> El {
         .child(controls(s))
 }
 
-fn loading(s: &State) -> El {
+fn loading(s: &State, motion: super::primitives::motion::LoadingMotion) -> El {
     let image = |url: &Option<String>| {
         url.as_ref()
             .and_then(|url| s.artwork.player.as_ref()?.get(url))
@@ -182,7 +194,8 @@ fn loading(s: &State) -> El {
         .key("player-loading")
         .absolute(0.0, 0.0)
         .w_full()
-        .h_full();
+        .h_full()
+        .fill(video());
     if let Some(background) = image(&s.player.background) {
         loading = loading.child(
             el().key("player-loading-background")
@@ -194,19 +207,22 @@ fn loading(s: &State) -> El {
                 .transition(super::primitives::motion::fade()),
         );
     }
-    let title = if let Some(logo) = image(&s.player.logo) {
-        el().key("player-loading-logo")
-            .w(360.0)
-            .max_w(480.0)
-            .h(120.0)
-            .pixels_fit(&logo, rune::SurfaceFit::Fit)
-            .transition(super::primitives::motion::fade())
-    } else {
-        text(s.player.title.clone())
-            .key("player-loading-title")
-            .font(type_::LOADING_TITLE)
-            .color(theme().text)
-    };
+    let logo = image(&s.player.logo);
+    let title = super::primitives::feedback::loading_indicator(
+        "player-loading",
+        &s.player.title,
+        logo.as_ref(),
+        motion,
+    );
+    let title = el()
+        .key(if logo.is_some() {
+            "player-loading-logo"
+        } else {
+            "player-loading-title"
+        })
+        .w_full()
+        .max_w(super::design::tokens::player::LOADING_WIDTH)
+        .child(title);
     loading = loading.child(
         col()
             .absolute(0.0, 0.0)
@@ -216,12 +232,8 @@ fn loading(s: &State) -> El {
             .gap(24.0)
             .padding(24.0)
             .child(title)
-            .child(super::primitives::status::spinner(
-                "player-loading-spinner",
-                super::design::tokens::badge::MEDALLION_SIZE,
-            ))
             .child(
-                label(if s.player.sample.buffering {
+                label(if s.player.ready || s.player.sample.buffering {
                     "Buffering…"
                 } else {
                     "Loading…"

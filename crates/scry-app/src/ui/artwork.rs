@@ -46,7 +46,7 @@ impl State {
 
 pub(super) fn player_artwork(s: &State) -> Vec<String> {
     let (background, logo) =
-        if s.navigation.page == Page::Player && s.player.playing && !s.player.ready {
+        if matches!(s.navigation.page, Page::Player | Page::Guide) && s.player.playing {
             (s.player.background.as_ref(), s.player.logo.as_ref())
         } else if s.navigation.page == Page::Detail {
             s.detail.meta.as_ref().map_or((None, None), |meta| {

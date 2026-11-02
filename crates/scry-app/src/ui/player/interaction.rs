@@ -203,8 +203,7 @@ impl State {
                 super::Page::Player | super::Page::Guide
             )
         {
-            self.poll_player_feedback(tx);
-            return overlay_changed;
+            return self.poll_player_feedback(tx) || overlay_changed;
         }
         let now = Instant::now();
         let mut acted = false;
@@ -223,7 +222,7 @@ impl State {
             self.native_video_click(click, tx);
             acted = true;
         }
-        self.poll_player_feedback(tx);
+        let feedback_changed = self.poll_player_feedback(tx);
         if self.player.fullscreen {
             let interaction = &mut self.player.interaction;
             let pointer = match self.shell.host.pointer_position(interaction.scale) {
@@ -247,6 +246,7 @@ impl State {
         self.cover_player();
         tx.wake_after(Duration::from_millis(50));
         let changed = overlay_changed
+            || feedback_changed
             || acted
             || was != (self.player.interaction.visible, self.player.fullscreen);
         if changed {

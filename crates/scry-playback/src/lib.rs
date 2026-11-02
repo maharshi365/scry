@@ -317,6 +317,7 @@ impl Player {
             #[cfg(feature = "profiling")]
             cache_limit_bytes: self.cache_budget.get().map(|budget| budget.limit),
             buffering: self.property("paused-for-cache").as_deref() == Some("yes"),
+            seeking: self.property("seeking").as_deref() == Some("yes"),
             paused: self.property("pause").as_deref() == Some("yes"),
             dropped_frames: self
                 .property("frame-drop-count")
