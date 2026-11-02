@@ -68,10 +68,6 @@ impl Window {
 
     /// # Errors
     /// Returns an error if the subtitle picker cannot open on the main thread.
-    #[expect(
-        clippy::unused_self,
-        reason = "Matches the platform Window interface; macOS uses an application-modal picker"
-    )]
     pub fn pick_subtitle(&self) -> Result<Option<std::path::PathBuf>> {
         let mtm = MainThreadMarker::new()
             .ok_or_else(|| anyhow::anyhow!("File picker requires the main thread"))?;
