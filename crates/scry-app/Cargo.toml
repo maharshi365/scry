@@ -53,3 +53,7 @@ windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Graphic
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSView", "NSWindow"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rune = { workspace = true, features = ["native-file-dialog"] }
+x11rb = "0.13"

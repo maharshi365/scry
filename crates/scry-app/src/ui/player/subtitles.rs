@@ -259,7 +259,7 @@ fn panel_actions(active: bool) -> El {
         Button::new("subtitle-load-local", "Load subtitle file")
             .variant(Variant::Ghost)
             .icon(&ADD)
-            .on_press(State::load_local_subtitle),
+            .on_press_tx(State::load_local_subtitle),
     )
 }
 
@@ -364,7 +364,39 @@ fn stepper(
 }
 
 impl State {
-    fn load_local_subtitle(&mut self) {
+    #[cfg(target_os = "linux")]
+    fn load_local_subtitle(&mut self, tx: &mut rune::Tx) {
+        if !self.player.playing {
+            return;
+        }
+        let generation = self.player.generation;
+        let slot = self.player.subtitles.slot;
+        tx.open_file(
+            rune::FileDialogOptions {
+                title: "Open subtitles".into(),
+                ..Default::default()
+            }
+            .filter("Subtitles", &["srt", "vtt", "ass", "ssa"]),
+            move |s: &mut Self, result, _| {
+                if s.player.generation != generation || !s.player.playing {
+                    return;
+                }
+                match result {
+                    Ok(Some(path)) => {
+                        s.load_subtitle_path(path, slot);
+                    }
+                    Ok(None) => {}
+                    Err(_) => {
+                        s.player.subtitles.error =
+                            Some("Cannot open the subtitle file picker".into());
+                    }
+                }
+            },
+        );
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn load_local_subtitle(&mut self, _: &mut rune::Tx) {
         if !self.player.playing {
             return;
         }
@@ -376,6 +408,10 @@ impl State {
                 return;
             }
         };
+        self.load_subtitle_path(path, self.player.subtitles.slot);
+    }
+
+    fn load_subtitle_path(&mut self, path: std::path::PathBuf, slot: Slot) {
         let supported = path.extension().and_then(|s| s.to_str()).is_some_and(|s| {
             ["srt", "vtt", "ass", "ssa"]
                 .iter()
@@ -388,9 +424,8 @@ impl State {
         self.player.subtitles.request += 1;
         let request = self.player.subtitles.request;
         let title = format!("Local · #{request}");
-        self.player.subtitles.manual[self.player.subtitles.slot.index()] = true;
-        self.player.subtitles.pending =
-            Some((self.player.subtitles.slot, request, title, String::new()));
+        self.player.subtitles.manual[slot.index()] = true;
+        self.player.subtitles.pending = Some((slot, request, title, String::new()));
         self.send_subtitle_load(self.player.generation, request, path);
     }
 

@@ -107,7 +107,7 @@ pub(super) fn view(s: &State) -> El {
     let mut actions = row().gap(tokens::layout::ACTION_GAP).child(
         Button::new("history-select", "Select JSON file")
             .enabled(!history.busy())
-            .on_press(State::select_history),
+            .on_press_tx(State::select_history),
     );
     if history.phase == Phase::Preparing {
         actions =
@@ -250,7 +250,29 @@ fn notices(mut panel: El, history: &SettingsUi, preview: &Preview) -> El {
 }
 
 impl State {
-    fn select_history(&mut self) {
+    #[cfg(target_os = "linux")]
+    fn select_history(&mut self, tx: &mut rune::Tx) {
+        if self.settings.history.busy() {
+            return;
+        }
+        tx.open_file(
+            rune::FileDialogOptions {
+                title: "Import watch history".into(),
+                ..Default::default()
+            }
+            .filter("JSON", &["json"]),
+            |s: &mut Self, result, _| match result {
+                Ok(Some(path)) if !s.settings.history.busy() => s.preview_history_path(path),
+                Ok(_) => {}
+                Err(_) => {
+                    s.settings.history.error = Some("Cannot open the history file picker".into());
+                }
+            },
+        );
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn select_history(&mut self, _: &mut rune::Tx) {
         if self.settings.history.busy() {
             return;
         }
@@ -262,6 +284,10 @@ impl State {
                 return;
             }
         };
+        self.preview_history_path(path);
+    }
+
+    fn preview_history_path(&mut self, path: std::path::PathBuf) {
         let Some(services) = &mut self.runtime.services else {
             self.settings.history.error = Some("History import is unavailable".into());
             return;

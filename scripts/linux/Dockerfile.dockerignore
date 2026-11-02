@@ -1,0 +1,10 @@
+**
+!Cargo.toml
+!Cargo.lock
+!rust-toolchain.toml
+!clippy.toml
+!crates/
+!crates/**
+!scripts/
+!scripts/linux/
+!scripts/linux/**

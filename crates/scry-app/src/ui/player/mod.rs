@@ -167,6 +167,7 @@ pub(super) fn player(s: &State, cx: &rune::Cx<State>) -> El {
     col()
         .key("player-page")
         .grow(1.0)
+        .min_h(0.0)
         .gap(12.0)
         .child(
             row()

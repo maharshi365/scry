@@ -508,6 +508,7 @@ fn pinned_subtitle_panel_closes_before_guide_fullscreen_and_fits_small_windows()
 #[test]
 #[ignore = "Requires the installed libmpv runtime and SCRY_SUBTITLE_TEST_VIDEO pointing to a local fixture"]
 fn native_subtitle_adapter_supports_the_pinned_runtime_and_two_tracks() -> anyhow::Result<()> {
+    use anyhow::Context;
     use scry_playback::{PlaybackEvent, PlaybackTarget, Player};
     let video = std::env::var("SCRY_SUBTITLE_TEST_VIDEO")?;
     let dir = tempfile::tempdir()?;
@@ -519,7 +520,9 @@ fn native_subtitle_adapter_supports_the_pinned_runtime_and_two_tracks() -> anyho
     engine.command(&["set", "pause", "yes"])?;
     for command in scry_playback::subtitles::Preferences::default().commands() {
         let args: Vec<_> = command.iter().map(String::as_str).collect();
-        engine.command(&args)?;
+        engine
+            .command(&args)
+            .with_context(|| format!("Subtitle preference {:?} failed", command.get(1)))?;
     }
     engine.load(&video)?;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);

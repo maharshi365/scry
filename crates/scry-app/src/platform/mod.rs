@@ -34,12 +34,16 @@ pub enum Fullscreen {
 mod macos;
 #[cfg(target_os = "macos")]
 use macos as native;
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+use linux as native;
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 mod unsupported;
 #[cfg(windows)]
 mod windows;
 pub use native::{Host, Window};
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 use unsupported as native;
 #[cfg(windows)]
 use windows as native;

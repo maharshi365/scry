@@ -23,6 +23,8 @@ mod episodes;
 mod history_import;
 mod layout;
 mod library;
+#[cfg(target_os = "linux")]
+mod linux;
 mod mechanical;
 mod my_media;
 mod navigation;
