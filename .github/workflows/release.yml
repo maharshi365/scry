@@ -56,4 +56,12 @@ jobs:
           VERSION: ${{ needs.desktop.outputs.version }}
           COMMIT: ${{ github.sha }}
         run: |
-          gh release create "v$VERSION" dist/* --target "$COMMIT" --draft --title "Scry v$VERSION" --notes 'Unsigned preview installers with mpv included. Windows: run the setup EXE (per-user install). macOS (Apple Silicon): open the PKG to install in Applications (administrator access required). To update, close Scry and run the newer installer; user data is preserved. No in-app updater is included. Windows SmartScreen and macOS Gatekeeper may block unsigned downloads. Developer signing and notarization are not configured. Review runtime redistribution licensing before publishing this draft.'
+          set -euo pipefail
+          tag="v$VERSION"
+          existing=$(gh api "repos/$GH_REPO/git/matching-refs/tags/$tag" --jq ".[] | select(.ref == \"refs/tags/$tag\") | .ref")
+          if [ -z "$existing" ]; then
+            gh api --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$tag" -f "sha=$COMMIT"
+          fi
+          test "$(gh api "repos/$GH_REPO/commits/$tag" --jq .sha)" = "$COMMIT"
+          # An explicit target SHA can require workflows:write after the default branch moves.
+          gh release create "$tag" dist/* --verify-tag --draft --title "Scry v$VERSION" --notes 'Unsigned preview installers with mpv included. Windows: run the setup EXE (per-user install). macOS (Apple Silicon): open the PKG to install in Applications (administrator access required). To update, close Scry and run the newer installer; user data is preserved. No in-app updater is included. Windows SmartScreen and macOS Gatekeeper may block unsigned downloads. Developer signing and notarization are not configured. Review runtime redistribution licensing before publishing this draft.'
