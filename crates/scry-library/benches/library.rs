@@ -43,6 +43,23 @@ fn main() -> anyhow::Result<()> {
         });
     }
     reads.finish();
+    let mut achievements = criterion.benchmark_group("achievement_updates");
+    let mut db = support::library()?;
+    db.evaluate_achievements()?;
+    achievements.bench_function("unchanged", |b| {
+        b.iter(|| db.evaluate_achievements().map(black_box));
+    });
+    let key = scry_library::MediaKey::new("benchmark", MediaKind::Movie, "movie-999");
+    let mut watched = false;
+    achievements.bench_function("watched_change", |b| {
+        b.iter(|| -> anyhow::Result<()> {
+            watched = !watched;
+            db.set_watched(&key, watched)?;
+            black_box(db.evaluate_achievements()?);
+            Ok(())
+        });
+    });
+    achievements.finish();
     let mut refresh = criterion.benchmark_group("inventory_refresh");
     for count in [250, 5_000] {
         refresh.throughput(Throughput::Elements(u64::from(count)));

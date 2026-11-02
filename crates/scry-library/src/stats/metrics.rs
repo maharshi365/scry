@@ -277,7 +277,12 @@ impl Library {
         self.transaction(|connection| {
             let start = period.start();
             let history = include_str!("history.sql").replace("{start}", start);
-            let playback = diesel::sql_query(format!("{history} SELECT COALESCE(SUM(seconds),0.0) AS total, COALESCE(SUM(CASE WHEN kind='movie' THEN seconds ELSE 0.0 END),0.0) AS movies, COALESCE(SUM(CASE WHEN kind='episode' THEN seconds ELSE 0.0 END),0.0) AS tv FROM history"))
+            let playback_sql = if period == StatsPeriod::AllTime {
+                "SELECT movie_seconds+tv_seconds AS total,movie_seconds AS movies,tv_seconds AS tv FROM watch_totals WHERE id=1".to_owned()
+            } else {
+                format!("{history} SELECT COALESCE(SUM(seconds),0.0) AS total, COALESCE(SUM(CASE WHEN kind='movie' THEN seconds ELSE 0.0 END),0.0) AS movies, COALESCE(SUM(CASE WHEN kind='episode' THEN seconds ELSE 0.0 END),0.0) AS tv FROM history")
+            };
+            let playback = diesel::sql_query(playback_sql)
                 .get_result::<PlaybackTotals>(connection)?;
             let complete = crate::playback::watch_status::completion_sql("m.media_id", "unixepoch()");
             let library = diesel::sql_query(

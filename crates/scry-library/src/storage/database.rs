@@ -1,4 +1,4 @@
-use super::schema;
+use super::{projections, schema};
 use crate::{
     catalog::media,
     guide,
@@ -17,13 +17,14 @@ use diesel::{
 
 /// All persistent app state shares this database. Older pre-release stores are not imported.
 pub const DATABASE_NAME: &str = "scry-v2.sqlite3";
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 // SQLite's initial journal-mode switch can return BUSY without using the
 // busy timeout. Serialize our workers' startup, not their normal database work.
 static INITIALIZE: Mutex<()> = Mutex::new(());
 
 pub struct Library {
     connection: RefCell<SqliteConnection>,
+    pub(crate) achievement_cache: crate::stats::achievements::MetricCache,
 }
 
 impl Library {
@@ -49,7 +50,13 @@ impl Library {
         &self,
         f: impl FnOnce(&mut SqliteConnection) -> Result<T>,
     ) -> Result<T> {
-        self.with_connection(|connection| connection.immediate_transaction(f))
+        self.with_connection(|connection| {
+            connection.immediate_transaction(|connection| {
+                let result = f(connection)?;
+                projections::refresh(connection)?;
+                Ok(result)
+            })
+        })
     }
 
     /// # Errors
@@ -107,7 +114,7 @@ impl Library {
                 connection.batch_execute("DROP VIEW effective_watched;")?;
                 watch_status::install_view(connection)?;
                 connection.batch_execute("PRAGMA user_version=4;")?;
-            } else if version != 4 && version != 5 && version != 6 && version != 7 {
+            } else if !(4..=8).contains(&version) {
                 ensure!(
                     version == SCHEMA_VERSION,
                     "unsupported app database schema; reset the local database"
@@ -129,11 +136,17 @@ impl Library {
                 connection.batch_execute(include_str!("../playback/saved_streams.sql"))?;
                 connection.batch_execute("PRAGMA user_version=8;")?;
             }
+            if version < 9 {
+                projections::install(connection)?;
+                connection.batch_execute("PRAGMA user_version=9;")?;
+            }
+            projections::refresh(connection)?;
             Self::validate(connection)?;
             Ok(())
         })?;
         Ok(Self {
             connection: RefCell::new(connection),
+            achievement_cache: crate::stats::achievements::MetricCache::default(),
         })
     }
 
@@ -181,6 +194,7 @@ impl Library {
         stats::validate(connection)?;
         guide::validate(connection)?;
         skip_segments::validate(connection)?;
+        projections::validate(connection)?;
         ensure!(
             diesel::sql_query("PRAGMA foreign_key_check")
                 .load::<ForeignKeyViolation>(connection)?

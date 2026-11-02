@@ -243,6 +243,91 @@ mod tests {
         Worker::start(path, Arc::new(|| {})).unwrap()
     }
 
+    #[test]
+    fn watched_feedback_is_delivered_before_achievement_work() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("library.db");
+        let mut library = Library::open(&path).unwrap();
+        library.upsert_media(&movie()).unwrap();
+        drop(library);
+        let worker = start(path);
+        assert!(matches!(
+            worker.events.recv_timeout(Duration::from_secs(10)).unwrap(),
+            Event::Ready
+        ));
+        assert!(matches!(
+            worker.events.recv_timeout(Duration::from_secs(10)).unwrap(),
+            Event::Achievements(_)
+        ));
+        worker.send(Command::SetWatched(movie(), true)).unwrap();
+        worker
+            .send(Command::Refresh {
+                generation: 1,
+                selected: Some(movie().key),
+                episodes: Vec::new(),
+            })
+            .unwrap();
+        assert!(matches!(
+            worker.events.recv_timeout(Duration::from_secs(10)).unwrap(),
+            Event::Changed
+        ));
+        match worker.events.recv_timeout(Duration::from_secs(10)).unwrap() {
+            Event::Snapshot { data, .. } => assert!(data.selected_state.unwrap().watched.watched),
+            event => panic!("watched feedback must not wait for achievements: {event:?}"),
+        }
+    }
+
+    #[test]
+    fn a_queued_unwatch_does_not_erase_a_transient_achievement_unlock() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("library.db");
+        let mut library = Library::open(&path).unwrap();
+        library.upsert_media(&movie()).unwrap();
+        library
+            .set_known_runtimes(&[(movie().key, 90_000.0)])
+            .unwrap();
+        drop(library);
+        let worker = start(path);
+        assert!(matches!(
+            worker.events.recv_timeout(Duration::from_secs(10)).unwrap(),
+            Event::Ready
+        ));
+        assert!(matches!(
+            worker.events.recv_timeout(Duration::from_secs(10)).unwrap(),
+            Event::Achievements(_)
+        ));
+        worker.send(Command::SetWatched(movie(), true)).unwrap();
+        worker.send(Command::SetWatched(movie(), false)).unwrap();
+        worker
+            .send(Command::Refresh {
+                generation: 1,
+                selected: Some(movie().key),
+                episodes: Vec::new(),
+            })
+            .unwrap();
+        let mut unlocked = false;
+        loop {
+            match worker.events.recv_timeout(Duration::from_secs(10)).unwrap() {
+                Event::Achievements(result) => {
+                    unlocked |= result
+                        .newly_unlocked
+                        .iter()
+                        .any(|entry| entry.id == "a-day-well-spent" && !entry.historical);
+                }
+                Event::Snapshot { data, .. } => {
+                    assert!(!data.selected_state.unwrap().watched.watched);
+                    break;
+                }
+                Event::Changed => {}
+                event => panic!("unexpected mutation result: {event:?}"),
+            }
+        }
+        assert!(
+            unlocked,
+            "the intermediate committed watch must earn its achievement"
+        );
+    }
+
     fn receive(worker: &Worker) -> Event {
         loop {
             let event = worker.events.recv_timeout(Duration::from_secs(10)).unwrap();

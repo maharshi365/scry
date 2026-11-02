@@ -1,18 +1,15 @@
-WITH states AS MATERIALIZED (
-    SELECT m.kind, l.media_id AS saved_id, r.seconds,
+WITH saved AS MATERIALIZED (
+    SELECT m.kind,
         CASE WHEN m.kind = 'series' THEN ({complete})
             ELSE COALESCE(w.watched, 0) END AS watched
-    FROM media m
+    FROM watchlist l JOIN media m USING(media_id)
     LEFT JOIN watched w USING(media_id)
-    LEFT JOIN watchlist l USING(media_id)
-    LEFT JOIN media_runtime r USING(media_id)
 )
 SELECT
-    COALESCE(SUM(kind = 'movie' AND watched = 1), 0) AS movies_watched,
-    COALESCE(SUM(kind = 'episode' AND watched = 1), 0) AS episodes_watched,
-    COALESCE(SUM(kind = 'series' AND watched = 1), 0) AS series_completed,
-    COALESCE(SUM(kind = 'series' AND saved_id IS NOT NULL AND watched = 0), 0) AS unfinished_shows,
-    COUNT(saved_id) AS saved_titles,
-    COALESCE(SUM(saved_id IS NOT NULL AND watched = 1), 0) AS saved_watched,
-    COALESCE(SUM(kind IN ('movie', 'episode') AND watched = 1 AND seconds IS NULL), 0) AS unknown_runtimes
-FROM states
+    movies_watched,episodes_watched,unknown_runtimes,
+    (SELECT COUNT(*) FROM series_facts WHERE total>0 AND watched=total
+        AND (last_release IS NULL OR last_release<=unixepoch())) AS series_completed,
+    (SELECT COUNT(*) FROM saved WHERE kind='series' AND watched=0) AS unfinished_shows,
+    (SELECT COUNT(*) FROM saved) AS saved_titles,
+    (SELECT COUNT(*) FROM saved WHERE watched=1) AS saved_watched
+FROM watch_totals WHERE id=1

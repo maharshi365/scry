@@ -1,5 +1,5 @@
 //! Single owner of release eligibility, series counts, progress, and completion.
-//! The database view uses the same summary query as explicit-time status reads.
+//! Completion reads use transactional summaries; progress reads aggregate source rows.
 use std::collections::HashMap;
 
 use anyhow::{Result, ensure};
@@ -37,10 +37,8 @@ fn summary_sql(now: &str, parent: &str) -> String {
 }
 
 pub(crate) fn completion_sql(parent: &str, now: &str) -> String {
-    // A badge needs no progress sums. Stop at the first incomplete regular episode.
-    let retained = RETAINED.replace("{now}", now);
     format!(
-        "EXISTS(SELECT 1 FROM media e JOIN episode_releases r USING(media_id) WHERE e.parent_id={parent} AND (r.season IS NULL OR r.season!=0)) AND NOT EXISTS(SELECT 1 FROM media e JOIN episode_releases r USING(media_id) LEFT JOIN watched w USING(media_id) WHERE e.parent_id={parent} AND (r.season IS NULL OR r.season!=0) AND NOT (({retained}) AND COALESCE(w.watched,0)=1))"
+        "EXISTS(SELECT 1 FROM series_facts s WHERE s.media_id={parent} AND s.total>0 AND s.watched=s.total AND (s.last_release IS NULL OR s.last_release<={now}))"
     )
 }
 

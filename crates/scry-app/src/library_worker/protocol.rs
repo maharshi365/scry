@@ -172,9 +172,15 @@ pub enum Event {
 
 impl Command {
     pub(super) fn affects_achievements(&self) -> bool {
+        if let Self::Upsert(items) = self {
+            return !items.is_empty();
+        }
         matches!(
             self,
-            Self::Runtimes(..)
+            Self::ImportHistory { .. }
+                | Self::GuideMetadata(..)
+                | Self::SaveStream(..)
+                | Self::Runtimes(..)
                 | Self::RegisterRelease(..)
                 | Self::SavePlayback(..)
                 | Self::FinishPlayback(..)

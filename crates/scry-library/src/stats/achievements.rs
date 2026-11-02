@@ -38,44 +38,93 @@ pub struct Achievement {
     pub evaluate: fn(&mut AchievementDb<'_>) -> Result<Evaluation>,
 }
 
-/// Read-only, on-demand query helpers. Cached values live for one evaluation run.
+/// Snapshot queries with revision-keyed reuse across evaluation runs.
 pub struct AchievementDb<'a> {
     connection: &'a mut SqliteConnection,
-    cache: HashMap<&'static str, f64>,
+    cache: &'a mut MetricCache,
+    revision: Revisions,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Revision([i64; 4]);
+
+pub(crate) type MetricCache = HashMap<&'static str, (Revision, f64)>;
+
+#[derive(QueryableByName)]
+struct Revisions {
+    #[diesel(sql_type = BigInt)]
+    library: i64,
+    #[diesel(sql_type = BigInt)]
+    playback: i64,
+    #[diesel(sql_type = BigInt)]
+    hours: i64,
+    #[diesel(sql_type = BigInt)]
+    release: i64,
 }
 
 impl AchievementDb<'_> {
     fn metric(&mut self, query: &'static str) -> Result<f64> {
-        if let Some(value) = self.cache.get(query) {
-            return Ok(*value);
+        self.cached(
+            query,
+            Revision([
+                self.revision.library,
+                self.revision.playback,
+                self.revision.hours,
+                self.revision.release,
+            ]),
+        )
+    }
+
+    fn playback_metric(&mut self, query: &'static str) -> Result<f64> {
+        self.cached(query, Revision([0, self.revision.playback, 0, 0]))
+    }
+
+    fn library_metric(&mut self, query: &'static str) -> Result<f64> {
+        self.cached(
+            query,
+            Revision([self.revision.library, 0, 0, self.revision.release]),
+        )
+    }
+
+    fn hours_metric(&mut self, query: &'static str) -> Result<f64> {
+        self.cached(query, Revision([0, 0, self.revision.hours, 0]))
+    }
+
+    fn cached(&mut self, query: &'static str, revision: Revision) -> Result<f64> {
+        if let Some(&(previous, value)) = self.cache.get(query)
+            && previous == revision
+        {
+            return Ok(value);
         }
         let value = number(self.connection, query)?;
-        self.cache.insert(query, value);
+        self.cache.insert(query, (revision, value));
         Ok(value)
     }
 
     /// # Errors
     /// Returns an error if playback totals cannot be read.
     pub fn total_watch_seconds(&mut self) -> Result<f64> {
-        self.metric("SELECT COALESCE(SUM(recorded_seconds+credit),0.0) AS value FROM stats_counted")
+        self.metric("SELECT movie_seconds+tv_seconds AS value FROM watch_totals WHERE id=1")
     }
 
     /// # Errors
     /// Returns an error if episode state cannot be read.
     pub fn episodes_watched(&mut self) -> Result<f64> {
-        self.metric("SELECT CAST(COUNT(*) AS REAL) AS value FROM media m JOIN effective_watched w USING(media_id) WHERE m.kind='episode' AND w.watched=1")
+        self.library_metric(
+            "SELECT CAST(episodes_watched AS REAL) AS value FROM watch_totals WHERE id=1",
+        )
     }
 
     /// # Errors
     /// Returns an error if series state cannot be read.
     pub fn completed_series_count(&mut self) -> Result<f64> {
-        self.metric("SELECT CAST(COUNT(*) AS REAL) AS value FROM media m JOIN effective_watched w USING(media_id) WHERE m.kind='series' AND w.watched=1")
+        self.library_metric("SELECT CAST(COUNT(*) AS REAL) AS value FROM series_facts WHERE total>0 AND watched=total AND (last_release IS NULL OR last_release<=unixepoch())")
     }
 
     /// # Errors
     /// Returns an error if season state cannot be read.
     pub fn completed_season_count(&mut self) -> Result<f64> {
-        self.metric("SELECT CAST(COUNT(*) AS REAL) AS value FROM (SELECT m.parent_id,r.season FROM media m JOIN episode_releases r USING(media_id) LEFT JOIN effective_watched w USING(media_id) WHERE m.kind='episode' AND r.season>0 GROUP BY m.parent_id,r.season HAVING COUNT(*)>0 AND MIN(COALESCE(w.watched,0))=1 AND MIN(COALESCE(r.released_at<=unixepoch(),0))=1)")
+        self.library_metric("SELECT CAST(COUNT(*) AS REAL) AS value FROM (SELECT m.parent_id,r.season FROM media m JOIN episode_releases r USING(media_id) LEFT JOIN watched w USING(media_id) WHERE m.kind='episode' AND r.season>0 GROUP BY m.parent_id,r.season HAVING COUNT(*)>0 AND MIN(COALESCE(w.watched,0))=1 AND MIN(COALESCE(r.released_at<=unixepoch(),0))=1)")
     }
 }
 
@@ -187,7 +236,7 @@ const ACHIEVEMENTS: &[Achievement] = &[
         "Have 50 unwatched movies or shows saved.",
         false,
         |db| {
-            Ok(Evaluation::threshold(db.metric("SELECT CAST(COUNT(*) AS REAL) AS value FROM watchlist l JOIN effective_watched w USING(media_id) WHERE w.watched=0")?, 50.0))
+            Ok(Evaluation::threshold(db.library_metric("SELECT CAST(COUNT(*) AS REAL) AS value FROM watchlist l JOIN media m USING(media_id) LEFT JOIN watched w USING(media_id) LEFT JOIN series_facts s USING(media_id) WHERE CASE WHEN m.kind='series' THEN NOT COALESCE(s.total>0 AND s.watched=s.total AND (s.last_release IS NULL OR s.last_release<=unixepoch()),0) ELSE COALESCE(w.watched,0)=0 END")?, 50.0))
         }
     ),
     achievement!(
@@ -197,7 +246,7 @@ const ACHIEVEMENTS: &[Achievement] = &[
         "Play more than 70% of the same title in 3 separate playback runs.",
         false,
         |db| Ok(Evaluation::threshold(
-            db.metric(
+            db.playback_metric(
                 "SELECT CAST(COALESCE(MAX(completions),0) AS REAL) AS value FROM stats_titles"
             )?,
             3.0
@@ -210,7 +259,7 @@ const ACHIEVEMENTS: &[Achievement] = &[
         "Play more than 70% of 5 episodes in one session. A 30-minute idle gap ends a session.",
         false,
         |db| Ok(Evaluation::threshold(
-            db.metric(
+            db.playback_metric(
                 "SELECT CAST(COALESCE(MAX(episodes),0) AS REAL) AS value FROM stats_sessions"
             )?,
             5.0
@@ -223,7 +272,13 @@ const ACHIEVEMENTS: &[Achievement] = &[
         "Record playback between 2 a.m. and 5 a.m., in your local time.",
         true,
         |db| {
-            Ok(Evaluation::threshold(db.metric("SELECT COALESCE(SUM(seconds),0.0) AS value FROM stats_hours WHERE CAST(strftime('%H',hour,'unixepoch','localtime') AS INTEGER) BETWEEN 2 AND 4")?, 1.0))
+            Ok(Evaluation::threshold(
+                number(
+                    db.connection,
+                    "SELECT COALESCE(SUM(seconds),0.0) AS value FROM stats_hours WHERE CAST(strftime('%H',hour,'unixepoch','localtime') AS INTEGER) BETWEEN 2 AND 4",
+                )?,
+                1.0,
+            ))
         }
     ),
     achievement!(
@@ -233,7 +288,7 @@ const ACHIEVEMENTS: &[Achievement] = &[
         "Accumulate 40 watch hours across any 7 consecutive UTC calendar days. Undated history counts toward all-time milestones instead.",
         false,
         |db| {
-            Ok(Evaluation::threshold(db.metric("SELECT COALESCE(MAX(total),0.0) AS value FROM (SELECT SUM(SUM(seconds)) OVER (ORDER BY hour/86400 RANGE BETWEEN 6 PRECEDING AND CURRENT ROW) AS total FROM (SELECT hour,seconds FROM stats_hours UNION ALL SELECT watched_at AS hour,credit AS seconds FROM stats_counted WHERE watched_at IS NOT NULL AND credit>0) GROUP BY hour/86400)")? / 3600.0, 40.0))
+            Ok(Evaluation::threshold(db.metric("SELECT COALESCE(MAX(total),0.0) AS value FROM (SELECT SUM(SUM(seconds)) OVER (ORDER BY day RANGE BETWEEN 6 PRECEDING AND CURRENT ROW) AS total FROM (SELECT day,seconds FROM stats_days UNION ALL SELECT watched_at/86400 AS day,credit AS seconds FROM stats_counted WHERE watched_at IS NOT NULL AND credit>0) GROUP BY day)")? / 3600.0, 40.0))
         }
     ),
     achievement!(
@@ -253,7 +308,7 @@ const ACHIEVEMENTS: &[Achievement] = &[
         "Record at least 20 minutes of episodes from each of three different series in one UTC calendar day. Manual watched marks do not count.",
         true,
         |db| {
-            Ok(Evaluation::threshold(db.metric("SELECT CAST(COALESCE(MAX(shows),0) AS REAL) AS value FROM (SELECT COUNT(*) AS shows FROM (SELECT h.hour/86400 AS day,m.parent_id FROM stats_hours h JOIN media m USING(media_id) JOIN media p ON p.media_id=m.parent_id WHERE m.kind='episode' AND p.kind='series' GROUP BY h.hour/86400,m.parent_id HAVING SUM(h.seconds)>=1200) GROUP BY day)")?, 3.0))
+            Ok(Evaluation::threshold(db.metric("SELECT CAST(COALESCE(MAX(shows),0) AS REAL) AS value FROM (SELECT COUNT(*) AS shows FROM (SELECT h.hour/86400 AS day,m.parent_id FROM stats_hours h CROSS JOIN media m USING(media_id) JOIN media p ON p.media_id=m.parent_id WHERE m.kind='episode' AND p.kind='series' GROUP BY h.hour/86400,m.parent_id HAVING SUM(h.seconds)>=1200) GROUP BY day)")?, 3.0))
         }
     ),
     achievement!(
@@ -263,7 +318,7 @@ const ACHIEVEMENTS: &[Achievement] = &[
         "Record at least 20 minutes of playback on each of seven consecutive UTC calendar days. Manual watched marks do not count.",
         true,
         |db| {
-            Ok(Evaluation::threshold(db.metric("SELECT CAST(COALESCE(MAX(days),0) AS REAL) AS value FROM (SELECT COUNT(*) AS days FROM (SELECT day-ROW_NUMBER() OVER (ORDER BY day) AS streak FROM (SELECT hour/86400 AS day FROM stats_hours GROUP BY hour/86400 HAVING SUM(seconds)>=1200)) GROUP BY streak)")?, 7.0))
+            Ok(Evaluation::threshold(db.hours_metric("SELECT CAST(COALESCE(MAX(days),0) AS REAL) AS value FROM (SELECT COUNT(*) AS days FROM (SELECT day-ROW_NUMBER() OVER (ORDER BY day) AS streak FROM stats_days WHERE seconds>=1200) GROUP BY streak)")?, 7.0))
         }
     ),
     achievement!(
@@ -283,7 +338,7 @@ const ACHIEVEMENTS: &[Achievement] = &[
         "Record at least two completed playback runs for each of 5 different movies or episodes. Each run needs more than 70% of the runtime played; manual watched marks do not count.",
         false,
         |db| {
-            Ok(Evaluation::threshold(db.metric("SELECT CAST(COUNT(*) AS REAL) AS value FROM stats_titles t JOIN media m USING(media_id) WHERE m.kind IN ('movie','episode') AND t.completions>=2")?, 5.0))
+            Ok(Evaluation::threshold(db.metric("SELECT CAST(COUNT(*) AS REAL) AS value FROM stats_titles t CROSS JOIN media m USING(media_id) WHERE m.kind IN ('movie','episode') AND t.completions>=2")?, 5.0))
         }
     ),
     achievement!(
@@ -293,7 +348,7 @@ const ACHIEVEMENTS: &[Achievement] = &[
         "Have at least 10 movies saved, with every saved movie watched. Saved series do not affect this achievement.",
         true,
         |db| {
-            Ok(Evaluation::threshold(db.metric("SELECT CAST(COUNT(*)>=10 AND COALESCE(MIN(COALESCE(w.watched,0)),0)=1 AS REAL) AS value FROM watchlist l JOIN media m USING(media_id) LEFT JOIN effective_watched w USING(media_id) WHERE m.kind='movie'")?, 1.0))
+            Ok(Evaluation::threshold(db.metric("SELECT CAST(COUNT(*)>=10 AND COALESCE(MIN(COALESCE(w.watched,0)),0)=1 AS REAL) AS value FROM watchlist l JOIN media m USING(media_id) LEFT JOIN watched w USING(media_id) WHERE m.kind='movie'")?, 1.0))
         }
     ),
     achievement!(
@@ -320,21 +375,31 @@ struct Saved {
     unlocked_at: Option<i64>,
 }
 
-fn evaluate(
+struct Snapshot {
+    result: AchievementEvaluation,
+    needs_persist: bool,
+}
+
+fn evaluate_snapshot(
     connection: &mut SqliteConnection,
     definitions: &[Achievement],
-) -> Result<AchievementEvaluation> {
+    cache: &mut MetricCache,
+) -> Result<Snapshot> {
     let saved: HashMap<_, _> =
         diesel::sql_query("SELECT id,unlocked,historical,unlocked_at FROM achievement_checks")
             .load::<Saved>(connection)?
             .into_iter()
             .map(|entry| (entry.id.clone(), entry))
             .collect();
+    let revision = diesel::sql_query("SELECT library,playback,hours,COALESCE((SELECT MAX(released_at) FROM episode_releases WHERE released_at<=unixepoch()),-9223372036854775808) AS release FROM source_revisions WHERE id=1")
+        .get_result::<Revisions>(connection)?;
     let mut db = AchievementDb {
         connection,
-        cache: HashMap::new(),
+        cache,
+        revision,
     };
     let mut result = AchievementEvaluation::default();
+    let mut needs_persist = false;
     for definition in definitions {
         let previous = saved.get(definition.id);
         let earned = previous.is_some_and(|entry| entry.unlocked);
@@ -345,16 +410,9 @@ fn evaluate(
             (definition.evaluate)(&mut db)?
         };
         let unlocked = progress == Evaluation::Unlocked;
+        needs_persist |= previous.is_none() || (unlocked && !earned);
         let historical = previous.map_or(unlocked, |entry| entry.historical);
-        let mut unlocked_at = previous.and_then(|entry| entry.unlocked_at);
-        if !earned {
-            if unlocked && !historical {
-                unlocked_at = Some(count(db.connection, "SELECT unixepoch() AS value")?);
-            }
-            diesel::sql_query("INSERT INTO achievement_checks(id,unlocked,historical,unlocked_at) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET unlocked=excluded.unlocked,historical=excluded.historical,unlocked_at=excluded.unlocked_at")
-                .bind::<Text,_>(definition.id).bind::<Bool,_>(unlocked).bind::<Bool,_>(historical)
-                .bind::<Nullable<BigInt>,_>(unlocked_at).execute(db.connection)?;
-        }
+        let unlocked_at = previous.and_then(|entry| entry.unlocked_at);
         let entry = AchievementEntry {
             id: definition.id,
             name: definition.name,
@@ -371,16 +429,70 @@ fn evaluate(
         }
         result.entries.push(entry);
     }
+    Ok(Snapshot {
+        result,
+        needs_persist,
+    })
+}
+
+fn persist(
+    connection: &mut SqliteConnection,
+    mut result: AchievementEvaluation,
+) -> Result<AchievementEvaluation> {
+    let saved: HashMap<_, _> =
+        diesel::sql_query("SELECT id,unlocked,historical,unlocked_at FROM achievement_checks")
+            .load::<Saved>(connection)?
+            .into_iter()
+            .map(|entry| (entry.id.clone(), entry))
+            .collect();
+    result.newly_unlocked.clear();
+    for entry in &mut result.entries {
+        let previous = saved.get(entry.id);
+        // Another evaluator may have committed since our read snapshot. Unlocks
+        // are monotonic, and only the winning writer announces a transition.
+        if let Some(previous) = previous.filter(|previous| previous.unlocked) {
+            entry.unlocked = true;
+            entry.progress = Evaluation::Unlocked;
+            entry.historical = previous.historical;
+            entry.unlocked_at = previous.unlocked_at;
+            continue;
+        }
+        entry.historical = previous.map_or(entry.unlocked, |previous| previous.historical);
+        if entry.unlocked && !entry.historical {
+            entry.unlocked_at = Some(count(connection, "SELECT unixepoch() AS value")?);
+        }
+        if previous.is_none() || entry.unlocked {
+            diesel::sql_query("INSERT INTO achievement_checks(id,unlocked,historical,unlocked_at) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET unlocked=excluded.unlocked,historical=excluded.historical,unlocked_at=excluded.unlocked_at")
+                .bind::<Text,_>(entry.id).bind::<Bool,_>(entry.unlocked).bind::<Bool,_>(entry.historical)
+                .bind::<Nullable<BigInt>,_>(entry.unlocked_at).execute(connection)?;
+        }
+        if entry.unlocked {
+            result.newly_unlocked.push(entry.clone());
+        }
+    }
     Ok(result)
 }
 
 impl Library {
-    /// Evaluate only locked rules, atomically saving first checks and new unlocks.
+    /// Evaluate locked rules on a read snapshot, then commit unlocks in a short write.
     /// A definition's first check is catch-up; later unlocks are live.
     /// # Errors
     /// Returns an error if a rule query or unlock write fails. No partial unlocks are saved.
     pub fn evaluate_achievements(&mut self) -> Result<AchievementEvaluation> {
-        self.immediate_transaction(|connection| evaluate(connection, ACHIEVEMENTS))
+        let mut cache = std::mem::take(&mut self.achievement_cache);
+        let result = self
+            .transaction(|connection| evaluate_snapshot(connection, ACHIEVEMENTS, &mut cache))
+            .and_then(|snapshot| {
+                if snapshot.needs_persist {
+                    self.immediate_transaction(|connection| persist(connection, snapshot.result))
+                } else {
+                    Ok(snapshot.result)
+                }
+            });
+        if result.is_ok() {
+            self.achievement_cache = cache;
+        }
+        result
     }
 }
 
@@ -390,7 +502,7 @@ mod tests {
     use diesel::connection::SimpleConnection;
 
     fn seed(library: &Library, sql: &str) -> Result<()> {
-        library.with_connection(|connection| {
+        library.immediate_transaction(|connection| {
             connection.batch_execute(sql)?;
             Ok(())
         })
@@ -610,6 +722,14 @@ mod tests {
 
     fn forbidden(_: &mut AchievementDb<'_>) -> Result<Evaluation> {
         anyhow::bail!("an earned achievement must not be evaluated")
+    }
+
+    fn evaluate(
+        connection: &mut SqliteConnection,
+        definitions: &[Achievement],
+    ) -> Result<AchievementEvaluation> {
+        let result = evaluate_snapshot(connection, definitions, &mut MetricCache::new())?;
+        persist(connection, result.result)
     }
 
     #[test]

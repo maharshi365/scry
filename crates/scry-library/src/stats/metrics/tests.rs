@@ -26,7 +26,7 @@ fn empty_dashboard_has_zero_totals_and_no_rankings() -> Result<()> {
 #[test]
 fn dashboard_aggregates_history_credit_sessions_and_series_completion() -> Result<()> {
     let db = Library::memory()?;
-    db.with_connection(|connection| {
+    db.immediate_transaction(|connection| {
         connection.batch_execute(
             "INSERT INTO media(media_id,namespace,kind,external_id,title,parent_id) VALUES
                 (1,'test','movie','movie','Movie',NULL),
