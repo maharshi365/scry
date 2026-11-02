@@ -188,6 +188,88 @@ fn subtitle_panel_uses_flat_language_rows_aligned_steppers_and_right_aligned_ico
 }
 
 #[test]
+fn subtitle_off_hides_adjustments_per_slot_and_preserves_saved_values() {
+    let mut state = init();
+    state.navigation.page = Page::Player;
+    state.player.playing = true;
+    state.player.ready = true;
+    state.apply_subtitle_snapshot(
+        0,
+        Snapshot {
+            tracks: tracks(),
+            ..Snapshot::default()
+        },
+    );
+    state.show_subtitles();
+    let mut rt = rune::Runtime::new(state, view, (1280.0, 820.0), rune::Env::default());
+    rt.frame(0.0);
+    tap(&mut rt, "subtitle-size-more");
+    for (tab, track) in [
+        ("subtitle-slot-primary", "subtitle-track-1"),
+        ("subtitle-slot-secondary", "subtitle-track-2"),
+    ] {
+        tap(&mut rt, tab);
+        tap(&mut rt, track);
+        tap(&mut rt, "subtitle-position-less");
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        let expanded_height = rect(&rt, "player-subtitles-overlay")[3];
+        tap(&mut rt, "subtitle-track-off");
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        for key in [
+            "subtitle-delay-control",
+            "subtitle-size-control",
+            "subtitle-position-control",
+            "subtitle-reset",
+        ] {
+            assert!(rt.find(key).is_none(), "Off must hide {key} in {tab}");
+        }
+        assert!(
+            !rt.elements()
+                .iter()
+                .any(|e| e.text.as_deref() == Some("Size applies to both tracks."))
+        );
+        assert!(rt.find("subtitle-load-local").is_some());
+        assert!(rect(&rt, "player-subtitles-overlay")[3] < expanded_height);
+        tap(&mut rt, track);
+        for key in [
+            "subtitle-delay-control",
+            "subtitle-size-control",
+            "subtitle-position-control",
+            "subtitle-reset",
+        ] {
+            assert!(
+                rt.find(key).is_some(),
+                "Selecting a track must restore {key}"
+            );
+        }
+        assert!(
+            rt.elements().iter().any(|e| e.text.as_deref()
+                == Some(if tab == "subtitle-slot-primary" {
+                    "94%"
+                } else {
+                    "4%"
+                })),
+            "Off must preserve the position adjustment for {tab}"
+        );
+        assert!(
+            rt.elements()
+                .iter()
+                .any(|e| e.text.as_deref() == Some("125%")),
+            "Off must preserve the shared size adjustment"
+        );
+    }
+    tap(&mut rt, "subtitle-track-off");
+    tap(&mut rt, "subtitle-slot-primary");
+    assert!(rt.find("subtitle-reset").is_some());
+    tap(&mut rt, "subtitle-slot-secondary");
+    assert!(rt.find("subtitle-reset").is_none());
+}
+
+#[test]
 fn subtitle_hover_panel_selects_two_tracks_without_pausing_or_resizing_video() {
     let mut state = init();
     state.navigation.page = Page::Player;

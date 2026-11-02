@@ -150,7 +150,7 @@ pub(in crate::ui) fn panel(s: &State) -> Option<El> {
     let active = subtitles.tracks.iter().find(|t| Some(t.id) == selected);
     let appearance =
         active.is_some_and(|t| !(t.bitmap() || t.styled() && subtitles.defaults.ass_styles));
-    let content = col()
+    let mut content = col()
         .w_full()
         .gap(10.0)
         .child(panel_header())
@@ -182,36 +182,39 @@ pub(in crate::ui) fn panel(s: &State) -> Option<El> {
                         .min_h(168.0)
                         .grow(0.0),
                 ),
-        )
-        .child(stepper(
-            "delay",
-            "Timing",
-            format!("{:+.1} s", f64::from(subtitles.delay[slot.index()]) / 10.0),
-            selected.is_some(),
-            State::adjust_subtitle_delay,
-        ))
-        .child(stepper(
-            "size",
-            "Size",
-            format!("{}%", subtitles.size),
-            appearance,
-            State::adjust_subtitle_size,
-        ))
-        .child(stepper(
-            "position",
-            "Position",
-            format!("{}%", subtitles.position[slot.index()]),
-            appearance,
-            State::adjust_subtitle_position,
-        ))
-        .child(label(if active.is_some_and(Track::bitmap) {
-            "Bitmap subtitles have a fixed appearance."
-        } else if !appearance && active.is_some() {
-            "ASS styles control this track’s appearance."
-        } else {
-            "Size applies to both tracks."
-        }))
-        .child(panel_actions());
+        );
+    if selected.is_some() {
+        content = content
+            .child(stepper(
+                "delay",
+                "Timing",
+                format!("{:+.1} s", f64::from(subtitles.delay[slot.index()]) / 10.0),
+                selected.is_some(),
+                State::adjust_subtitle_delay,
+            ))
+            .child(stepper(
+                "size",
+                "Size",
+                format!("{}%", subtitles.size),
+                appearance,
+                State::adjust_subtitle_size,
+            ))
+            .child(stepper(
+                "position",
+                "Position",
+                format!("{}%", subtitles.position[slot.index()]),
+                appearance,
+                State::adjust_subtitle_position,
+            ))
+            .child(label(if active.is_some_and(Track::bitmap) {
+                "Bitmap subtitles have a fixed appearance."
+            } else if !appearance && active.is_some() {
+                "ASS styles control this track’s appearance."
+            } else {
+                "Size applies to both tracks."
+            }));
+    }
+    let content = content.child(panel_actions(selected.is_some()));
     Some(
         hover_overlay::panel(
             "player-subtitles-overlay",
@@ -243,23 +246,21 @@ fn panel_header() -> El {
         )
 }
 
-fn panel_actions() -> El {
-    row()
-        .w_full()
-        .justify_end()
-        .center_y()
-        .gap(8.0)
-        .child(
+fn panel_actions(active: bool) -> El {
+    let mut actions = row().w_full().justify_end().center_y().gap(8.0);
+    if active {
+        actions = actions.child(
             Button::new("subtitle-reset", "Reset")
                 .variant(Variant::Ghost)
                 .on_press(State::reset_subtitle_adjustments),
-        )
-        .child(
-            Button::new("subtitle-load-local", "Load subtitle file")
-                .variant(Variant::Ghost)
-                .icon(&ADD)
-                .on_press(State::load_local_subtitle),
-        )
+        );
+    }
+    actions.child(
+        Button::new("subtitle-load-local", "Load subtitle file")
+            .variant(Variant::Ghost)
+            .icon(&ADD)
+            .on_press(State::load_local_subtitle),
+    )
 }
 
 fn track_list(s: &State) -> El {
