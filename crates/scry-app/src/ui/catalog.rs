@@ -433,6 +433,10 @@ impl State {
         } else {
             self.open_detail(meta);
         }
-        self.detail.preview = true;
+        self.detail.preview = self
+            .detail
+            .meta
+            .as_ref()
+            .is_some_and(|meta| meta.kind != "series");
     }
 }

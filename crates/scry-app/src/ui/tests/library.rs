@@ -548,7 +548,7 @@ fn library_grid_scrolls_and_history_restores_the_opened_poster_card() {
     );
     tap(&mut rt, "library-open-199");
     assert_eq!(rt.state.detail.meta.as_ref().unwrap().id, "film199");
-    tap(&mut rt, "nav-back");
+    rt.update(|s, _| s.travel(false));
     for _ in 0..30 {
         rt.frame(1.0 / 60.0);
     }

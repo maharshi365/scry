@@ -44,7 +44,7 @@ fn season_selector_filters_and_sorts_episodes_without_changing_protocol_identity
             .collect::<Vec<_>>(),
         ["show:2:1", "show:2:2"]
     );
-    tap(&mut rt, "detail-back");
+    tap(&mut rt, "episode-back");
     assert!(rt.state.detail.episodes.selected.is_none());
     assert!(rt.find("episode-3").is_some());
     tap(&mut rt, "season-select");

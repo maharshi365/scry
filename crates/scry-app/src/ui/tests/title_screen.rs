@@ -209,7 +209,7 @@ fn provider_metadata_drives_backdrop_logo_facts_and_episode_thumbnail() {
 }
 
 #[test]
-fn catalog_preview_opens_the_picker_and_history_restores_the_preview() {
+fn movie_preview_opens_the_picker_and_back_returns_home() {
     for width in [880.0, 1280.0] {
         let mut s = init();
         scene_discover(&mut s);
@@ -255,8 +255,8 @@ fn catalog_preview_opens_the_picker_and_history_restores_the_preview() {
         for _ in 0..30 {
             rt.frame(1.0 / 60.0);
         }
-        assert!(rt.state.detail.preview);
-        assert!(rt.find("title-preview").is_some());
+        assert_eq!(rt.state.navigation.page, Page::Watching);
+        assert!(rt.find("detail-page").is_none());
     }
 }
 
@@ -276,7 +276,7 @@ fn tv_picker_returns_from_sources_without_changing_season() {
     );
     assert!(rt.find("source-picker").is_some());
     let stale = rt.state.runtime.streams.generation;
-    tap(&mut rt, "detail-back");
+    tap(&mut rt, "episode-back");
     assert!(rt.state.runtime.streams.generation > stale);
     assert_eq!(rt.state.active_season(), Some(1));
     assert!(rt.state.detail.episodes.selected.is_none());

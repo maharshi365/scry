@@ -1,6 +1,117 @@
 use super::*;
 
 #[test]
+fn series_opens_a_season_without_a_preview() {
+    let mut state = init();
+    scene_discover(&mut state);
+    state.discover.results = vec![multi_season_series()].into();
+    state.open_result(0);
+    assert!(!state.detail.preview);
+    assert_eq!(state.active_season(), Some(1));
+    assert_eq!(state.visible_episode_indices(), [4, 2]);
+}
+
+#[test]
+fn title_back_buttons_return_home_even_with_internal_history() {
+    for button in ["nav-back", "detail-back"] {
+        let mut state = init();
+        state.navigate(Page::Discover);
+        state.open_detail_from(multi_season_series());
+        state.remember();
+        state.select_season(Some(2));
+        state.select_episode(3);
+        let mut rt = rune::Runtime::new(state, view, (1280.0, 820.0), rune::Env::default());
+        rt.frame(0.0);
+        tap(&mut rt, button);
+        assert_eq!(rt.state.navigation.page, Page::Watching, "{button}");
+    }
+}
+
+#[test]
+fn refresh_keeps_the_season_and_reloads_episode_streams_in_place() {
+    let (mut state, tx) = state_with_events();
+    state.open_detail_from(multi_season_series());
+    state.select_season(Some(2));
+    let old_detail = state.detail.generation;
+    state.refresh_page();
+    assert!(state.detail.generation > old_detail);
+    assert_eq!(state.active_season(), Some(2));
+    tx.try_send(Event::Detail(
+        state.detail.generation,
+        Ok((multi_season_series(), "provider".into())),
+    ))
+    .unwrap();
+    poll(&mut state, 0.0, &mut Tx::default());
+    assert_eq!(state.visible_episode_indices(), [3, 0]);
+    state.select_episode(0);
+    let old_streams = state.runtime.streams.generation;
+    let detail = state.detail.generation;
+    state.refresh_page();
+    assert_eq!(state.detail.generation, detail);
+    assert!(state.runtime.streams.generation > old_streams);
+    assert!(state.detail.sources.request.loading);
+    assert_eq!(state.detail.episodes.selected.as_deref(), Some("show:2:2"));
+    state.show_episodes();
+    assert_eq!(state.active_season(), Some(2));
+    assert_eq!(state.visible_episode_indices(), [3, 0]);
+}
+
+#[test]
+fn season_refresh_updates_episodes_without_replacing_title_or_artwork() {
+    let (mut state, tx) = state_with_events();
+    let mut original = multi_season_series();
+    original.poster = Some("https://example.invalid/poster.jpg".into());
+    original.background = Some("https://example.invalid/background.jpg".into());
+    state.open_detail_from(original.clone());
+    state.detail.namespace = "original.provider".into();
+    state.select_season(Some(2));
+    state.detail.episodes.search = TextEdit::new("finale");
+    let route = state.navigation.route_key;
+    state.refresh_page();
+    let mut updated = multi_season_series();
+    updated.name = "Changed title".into();
+    updated.videos[0].title = "Updated finale".into();
+    tx.try_send(Event::Detail(
+        state.detail.generation,
+        Ok((updated, "different.provider".into())),
+    ))
+    .unwrap();
+    poll(&mut state, 0.0, &mut Tx::default());
+    let meta = state.detail.meta.as_ref().unwrap();
+    assert_eq!(meta.name, original.name);
+    assert_eq!(meta.poster, original.poster);
+    assert_eq!(meta.background, original.background);
+    assert_eq!(meta.videos[0].title, "Updated finale");
+    assert_eq!(state.detail.namespace, "original.provider");
+    assert_eq!(state.active_season(), Some(2));
+    assert_eq!(state.detail.episodes.search.text, "finale");
+    assert_eq!(state.navigation.route_key, route);
+    assert!(!state.detail.request.loading);
+}
+
+#[test]
+fn movie_refresh_reloads_only_streams_without_replacing_metadata() {
+    let mut state = init();
+    let movie: Meta = serde_json::from_value(serde_json::json!({
+        "id": "film", "type": "movie", "name": "A movie"
+    }))
+    .unwrap();
+    state.open_detail_from(movie.clone());
+    state.detail.request.loading = false;
+    state.find_streams("movie".into(), "film".into());
+    let detail = state.detail.generation;
+    let streams = state.runtime.streams.generation;
+    state.refresh_page();
+    assert_eq!(state.navigation.page, Page::Detail);
+    assert_eq!(state.detail.generation, detail);
+    assert!(!state.detail.request.loading);
+    assert_eq!(state.detail.meta.as_ref().unwrap().name, movie.name);
+    assert!(state.runtime.streams.generation > streams);
+    assert!(state.detail.sources.request.loading);
+    assert_eq!(state.detail.episodes.selected.as_deref(), Some("film"));
+}
+
+#[test]
 fn history_restores_preview_but_discards_transient_detail_ui() {
     let mut state = init();
     scene_discover(&mut state);

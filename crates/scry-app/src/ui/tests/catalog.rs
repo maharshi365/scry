@@ -369,7 +369,7 @@ fn movie_and_tv_catalogs_load_on_scroll_append_without_jumping_and_stop_on_repea
         assert!(!rt.state.discover.paging.has_more);
         assert_eq!(rt.state.discover.results.len(), 50);
         tap(&mut rt, "title-49");
-        tap(&mut rt, "nav-back");
+        rt.update(|s, _| s.travel(false));
         for _ in 0..30 {
             rt.frame(1.0 / 60.0);
         }
@@ -527,7 +527,7 @@ fn large_catalog_only_lays_out_nearby_cards() {
     let last = rect(&rt, "title-999");
     assert!(last[1] >= viewport[1] && last[1] + last[3] <= viewport[1] + viewport[3] + 1.0);
     tap(&mut rt, "title-999");
-    tap(&mut rt, "nav-back");
+    rt.update(|s, _| s.travel(false));
     for _ in 0..30 {
         rt.frame(1.0 / 60.0);
     }
@@ -721,7 +721,7 @@ fn poster_grid_scrolls_to_last_title_and_back_reveals_the_opened_card() {
     assert_eq!(rect(&rt, "topbar"), toolbar);
     tap(&mut rt, "title-39");
     assert_eq!(rt.state.detail.meta.as_ref().unwrap().id, "title-39");
-    tap(&mut rt, "nav-back");
+    rt.update(|s, _| s.travel(false));
     for _ in 0..30 {
         rt.frame(1.0 / 60.0);
     }

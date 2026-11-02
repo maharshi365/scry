@@ -64,6 +64,14 @@ pub(super) struct Route {
 }
 
 impl State {
+    pub(super) fn back_page(&mut self) {
+        if self.navigation.page == Page::Detail {
+            self.navigate(Page::Watching);
+        } else {
+            self.travel(false);
+        }
+    }
+
     pub(super) fn navigate(&mut self, page: Page) {
         if self.navigation.page == page {
             return;

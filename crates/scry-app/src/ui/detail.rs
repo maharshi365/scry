@@ -29,6 +29,7 @@ pub(super) struct DetailState {
     pub episodes: super::episodes::EpisodesState,
     pub sources: super::source_picker::SourcesState,
     pub generation: u64,
+    pub episode_refresh_generation: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -87,6 +88,13 @@ pub(super) fn detail(s: &State) -> El {
         if meta.kind == "series" && s.detail.episodes.selected.is_none() {
             side = side.child(episodes(s, meta));
         } else {
+            if meta.kind == "series" {
+                side = side.child(
+                    Button::new("episode-back", "Back to episodes")
+                        .icon(&icons::LEFT)
+                        .on_press(State::show_episodes),
+                );
+            }
             side = side.child(source_picker::view(s).w_full());
         }
     }
@@ -130,34 +138,19 @@ fn backdrop(s: &State) -> El {
     surface
 }
 
-fn back_button(s: &State) -> El {
-    let to_episodes = s.detail.episodes.selected.is_some()
-        && s.detail
-            .meta
-            .as_ref()
-            .is_some_and(|meta| meta.kind == "series");
+fn back_button() -> El {
     icon_action(
         "detail-back",
-        if to_episodes {
-            "Back to episodes"
-        } else {
-            "Back to browsing"
-        },
+        "Back to Home",
         &icons::LEFT,
-        move |s| {
-            if to_episodes {
-                s.show_episodes();
-            } else {
-                s.travel(false);
-            }
-        },
+        State::back_page,
     )
 }
 
 fn hero(s: &State, compact: bool) -> El {
     let navigation = input_group()
         .w_full()
-        .child(back_button(s))
+        .child(back_button())
         .child(el().grow(1.0));
     let mut info = col()
         .w_full()

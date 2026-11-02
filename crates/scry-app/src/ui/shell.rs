@@ -273,7 +273,7 @@ fn topbar(s: &State, native_inset: f32) -> El {
         )
         .child(history_button(
             "nav-back",
-            !s.navigation.back.is_empty(),
+            s.navigation.page == Page::Detail || !s.navigation.back.is_empty(),
             false,
         ))
         .child(history_button(
@@ -307,5 +307,11 @@ fn history_button(key: &str, enabled: bool, forward: bool) -> El {
     .variant(Variant::Ghost)
     .enabled(enabled)
     .icon(if forward { &icons::RIGHT } else { &icons::LEFT })
-    .on_press(move |s: &mut State| s.travel(forward))
+    .on_press(move |s: &mut State| {
+        if forward {
+            s.travel(true);
+        } else {
+            s.back_page();
+        }
+    })
 }

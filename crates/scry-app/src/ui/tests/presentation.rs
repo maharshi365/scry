@@ -229,7 +229,7 @@ fn episode_names_and_watched_badge_are_shown() {
                 .as_deref()
                 .is_some_and(|text| text.contains("First Period"))
     }));
-    tap(&mut rt, "detail-back");
+    tap(&mut rt, "episode-back");
     assert!(rt.find("episode-watched-0").is_some());
     let elements = rt.elements();
     assert!(

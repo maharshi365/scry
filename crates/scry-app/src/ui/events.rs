@@ -255,8 +255,16 @@ fn apply(s: &mut State, event: Event) {
             s.detail.request.loading = false;
             match result {
                 Ok((meta, namespace)) => {
-                    s.detail.namespace = namespace;
-                    apply_detail(s, meta);
+                    if s.detail.episode_refresh_generation == Some(id) {
+                        if let Some(current) = &mut s.detail.meta {
+                            current.videos.clone_from(&meta.videos);
+                        }
+                        s.register_library_detail();
+                        s.remember_series_detail();
+                    } else {
+                        s.detail.namespace = namespace;
+                        apply_detail(s, meta);
+                    }
                 }
                 Err(error) => s.detail.request.error = Some(error),
             }

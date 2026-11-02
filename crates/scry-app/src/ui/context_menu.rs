@@ -70,14 +70,16 @@ impl State {
         if let Some(services) = &self.runtime.services {
             services.invalidate_cache();
         }
-        if let Some(artwork) = &mut self.artwork.posters {
-            artwork.retry_failures();
+        if self.navigation.page != Page::Detail {
+            if let Some(artwork) = &mut self.artwork.posters {
+                artwork.retry_failures();
+            }
+            if let Some(artwork) = &mut self.artwork.player {
+                artwork.retry_failures();
+            }
+            self.retry_series_details();
+            self.request_series_tracking(true);
         }
-        if let Some(artwork) = &mut self.artwork.player {
-            artwork.retry_failures();
-        }
-        self.retry_series_details();
-        self.request_series_tracking(true);
         match self.navigation.page {
             Page::Guide | Page::Settings => self.refresh_guide(),
             Page::Stats => self.refresh_stats(),
@@ -93,8 +95,33 @@ impl State {
             }
             Page::Detail => {
                 if let Some(meta) = self.detail.meta.clone() {
-                    self.detail.generation += 1;
-                    self.open_detail_from(meta);
+                    if meta.kind == "movie" {
+                        self.find_streams(meta.kind.clone(), meta.id.clone());
+                    } else if meta.kind == "series"
+                        && let Some(episode) = self.detail.episodes.selected.clone()
+                    {
+                        self.find_streams(meta.kind.clone(), episode);
+                    } else {
+                        self.detail.generation += 1;
+                        self.detail.episode_refresh_generation = (meta.kind == "series"
+                            && self.detail.pending_episode.is_none())
+                        .then_some(self.detail.generation);
+                        self.runtime.streams.invalidate();
+                        self.detail.sources.reset();
+                        self.detail.request = super::request::RequestState {
+                            loading: true,
+                            status: "Loading details…".into(),
+                            ..super::request::RequestState::default()
+                        };
+                        if let Some(services) = &mut self.runtime.services {
+                            services.detail(
+                                self.detail.generation,
+                                self.addons.installed.clone(),
+                                meta,
+                                self.detail.namespace.clone(),
+                            );
+                        }
+                    }
                 }
             }
             Page::Addons => {
