@@ -183,7 +183,6 @@ pub(in crate::ui) mod radius {
     pub const SM: f32 = 2.0;
     pub const LG: f32 = 3.0;
     pub const CHIP: f32 = SM;
-    pub const SEGMENTED: f32 = SM;
     pub const PROVIDER: f32 = LG;
     pub const CALENDAR: f32 = SM;
     pub const EPISODE: f32 = SM;
@@ -277,11 +276,13 @@ pub(in crate::ui) fn kit() -> &'static rune_kit::Kit {
         kit.c.text_base = theme.text;
         kit.c.icon_base = theme.text;
         kit.c.text_muted = theme.text_secondary;
+        kit.c.text_faint = theme.text_secondary;
         kit.c.icon_muted = theme.text_secondary;
         kit.c.border_focus = accent();
         kit.c.hover = theme.hover;
         kit.c.pressed = theme.press;
         kit.c.layer_01 = panel();
+        kit.c.bg_base = panel();
         kit.c.bg_button_neutral = panel();
         kit.c.border_base = edge();
         kit.c.border_muted = edge();

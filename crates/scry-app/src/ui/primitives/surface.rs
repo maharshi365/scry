@@ -1,6 +1,6 @@
 use super::super::design::tokens::{self, accent, edge, panel, theme, type_};
 use super::text::label;
-use rune::{Align, El, Icon, PointerPress, ScrollSpec, Side, col, el, icon, text};
+use rune::{Align, El, Icon, ScrollSpec, Side, col, el, icon, text};
 use rune_kit::popover;
 
 pub(in crate::ui) fn card() -> El {
@@ -154,28 +154,4 @@ pub(in crate::ui) fn dropdown<S: 'static>(
         .focus_group()
         .focus_return(trigger)
         .child(popover::fit_scroll(content))
-}
-
-/// A pointer-anchored menu with the same fitting and scrolling as dropdowns.
-pub(in crate::ui) fn context_menu<S: 'static>(
-    key: &str,
-    point: PointerPress,
-    width: f32,
-    content: El,
-    dismiss: impl Fn(&mut S) + 'static,
-) -> El {
-    let anchor = format!("{key}-point");
-    el().key(format!("{key}-layer"))
-        .absolute(0.0, 0.0)
-        .w_full()
-        .h_full()
-        .child(el().key(&anchor).absolute(point.x, point.y).size(0.0, 0.0))
-        .child(
-            dropdown(key, &anchor, width, content, dismiss).anchored_fit(
-                anchor,
-                Side::Bottom,
-                Align::Start,
-                0.0,
-            ),
-        )
 }

@@ -215,7 +215,7 @@ fn controls_run_local_actions_and_replay_resets_only_the_selected_scene() {
 fn settings_and_list_examples_keep_state_in_their_own_window() {
     let mut first = runtime(scene_settings, (1280.0, 820.0));
     let second = runtime(scene_settings, (1280.0, 820.0));
-    tap(&mut first, "playground-quality-High quality");
+    tap(&mut first, "segment1");
     tap(&mut first, "playground-save");
     assert_eq!(stage(&first).saved, Some(Quality::High));
     assert_eq!(stage(&second).quality, Quality::Automatic);

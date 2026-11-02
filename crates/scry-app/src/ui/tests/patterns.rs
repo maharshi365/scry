@@ -302,7 +302,7 @@ fn install_dialog_uses_matching_shared_input_and_submit_heights() {
     state.addons.busy = false;
     let mut rt = rune::Runtime::new(state, super::view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);
-    let input = super::rect(&rt, "manifest-frame");
+    let input = super::rect(&rt, "manifest");
     let submit = super::rect(&rt, "install-addon");
     assert_eq!(
         input[3],

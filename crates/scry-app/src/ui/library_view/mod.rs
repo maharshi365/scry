@@ -12,7 +12,7 @@ use super::{
     controls::action,
     design::icons,
     primitives::{
-        button::{Button, Variant, segment, segmented_group},
+        button::{Button, Variant, segmented},
         pattern::detail_header,
         surface::empty_state,
         text::{heading, label},
@@ -565,31 +565,17 @@ pub(super) fn detail_actions(s: &State) -> El {
 }
 
 pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
-    let filters = row().center_y().gap(12.0).child(
-        segmented_group()
-            .child(segment(
-                "library-watchlist-tab",
-                "To watch",
-                s.library.list == 0,
-                |s: &mut State| {
-                    s.library.list = 0;
-                    s.library.offset = 0;
-                    s.library.entries = None;
-                    s.refresh_library();
-                },
-            ))
-            .child(segment(
-                "library-watched-tab",
-                "Watched",
-                s.library.list == 1,
-                |s: &mut State| {
-                    s.library.list = 1;
-                    s.library.offset = 0;
-                    s.library.entries = None;
-                    s.refresh_library();
-                },
-            )),
-    );
+    let filters = row().center_y().gap(12.0).child(segmented(
+        "library-status",
+        &["To watch", "Watched"],
+        usize::from(s.library.list),
+        |s: &mut State, selected, _| {
+            s.library.list = u8::from(selected == 1);
+            s.library.offset = 0;
+            s.library.entries = None;
+            s.refresh_library();
+        },
+    ));
     let mut body =
         col()
             .w_full()

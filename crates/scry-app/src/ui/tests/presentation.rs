@@ -22,12 +22,12 @@ fn library_empty_states_keep_watch_filters() {
         let mut rt = rune::Runtime::new(s, view, (1000.0, 800.0), rune::Env::default());
         rt.frame(0.0);
         if watched {
-            tap(&mut rt, "library-watched-tab");
+            tap(&mut rt, "library-status/segment1");
         }
         rt.update(|s, _| s.apply_library_entries(vec![]));
         rt.frame(1.0 / 60.0);
-        let list_tab = rect(&rt, "library-watchlist-tab");
-        assert_eq!(list_tab[3], super::super::design::tokens::control::HEIGHT);
+        let list_tab = rect(&rt, "segment0");
+        assert_eq!(list_tab[3], rect(&rt, "library-status")[3]);
         assert!(rt.find("library-empty").is_some());
         let empty = rect(&rt, "library-empty");
         let filters = list_tab;

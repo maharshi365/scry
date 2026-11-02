@@ -81,13 +81,17 @@ pub(in crate::ui) fn menu_item<S: 'static>(
         .focus_follows()
 }
 
-pub(in crate::ui) fn segmented_group() -> El {
-    row()
-        .gap(2.0)
-        .padding(2.0)
-        .radius(tokens::radius::SEGMENTED)
-        .fill(tokens::panel())
-        .border(tokens::border::WIDTH, tokens::edge())
+pub(in crate::ui) fn segmented<S: 'static>(
+    key: &str,
+    labels: &[&str],
+    selected: usize,
+    select: impl Fn(&mut S, usize, &mut Tx) + Clone + 'static,
+) -> El {
+    rune_kit::SegmentedControl::new(labels, Some(selected))
+        .fit()
+        .on_pick(select)
+        .build(tokens::kit())
+        .key(key)
 }
 
 pub(in crate::ui) fn menu_choice<S: 'static>(
@@ -113,23 +117,6 @@ pub(in crate::ui) fn menu_choice<S: 'static>(
         );
     }
     choice
-}
-
-pub(in crate::ui) fn segment<S: 'static>(
-    key: impl Into<String>,
-    title: impl Into<String>,
-    selected: bool,
-    f: impl Fn(&mut S) + 'static,
-) -> El {
-    Button::new(key, title)
-        .variant(Variant::Ghost)
-        .selected(selected)
-        .on_press(f)
-        .min_w(80.0)
-        .h(control::HEIGHT)
-        .px(12.0)
-        .radius(tokens::radius::SM)
-        .border(tokens::border::NONE, tokens::edge())
 }
 
 #[derive(Clone, Copy, Default)]

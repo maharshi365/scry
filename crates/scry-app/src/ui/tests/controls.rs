@@ -393,7 +393,7 @@ fn addon_dialog_keeps_its_size_and_footer_position_in_every_install_state() {
     rt.frame(0.0);
     let panel = rect(&rt, "addon-install-dialog");
     let button = rect(&rt, "install-addon");
-    let input = rect(&rt, "manifest-frame");
+    let input = rect(&rt, "manifest");
     for (busy, error, complete) in [
         (true, None, false),
         (false, Some("Cannot fetch manifest"), false),
@@ -406,7 +406,7 @@ fn addon_dialog_keeps_its_size_and_footer_position_in_every_install_state() {
         });
         rt.frame(0.0);
         assert_eq!(rect(&rt, "addon-install-dialog"), panel);
-        assert_eq!(rect(&rt, "manifest-frame"), input);
+        assert_eq!(rect(&rt, "manifest"), input);
         assert_eq!(
             rect(
                 &rt,
@@ -484,6 +484,9 @@ fn custom_addons_still_require_the_url_dialog_and_explicit_install() {
     rt.update(|s, _| {
         s.addons.install = TextEdit::new("https://example.invalid/custom/manifest.json");
     });
+    for _ in 0..30 {
+        rt.frame(1.0 / 60.0);
+    }
     tap(&mut rt, "install-addon");
     assert_eq!(
         requests.try_recv().unwrap(),
@@ -495,6 +498,42 @@ fn custom_addons_still_require_the_url_dialog_and_explicit_install() {
     );
     assert!(rt.state.addons.busy);
     assert!(rt.state.addons.install_open);
+}
+
+#[test]
+fn install_dialog_dismissal_does_not_dispatch_an_install_or_clear_the_url() {
+    for outside in [false, true] {
+        let mut state = init();
+        let (services, requests) = crate::services::Services::install_fixture().unwrap();
+        state.runtime.services = Some(services);
+        state.navigation.page = Page::Addons;
+        state.addons.busy = false;
+        state.addons.install_open = true;
+        state.addons.install = TextEdit::new("https://example.invalid/custom/manifest.json");
+        let mut rt = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
+        rt.on_key = Some(on_key);
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        if outside {
+            rt.pointer_down(10.0, 10.0);
+            rt.pointer_up(10.0, 10.0);
+        } else {
+            tap(&mut rt, "manifest");
+            rt.key(rune::KeyEvent {
+                key: rune::Key::Escape,
+                mods: rune::Mods::default(),
+            });
+        }
+        rt.frame(1.0 / 60.0);
+        assert!(!rt.state.addons.install_open);
+        assert_eq!(rt.state.navigation.page, Page::Addons);
+        assert_eq!(
+            rt.state.addons.install.text,
+            "https://example.invalid/custom/manifest.json"
+        );
+        assert!(requests.try_recv().is_err());
+    }
 }
 
 #[test]
@@ -759,4 +798,41 @@ fn input_submission_uses_the_callers_callback_not_its_key() {
     });
     rt.frame(0.0);
     assert_eq!(rt.state.submitted, "A value");
+}
+
+#[test]
+fn input_changes_and_submission_share_the_callers_edit_state() {
+    #[derive(Default)]
+    struct Form {
+        edit: TextEdit,
+        changed: String,
+        submitted: String,
+    }
+    fn form(s: &Form, _: &mut rune::Cx<Form>) -> rune::El {
+        crate::ui::primitives::input::input_with_change(
+            "editable",
+            &s.edit,
+            "Value",
+            |s: &mut Form| &mut s.edit,
+            |_, _, _| false,
+            |s| s.submitted.clone_from(&s.edit.text),
+            |s, _| s.changed.clone_from(&s.edit.text),
+        )
+    }
+    let mut rt = rune::Runtime::new(Form::default(), form, (400.0, 300.0), rune::Env::default());
+    rt.frame(0.0);
+    let (x, y) = rt.find("editable").unwrap();
+    rt.pointer_down(x, y);
+    rt.pointer_up(x, y);
+    rt.paste("First");
+    rt.frame(0.0);
+    rt.paste(" second");
+    rt.frame(0.0);
+    assert_eq!(rt.state.changed, "First second");
+    rt.key(rune::KeyEvent {
+        key: rune::Key::Enter,
+        mods: rune::Mods::default(),
+    });
+    rt.frame(0.0);
+    assert_eq!(rt.state.submitted, "First second");
 }

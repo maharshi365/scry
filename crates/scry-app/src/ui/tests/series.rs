@@ -136,7 +136,7 @@ fn background_tracking_finds_completed_shows_hidden_by_the_library_filter() {
     s.library.worker = Some(crate::library_worker::Worker::start(path, Arc::new(|| {})).unwrap());
     let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
     rt.frame(0.0);
-    tap(&mut rt, "library-watched-tab");
+    tap(&mut rt, "library-status/segment1");
     rt.poll = Some(poll);
     settle_library(&mut rt, |s| {
         s.library
@@ -147,7 +147,7 @@ fn background_tracking_finds_completed_shows_hidden_by_the_library_filter() {
     let first = rt.state.library.entries.as_ref().unwrap()[0].key.clone();
     wait_for_watched_series(&mut rt, &first);
     assert!(rt.find("library-poster-0-watched").is_some());
-    tap(&mut rt, "library-watchlist-tab");
+    tap(&mut rt, "library-status/segment0");
     settle_library(&mut rt, |s| {
         s.library.entries.as_ref().is_some_and(Vec::is_empty)
     });
@@ -348,7 +348,7 @@ fn tv_posters_share_episode_progress_and_require_the_full_inventory_across_route
             settle_library(&mut rt, |s| {
                 s.library.entries.as_ref().is_some_and(Vec::is_empty)
             });
-            tap(&mut rt, "library-watched-tab");
+            tap(&mut rt, "library-status/segment1");
             settle_library(&mut rt, |s| {
                 s.library
                     .entries

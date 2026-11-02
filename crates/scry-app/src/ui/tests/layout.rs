@@ -16,7 +16,7 @@ fn titlebar_reserves_native_controls_without_losing_search_or_navigation() {
                 "Header overlaps native controls"
             );
             let header = rect(&rt, "topbar");
-            for key in ["search-frame", "nav-back", "nav-forward"] {
+            for key in ["search", "nav-back", "nav-forward"] {
                 let bounds = rect(&rt, key);
                 assert!(bounds[1] >= header[1] && bounds[1] + bounds[3] <= header[1] + header[3]);
                 assert!(bounds[0] + bounds[2] <= width, "{key} exceeds window");
@@ -64,7 +64,7 @@ fn topbar_controls_share_height_and_alignment_while_searching() {
     for width in [880.0, 1280.0] {
         let mut rt = rune::Runtime::new(init(), view, (width, 600.0), rune::Env::default());
         rt.frame(0.0);
-        let search = rect(&rt, "search-frame");
+        let search = rect(&rt, "search");
         for key in ["nav-back", "nav-forward"] {
             let bounds = rect(&rt, key);
             assert!((bounds[3] - search[3]).abs() < 0.5, "{key} height");
@@ -76,7 +76,7 @@ fn topbar_controls_share_height_and_alignment_while_searching() {
             s.discover.displayed_query = "movie".into();
         });
         rt.frame(0.0);
-        assert_eq!(rect(&rt, "search-frame"), search);
+        assert_eq!(rect(&rt, "search"), search);
     }
 }
 

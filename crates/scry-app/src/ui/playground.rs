@@ -2,7 +2,7 @@
 use super::{
     design::tokens,
     primitives::{
-        button::{Button, Size, Variant, menu_choice, segment, segmented_group},
+        button::{Button, Size, Variant, menu_choice, segmented},
         dialog,
         feedback::{self, Tone},
         form::{choices, option_row},
@@ -202,15 +202,18 @@ fn controls(s: &State) -> El {
 }
 
 fn settings(s: &State) -> El {
-    let mut quality = segmented_group();
-    for value in [Quality::Automatic, Quality::High] {
-        quality = quality.child(segment(
-            format!("playground-quality-{}", value.title()),
-            value.title(),
-            s.quality == value,
-            move |s: &mut State| s.quality = value,
-        ));
-    }
+    let quality = segmented(
+        "playground-quality",
+        &[Quality::Automatic.title(), Quality::High.title()],
+        usize::from(s.quality == Quality::High),
+        |s: &mut State, selected, _| {
+            s.quality = if selected == 0 {
+                Quality::Automatic
+            } else {
+                Quality::High
+            };
+        },
+    );
     section(
         "playground-settings-examples",
         "Playback preferences",
@@ -532,21 +535,22 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
             examples,
         ));
     if s.dialog_open {
-        root = root.child(dialog::layer(
-            "playground-dialog-layer",
-            dialog::panel("playground-dialog", |s: &mut State| s.dialog_open = false)
-                .w(480.0)
+        root = root.child(dialog::modal(
+            "playground",
+            "Clear the example notice?",
+            480.0,
+            col().w_full()
                 .padding(24.0)
                 .gap(20.0)
-                .child(dialog::header("Clear the example notice?"))
                 .child(label("This changes only this playground window. Your library and settings are not affected."))
                 .child(
                     row()
                         .gap(12.0)
                         .flex_wrap()
-                        .child(dialog::close("playground-dialog-cancel", "Cancel", |s: &mut State| s.dialog_open = false))
+                        .child(Button::new("playground-dialog-cancel", "Cancel").on_press(|s: &mut State| s.dialog_open = false))
                         .child(Button::new("playground-dialog-confirm", "Clear notice").variant(Variant::Danger).on_press(State::confirm)),
                 ),
+            |s: &mut State| s.dialog_open = false,
         ));
     }
     root

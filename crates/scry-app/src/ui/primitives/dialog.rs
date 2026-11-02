@@ -2,6 +2,24 @@ use super::super::design::{icons, tokens};
 use super::{button::Button, surface::card, text::heading};
 use rune::{El, el, row};
 
+pub(in crate::ui) fn modal<S: 'static>(
+    key: &str,
+    title: &str,
+    width: f32,
+    content: El,
+    dismiss: impl Fn(&mut S) + Clone + 'static,
+) -> El {
+    let mut overlays = Vec::new();
+    rune_kit::Dialog::new(key, title)
+        .open(true)
+        .fit()
+        .width(width)
+        .child(content)
+        .on_close(dismiss)
+        .build(tokens::kit(), &mut overlays);
+    el().absolute(0.0, 0.0).w_full().h_full().children(overlays)
+}
+
 /// Full-window scrim. The caller supplies the modal panel and its contents.
 pub(in crate::ui) fn layer(key: impl Into<String>, content: El) -> El {
     el().key(key)

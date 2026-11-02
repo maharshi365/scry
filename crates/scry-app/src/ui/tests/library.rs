@@ -392,21 +392,17 @@ fn rendered_detail_actions_persist_and_appear_in_the_library() {
     settle_library(&mut rt, |s| {
         s.library.entries.as_ref().is_some_and(Vec::is_empty)
     });
-    tap(&mut rt, "library-watched-tab");
-    assert!(
-        rt.elements()
-            .iter()
-            .any(|e| e.key.as_deref() == Some("library-watched-tab")
-                && e.label.as_deref() == Some("Watched, selected")),
-        "Watched filter must receive the click after returning from detail"
-    );
+    tap(&mut rt, "library-status/segment1");
     settle_library(&mut rt, |s| {
         s.library
             .entries
             .as_ref()
             .is_some_and(|items| items.len() == 1)
     });
-    assert!(rt.find("library-open-0").is_some());
+    assert!(
+        rt.find("library-open-0").is_some(),
+        "The Watched filter must show the watched title after returning from detail"
+    );
     let library = scry_library::Library::open(path).unwrap();
     let key = scry_library::MediaKey::new("imdb", scry_library::MediaKind::Movie, "tt123");
     assert!(library.is_in_watchlist(&key).unwrap());
@@ -524,7 +520,7 @@ fn library_grid_scrolls_and_history_restores_the_opened_poster_card() {
     for _ in 0..30 {
         rt.frame(1.0 / 60.0);
     }
-    let filters = rect(&rt, "library-watchlist-tab");
+    let filters = rect(&rt, "segment0");
     let viewport = rect(&rt, "library-scroll-0-0");
     assert!(!visible_artwork(&rt.state).contains(&"https://example.com/199.jpg".into()));
     rt.wheel(viewport[0] + 30.0, viewport[1] + 30.0, -1_000_000.0);
@@ -533,7 +529,7 @@ fn library_grid_scrolls_and_history_restores_the_opened_poster_card() {
     }
     let last = rect(&rt, "library-open-199");
     assert!(last[1] >= viewport[1] && last[1] + last[3] <= viewport[1] + viewport[3] + 1.0);
-    assert_eq!(rect(&rt, "library-watchlist-tab"), filters);
+    assert_eq!(rect(&rt, "segment0"), filters);
     assert!(
         rt.state
             .artwork

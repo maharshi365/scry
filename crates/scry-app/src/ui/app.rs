@@ -53,11 +53,6 @@ pub(super) fn on_key(s: &mut State, event: &rune::KeyEvent, tx: &mut rune::Tx) -
             s.player.interaction.keyboard = true;
         }
     }
-    if event.key == rune::Key::Escape && (s.shell.context_menu.is_some() || s.addons.install_open) {
-        s.shell.context_menu = None;
-        s.addons.install_open = false;
-        return true;
-    }
     let fullscreen = s.player.fullscreen;
     let handled = dispatch(s, event, Focus::Screen, SHORTCUTS);
     if s.player.fullscreen != fullscreen {

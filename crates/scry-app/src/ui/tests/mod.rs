@@ -73,6 +73,17 @@ fn tap(rt: &mut rune::Runtime<State>, key: &str) {
     rt.frame(1.0 / 60.0);
 }
 
+fn tap_menu(rt: &mut rune::Runtime<State>, label: &str) {
+    let key = rt
+        .elements()
+        .into_iter()
+        .find(|e| !e.exiting && e.role == "menuitem" && e.label.as_deref() == Some(label))
+        .unwrap_or_else(|| panic!("Missing menu action {label}"))
+        .key
+        .unwrap();
+    tap(rt, &key);
+}
+
 pub(super) fn series(count: usize) -> Meta {
     serde_json::from_value(serde_json::json!({
         "id": "tt123", "type": "series", "name": "Long show",

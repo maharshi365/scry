@@ -14,6 +14,31 @@ fn right_click(rt: &mut rune::Runtime<State>, key: &str) {
 }
 
 #[test]
+fn dismissing_a_context_menu_keeps_the_current_page_and_target_state() {
+    let mut state = init();
+    scene_discover(&mut state);
+    let mut rt = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
+    rt.frame(0.0);
+    for outside in [false, true] {
+        right_click(&mut rt, "title-0");
+        assert!(rt.state.shell.context_menu.is_some());
+        if outside {
+            rt.pointer_down(10.0, 10.0);
+            rt.pointer_up(10.0, 10.0);
+        } else {
+            rt.key(rune::KeyEvent {
+                key: rune::Key::Escape,
+                mods: rune::Mods::default(),
+            });
+        }
+        rt.frame(1.0 / 60.0);
+        assert!(rt.state.shell.context_menu.is_none());
+        assert_eq!(rt.state.navigation.page, Page::Discover);
+        assert!(rt.state.detail.meta.is_none());
+    }
+}
+
+#[test]
 fn season_actions_cover_every_episode_on_all_pages_but_not_other_seasons() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("library.sqlite3");
@@ -55,8 +80,7 @@ fn season_actions_cover_every_episode_on_all_pages_but_not_other_seasons() {
         rt.frame(1.0 / 60.0);
     }
     right_click(&mut rt, "season-select");
-    assert!(rt.find("context-season-watched").is_some());
-    tap(&mut rt, "context-season-watched");
+    tap_menu(&mut rt, "Mark all episodes watched");
     settle_library(&mut rt, |s| {
         s.library.snapshot.as_ref().is_some_and(|snapshot| {
             snapshot.episode_states.len() == 100
@@ -76,7 +100,7 @@ fn season_actions_cover_every_episode_on_all_pages_but_not_other_seasons() {
         tap(&mut rt, "achievement-dismiss");
     }
     right_click(&mut rt, "season-select");
-    tap(&mut rt, "context-season-unwatched");
+    tap_menu(&mut rt, "Mark all episodes unwatched");
     settle_library(&mut rt, |s| {
         s.library.snapshot.as_ref().is_some_and(|snapshot| {
             snapshot.episode_states.len() == 100
@@ -125,14 +149,12 @@ fn library_actions_use_add_and_remove_library_labels() {
     assert!(
         elements
             .iter()
-            .any(|e| e.key.as_deref() == Some("context-later")
-                && e.label.as_deref() == Some("Add to library"))
+            .any(|e| e.role == "menuitem" && e.label.as_deref() == Some("Add to library"))
     );
     assert!(
         elements
             .iter()
-            .any(|e| e.key.as_deref() == Some("context-remove")
-                && e.label.as_deref() == Some("Remove from library"))
+            .any(|e| e.role == "menuitem" && e.label.as_deref() == Some("Remove from library"))
     );
 }
 
@@ -153,7 +175,7 @@ fn currently_watching_can_open_the_picker_without_resuming() {
     let mut runtime = rune::Runtime::new(state, view, (1280.0, 820.0), rune::Env::default());
     runtime.frame(0.0);
     right_click(&mut runtime, "watching-open-0");
-    tap(&mut runtime, "context-choose-stream");
+    tap_menu(&mut runtime, "Choose another stream");
     assert_eq!(runtime.state.navigation.page, Page::Detail);
     assert_eq!(runtime.state.detail.meta.as_ref().unwrap().id, "continue");
     assert!(runtime.state.library.resume_request.is_none());
@@ -182,8 +204,7 @@ fn currently_watching_context_menu_dismisses_without_removing_saved_progress() {
     runtime.poll = Some(poll);
     settle_library(&mut runtime, |state| state.library.watching.len() == 1);
     right_click(&mut runtime, "watching-open-0");
-    assert!(runtime.find("context-dismiss-watching").is_some());
-    tap(&mut runtime, "context-dismiss-watching");
+    tap_menu(&mut runtime, "Dismiss from Currently watching");
     settle_library(&mut runtime, |state| state.library.watching.is_empty());
     assert!(runtime.state.shell.context_menu.is_none());
     let db = Library::open(&path).unwrap();

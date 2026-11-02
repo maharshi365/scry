@@ -55,11 +55,6 @@ pub(in crate::ui) static SPINNER: Icon = Icon {
     body: include_str!("../../../assets/icons/rune/loader-circle.svg"),
 };
 
-pub(in crate::ui) static DOWNLOAD: Icon = Icon {
-    name: "download",
-    view: 24.0,
-    body: include_str!("../../../assets/icons/rune/download.svg"),
-};
 pub(in crate::ui) static TRASH: Icon = Icon {
     name: "trash",
     view: 24.0,
@@ -190,7 +185,6 @@ mod tests {
             };
         }
         let sources = [
-            source!(DOWNLOAD, "download"),
             source!(TRASH, "trash-2"),
             source!(PLAY, "play"),
             source!(PAUSE, "pause"),

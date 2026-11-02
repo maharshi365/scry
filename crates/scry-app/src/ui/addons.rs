@@ -1,7 +1,6 @@
 //! Built-in providers install directly; custom URLs use the installation dialog.
 use super::{
     State,
-    app::on_input_key,
     design::{icons, tokens},
     primitives::{
         button::{Button, Size, Variant},
@@ -410,34 +409,10 @@ pub(super) fn install_dialog(s: &State) -> El {
             .busy(s.addons.busy)
             .on_press(|s: &mut State| s.install(s.addons.install.text.clone()))
     };
-    dialog::layer(
-        "addon-dialog-layer",
-        dialog::panel("addon-install-dialog", |s: &mut State| {
-            s.addons.install_open = false;
-        })
-        .w(tokens::addon::DIALOG_WIDTH)
+    let content = col()
+        .w_full()
         .padding(tokens::layout::PANEL_INSET)
         .gap(tokens::layout::SECTION_GAP)
-        .child(
-            row()
-                .w_full()
-                .center_y()
-                .gap(tokens::layout::PAGE_GAP)
-                .child(super::primitives::status::provider_tile().child(
-                    icon(&icons::DOWNLOAD, tokens::badge::MEDALLION_ICON).color(tokens::accent()),
-                ))
-                .child(
-                    dialog::header("Add by URL")
-                        .w(0.0)
-                        .min_w(0.0)
-                        .grow(1.0)
-                        .child(dialog::close(
-                            "addon-dialog-close",
-                            "Close install dialog",
-                            |s: &mut State| s.addons.install_open = false,
-                        )),
-                ),
-        )
         .child(label(
             "Connect a custom provider using its Stremio-compatible manifest URL.",
         ))
@@ -451,8 +426,7 @@ pub(super) fn install_dialog(s: &State) -> El {
                         "manifest",
                         &s.addons.install,
                         "https://provider.example/manifest.json",
-                        |s| &mut s.addons.install,
-                        on_input_key,
+                        |s: &mut State| &mut s.addons.install,
                         |s| {
                             if !s.addons.install_complete {
                                 s.install(s.addons.install.text.clone());
@@ -483,6 +457,12 @@ pub(super) fn install_dialog(s: &State) -> El {
                         .on_press(|s: &mut State| s.addons.install_open = false),
                 )
                 .child(submit),
-        ),
+        );
+    dialog::modal(
+        "addon-install",
+        "Add by URL",
+        tokens::addon::DIALOG_WIDTH,
+        content,
+        |s: &mut State| s.addons.install_open = false,
     )
 }

@@ -126,7 +126,7 @@ fn context_refresh_reloads_calendar_without_changing_day_geometry() {
     rt.frame(1.0 / 60.0);
     // Allow the pointer-anchored menu to fit inside the window before clicking.
     rt.frame(1.0 / 60.0);
-    tap(&mut rt, "context-refresh");
+    tap_menu(&mut rt, "Refresh");
     assert!(
         rt.state.shell.context_menu.is_none(),
         "refresh was not activated"
@@ -251,11 +251,11 @@ fn startup_opens_watching_and_addon_install_uses_a_dialog() {
     }
     assert!(rt.find("manifest").is_some());
     assert_eq!(
-        rect(&rt, "manifest-frame")[3],
+        rect(&rt, "manifest")[3],
         super::super::design::tokens::control::DIALOG_HEIGHT
     );
     assert!(rt.state.addons.install.text.is_empty());
-    tap(&mut rt, "addon-dialog-close");
+    tap(&mut rt, "addon-install-dialog/header/close");
 }
 
 #[test]
@@ -329,8 +329,12 @@ fn right_click_actions_persist_and_page_refresh_is_available() {
     for _ in 0..10 {
         rt.frame(1.0 / 60.0);
     }
-    assert!(rt.find("context-watched").is_some());
-    tap(&mut rt, "context-later");
+    assert!(
+        rt.elements()
+            .iter()
+            .any(|e| e.role == "menuitem" && e.label.as_deref() == Some("Mark as watched"))
+    );
+    tap_menu(&mut rt, "Add to library");
     settle_library(&mut rt, |s| {
         s.library
             .entries
@@ -344,7 +348,11 @@ fn right_click_actions_persist_and_page_refresh_is_available() {
     rt.secondary_down(1250.0, 790.0);
     rt.secondary_up(1250.0, 790.0);
     rt.frame(1.0 / 60.0);
-    assert!(rt.find("context-refresh").is_some());
+    assert!(
+        rt.elements()
+            .iter()
+            .any(|e| e.role == "menuitem" && e.label.as_deref() == Some("Refresh"))
+    );
 }
 
 #[test]
