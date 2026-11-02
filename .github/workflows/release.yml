@@ -2,6 +2,11 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      sccache:
+        description: Use the experimental Rust compiler cache
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -16,6 +21,7 @@ jobs:
     with:
       sha: ${{ github.sha }}
       release: true
+      sccache: ${{ inputs.sccache }}
   publish:
     name: Draft GitHub release
     needs: desktop

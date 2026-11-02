@@ -7,7 +7,7 @@ function Build-Scry([switch]$Release, [switch]$Development) {
     try {
         $env:SCRY_DEV_ICON = if ($Development) { '1' } else { $null }
         $arguments = @('build', '-p', 'scry-app', '--bin', 'scry', '--locked')
-        if ($Release) { $arguments += '--release' }
+        if ($Release) { $arguments += @('--release', '--timings') }
         & cargo @arguments
         if ($LASTEXITCODE -ne 0) { throw 'Scry build failed; the installed app was not changed.' }
         return Get-ScryExecutable -Release:$Release

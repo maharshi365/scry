@@ -11,6 +11,9 @@ on:
       release:
         type: boolean
         default: false
+      sccache:
+        type: boolean
+        default: false
     outputs:
       version:
         value: ${{ jobs.build.outputs.version }}
@@ -22,6 +25,51 @@ env:
   CARGO_BUILD_WARNINGS: deny
 
 jobs:
+  validate:
+    name: Validate ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            runner: windows-2025
+          - platform: macos-arm64
+            runner: macos-26
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: '1.97.1'
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: validation-v1-${{ matrix.platform }}
+      - name: Prepare Windows runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./scripts/windows/setup-runtime.ps1
+          Add-Content $env:GITHUB_PATH "$env:GITHUB_WORKSPACE/runtime"
+      - name: Prepare macOS
+        if: runner.os == 'macOS'
+        run: |
+          bash scripts/macos/setup.sh
+          xcrun --sdk macosx metal --version || xcodebuild -downloadComponent MetalToolchain
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked
+      - name: Test
+        run: cargo test --workspace --all-targets --locked
+      - name: Clippy (all features)
+        run: cargo clippy --workspace --all-targets --all-features --locked
+      - name: Test (all features)
+        run: cargo test --workspace --all-targets --all-features --locked
   build:
     name: ${{ matrix.platform }}
     outputs:
@@ -48,7 +96,18 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: desktop-${{ matrix.platform }}
-          cache-on-failure: true
+          prefix-key: release-v1
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
+        if: inputs.sccache
+        with:
+          version: v0.19.0
+      - name: Enable compiler cache
+        if: inputs.sccache
+        shell: bash
+        run: |
+          echo 'RUSTC_WRAPPER=sccache' >> "$GITHUB_ENV"
+          echo 'SCCACHE_GHA_ENABLED=true' >> "$GITHUB_ENV"
+          echo 'SCCACHE_GHA_VERSION=scry-release-v1-${{ matrix.platform }}' >> "$GITHUB_ENV"
       - name: Set build version
         id: version
         shell: bash
@@ -93,16 +152,6 @@ jobs:
           bash scripts/macos/setup.sh
           brew install dylibbundler
           xcrun --sdk macosx metal --version || xcodebuild -downloadComponent MetalToolchain
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked
-      - name: Test
-        run: cargo test --workspace --all-targets --locked
-      - name: Clippy (all features)
-        run: cargo clippy --workspace --all-targets --all-features --locked
-      - name: Test (all features)
-        run: cargo test --workspace --all-targets --all-features --locked
       - name: Package Windows
         if: runner.os == 'Windows'
         shell: pwsh
@@ -117,6 +166,14 @@ jobs:
       - name: Check macOS installer
         if: runner.os == 'macOS'
         run: bash scripts/macos/test-package.sh "$RUNNER_TEMP/dist/Scry-$SCRY_BUILD_VERSION-macos-arm64.pkg"
+      - name: Upload Cargo timings
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: cargo-timings-${{ matrix.platform }}
+          path: target/cargo-timings/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Report signing status
         shell: bash
         run: |

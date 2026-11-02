@@ -7,7 +7,7 @@ mkdir -p "$destination"
 destination=$(cd "$destination" && pwd)
 cd "$(dirname "$0")/../.."
 unset SCRY_DEV_ICON
-cargo build -p scry-app --bin scry --release --locked
+cargo build -p scry-app --bin scry --release --locked --timings
 metadata=$(cargo metadata --no-deps --format-version 1 --locked)
 target=$(printf '%s' "$metadata" | /usr/bin/plutil -extract target_directory raw -o - -)
 version=$(printf '%s' "$metadata" | /usr/bin/python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "scry-app"))')
