@@ -1,6 +1,29 @@
 use super::*;
 
 #[test]
+fn broken_source_dialog_fits_above_static_artwork_and_runs_local_recovery() {
+    for size in [(640.0, 480.0), (1280.0, 820.0)] {
+        let mut rt = runtime(scene_source_recovery, size);
+        let panel = rect(&rt, "playground-source-error");
+        assert!(panel[2] > 0.0 && panel[3] > 0.0);
+        assert!(panel[0] >= 0.0 && panel[0] + panel[2] <= size.0);
+        assert!(panel[1] >= 0.0 && panel[1] + panel[3] <= size.1);
+        let reveal = rect(&rt, "playground-recovery-artwork-reveal");
+        rt.frame(1.0);
+        assert!(
+            rect(&rt, "playground-recovery-artwork-reveal")
+                .into_iter()
+                .zip(reveal)
+                .all(|(actual, expected)| (actual - expected).abs() < 0.01)
+        );
+        tap(&mut rt, "player-choose-source");
+        assert_eq!(stage(&rt).presses, 1);
+        assert_eq!(rt.state.presses, 0);
+        assert!(rt.playground_element("playground-source-error").is_none());
+    }
+}
+
+#[test]
 fn loading_logo_fixture_reveals_without_moving_its_layout() {
     for size in [(640.0, 480.0), (1280.0, 820.0)] {
         let mut rt = runtime(scene_loading_indicator, size);

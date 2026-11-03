@@ -104,7 +104,16 @@ fn surface(
     } else if s.player.playing && (!s.player.ready || s.player.interaction.feedback.loading()) {
         surface = surface.child(loading(s, motion));
     } else if !s.player.playing {
-        surface = surface.child(label("Choose another source to continue."));
+        surface = surface.child(loading(
+            s,
+            super::primitives::motion::LoadingMotion::Reduced,
+        ));
+        if s.player.error.is_some() {
+            surface = surface.child(super::primitives::feedback::source_recovery(
+                "player-source-error",
+                |s: &mut State| s.travel(false),
+            ));
+        }
     }
     surface.children(intro::prompt(s))
 }
@@ -232,15 +241,7 @@ fn loading(s: &State, motion: super::primitives::motion::LoadingMotion) -> El {
             .center()
             .gap(24.0)
             .padding(24.0)
-            .child(title)
-            .child(
-                label(if s.player.ready || s.player.sample.buffering {
-                    "Buffering…"
-                } else {
-                    "Loading…"
-                })
-                .key("player-loading-status"),
-            ),
+            .child(title),
     );
     if s.player.fullscreen {
         loading = loading

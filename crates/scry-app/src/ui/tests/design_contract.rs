@@ -1,6 +1,17 @@
 //! Keep visual values in the design layer. This checks our source policy, not Rune.
 use std::path::Path;
 
+#[test]
+fn source_recovery_uses_the_shared_dialog_in_player_and_playground() {
+    for source in [
+        include_str!("../player/mod.rs"),
+        include_str!("../playground.rs"),
+    ] {
+        assert!(source.contains("feedback::source_recovery("));
+        assert!(!source.contains(".fill(tokens::danger())"));
+    }
+}
+
 fn raw_visual_value(text: &str) -> bool {
     [".radius(", ".opacity(", ".border("].iter().any(|method| {
         text.split(method)

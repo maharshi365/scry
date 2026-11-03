@@ -707,6 +707,7 @@ fn opening_player_shows_loading_instead_of_an_empty_video_surface() {
     assert!(rt.find("player-loading-indicator").is_some());
     assert!(rt.find("player-loading-dim").is_some());
     assert!(rt.find("player-loading-reveal").is_some());
+    assert!(rt.find("player-loading-status").is_none());
     assert!(rt.find("player-back").is_some());
     assert_eq!(rect(&rt, "player-loading"), rect(&rt, "video"));
 }
@@ -838,6 +839,31 @@ fn loading_artwork_is_prefetched_and_owned_by_the_playing_title() {
         2,
         "Keep artwork ready for a later seek"
     );
+    s.player.playing = false;
+    s.player.error = Some("Broken stream".into());
+    assert_eq!(player_artwork(&s).len(), 2, "Keep recovery artwork cached");
+}
+
+#[test]
+fn failed_playback_keeps_static_artwork_and_offers_another_source() {
+    let mut rt = player_runtime();
+    rt.update(|s, _| {
+        s.navigation.page = Page::Detail;
+        s.remember();
+        s.navigation.page = Page::Player;
+        s.player.playing = false;
+        s.player.error = Some("Broken stream".into());
+    });
+    rt.frame(0.0);
+    assert!(rt.find("player-loading-title").is_some());
+    assert!(rt.find("player-source-error").is_some());
+    rt.frame(1.0);
+    let reveal = rect(&rt, "player-loading-reveal");
+    rt.frame(1.0);
+    assert_eq!(rect(&rt, "player-loading-reveal"), reveal);
+    assert_eq!(reveal[2], rect(&rt, "player-loading-indicator")[2]);
+    tap(&mut rt, "player-choose-source");
+    assert_eq!(rt.state.navigation.page, Page::Detail);
 }
 
 #[test]
@@ -851,6 +877,7 @@ fn buffering_reuses_the_logo_surface_and_recovery_restores_video() {
     rt.frame(0.0);
     assert!(rt.find("player-loading-indicator").is_some());
     assert!(rt.find("player-loading-spinner").is_none());
+    assert!(rt.find("player-loading-status").is_none());
     assert!(
         rt.state.player.ready,
         "Buffering must not reset initial readiness"

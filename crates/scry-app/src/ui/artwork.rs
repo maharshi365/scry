@@ -45,16 +45,17 @@ impl State {
 }
 
 pub(super) fn player_artwork(s: &State) -> Vec<String> {
-    let (background, logo) =
-        if matches!(s.navigation.page, Page::Player | Page::Guide) && s.player.playing {
-            (s.player.background.as_ref(), s.player.logo.as_ref())
-        } else if s.navigation.page == Page::Detail {
-            s.detail.meta.as_ref().map_or((None, None), |meta| {
-                (meta.background.as_ref(), meta.logo.as_ref())
-            })
-        } else {
-            (None, None)
-        };
+    let (background, logo) = if s.navigation.page == Page::Player
+        || (s.navigation.page == Page::Guide && s.player.playing)
+    {
+        (s.player.background.as_ref(), s.player.logo.as_ref())
+    } else if s.navigation.page == Page::Detail {
+        s.detail.meta.as_ref().map_or((None, None), |meta| {
+            (meta.background.as_ref(), meta.logo.as_ref())
+        })
+    } else {
+        (None, None)
+    };
     background.into_iter().chain(logo).cloned().collect()
 }
 

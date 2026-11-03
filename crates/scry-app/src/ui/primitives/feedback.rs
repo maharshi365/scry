@@ -3,6 +3,32 @@ use super::super::design::tokens::{self, layout, type_};
 use super::text::label;
 use rune::{Color, El, col, row, text};
 
+pub(in crate::ui) fn source_recovery<S: 'static>(
+    key: &str,
+    choose: impl Fn(&mut S) + Clone + 'static,
+) -> El {
+    super::dialog::layer(
+        format!("{key}-layer"),
+        super::dialog::panel(key, choose.clone())
+            .role("dialog")
+            .label("This link could not be played.")
+            .w(tokens::recovery::DIALOG_WIDTH)
+            .padding(layout::PANEL_INSET)
+            .gap(layout::COPY_GAP)
+            .fill(tokens::danger())
+            .child(
+                text("This link could not be played.")
+                    .font(type_::TITLE)
+                    .color(tokens::on_danger())
+                    .wrap(),
+            )
+            .child(
+                super::button::Button::new("player-choose-source", "Choose source")
+                    .on_press(choose),
+            ),
+    )
+}
+
 pub(in crate::ui) fn loading_indicator(
     key: &str,
     title: &str,

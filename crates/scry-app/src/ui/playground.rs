@@ -30,6 +30,7 @@ enum Category {
     Titlebar,
     PosterGallery,
     LoadingIndicator,
+    SourceRecovery,
 }
 
 impl Category {
@@ -45,6 +46,7 @@ impl Category {
             Self::Titlebar => "Examples/Title bar",
             Self::PosterGallery => "Browse/Quiet gallery",
             Self::LoadingIndicator => "Feedback/Loading logo",
+            Self::SourceRecovery => "Feedback/Broken source",
         }
     }
 }
@@ -470,6 +472,30 @@ fn poster_gallery(s: &State, reduced_motion: bool) -> El {
     )
 }
 
+fn source_recovery(s: &State) -> El {
+    section(
+        "playground-source-recovery",
+        "Broken source",
+        "Static playback artwork with a raised recovery dialog. No real streams or services.",
+        el().w_full()
+            .h(tokens::player::LOADING_HEIGHT * 3.0)
+            .fill(tokens::video())
+            .center()
+            .child(feedback::loading_indicator(
+                "playground-recovery-artwork",
+                "SCRY",
+                None,
+                motion::LoadingMotion::Reduced,
+            ))
+            .children((s.presses == 0).then(|| {
+                feedback::source_recovery("playground-source-error", |s: &mut State| {
+                    s.presses += 1;
+                })
+            }))
+            .children((s.presses > 0).then(|| label("Source picker would open here."))),
+    )
+}
+
 fn view(s: &State, cx: &mut Cx<State>) -> El {
     let examples = match s.category {
         Category::Controls => controls(s),
@@ -479,6 +505,7 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
         Category::Feedback => feedback(s),
         Category::Motion => motion(s),
         Category::PosterGallery => poster_gallery(s, cx.is_reduced_motion()),
+        Category::SourceRecovery => source_recovery(s),
         Category::LoadingIndicator => section(
             "playground-loading-logo",
             "Loading logo",
@@ -605,6 +632,11 @@ fn scene_loading_indicator(s: &mut State) {
     s.presses = 1;
 }
 
+fn scene_source_recovery(s: &mut State) {
+    *s = init();
+    s.show(Category::SourceRecovery);
+}
+
 fn app() -> App<State> {
     App::new(AppSpec {
         fonts: tokens::fonts::FILES,
@@ -619,6 +651,7 @@ fn app() -> App<State> {
             ("Feedback/Notice", scene_feedback),
             ("Feedback/Dialog", scene_dialog),
             ("Feedback/Loading logo", scene_loading_indicator),
+            ("Feedback/Broken source", scene_source_recovery),
             ("Examples/Motion", scene_motion),
             ("Examples/Title bar", scene_titlebar),
             ("Browse/Quiet gallery", scene_poster_gallery),

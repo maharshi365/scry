@@ -111,6 +111,13 @@ pub(in crate::ui) fn warning() -> Color {
 pub(in crate::ui) fn danger() -> Color {
     rune::oklch(0.78, 0.14, 25.0)
 }
+pub(in crate::ui) fn on_danger() -> Color {
+    rune::oklch(0.18, 0.02, 25.0)
+}
+
+pub(in crate::ui) mod recovery {
+    pub const DIALOG_WIDTH: f32 = 360.0;
+}
 pub(in crate::ui) fn video() -> Color {
     rune::oklch(0.08, 0.0, 0.0)
 }
