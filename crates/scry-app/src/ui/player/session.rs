@@ -7,6 +7,7 @@ use scry_playback::telemetry::Sample;
 
 impl State {
     pub(in crate::ui) fn stop(&mut self) {
+        tracing::info!(attempt = self.player.generation, "Playback stop requested");
         self.clear_player_feedback();
         self.set_fullscreen(false);
         self.finish_library_progress(false);
@@ -36,6 +37,7 @@ impl State {
         if let Some(services) = &self.runtime.services
             && let Err(error) = services.control(control)
         {
+            tracing::warn!(attempt = self.player.generation, reason = %crate::logging::error_detail(&error), "Cannot dispatch player control");
             self.player.error = Some(error.to_string());
         }
     }
@@ -50,6 +52,7 @@ impl State {
     pub(in crate::ui) fn play(&mut self, stream: Stream, title: String) {
         self.library.resume_request = None;
         if let Err(error) = stream.validate_playback() {
+            tracing::warn!(reason = %crate::logging::error_detail(&error), "Playback source rejected");
             self.player.error = Some(error.to_string());
             return;
         }
@@ -113,6 +116,7 @@ impl State {
         self.library.replaying = None;
         self.player.error = None;
         if let Some(error) = self.shell.host_error.lock().ok().and_then(|e| e.clone()) {
+            tracing::error!(reason = %crate::logging::redact(&error), "Video host is unavailable");
             self.player.error = Some(error);
             return;
         }
@@ -180,7 +184,10 @@ impl State {
                 }
                 self.send(Control::Play(self.player.generation, target, source));
             }
-            Err(error) => self.player.error = Some(error.to_string()),
+            Err(error) => {
+                tracing::error!(reason = %crate::logging::error_detail(&error), "Cannot create video playback target");
+                self.player.error = Some(error.to_string());
+            }
         }
     }
 
@@ -196,6 +203,7 @@ impl State {
             }
         };
         if let Err(error) = stream.validate_playback() {
+            tracing::warn!(reason = %crate::logging::error_detail(&error), "Direct playback source rejected");
             self.player.error = Some(error.to_string());
             return;
         }

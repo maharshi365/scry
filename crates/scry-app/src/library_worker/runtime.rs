@@ -46,7 +46,9 @@ pub(super) fn run(
     if stop.load(Ordering::Acquire) {
         return;
     }
-    let Ok(mut library) = Library::open(path) else {
+    let Ok(mut library) = Library::open(path).inspect_err(|error| {
+        tracing::error!(reason = %crate::logging::error_detail(error), "Cannot open local library database");
+    }) else {
         emit(
             events,
             stop,
@@ -58,6 +60,7 @@ pub(super) fn run(
     if !emit(events, stop, wake, Event::Ready) {
         return;
     }
+    tracing::info!("Local library ready");
     if !achievements(&mut library, events, stop, wake) {
         return;
     }
@@ -87,7 +90,9 @@ pub(super) fn run(
             }
             pending = None;
         }
-        let event = match apply(&mut library, command) {
+        let event = match apply(&mut library, command).inspect_err(|error| {
+            tracing::warn!(reason = %crate::logging::error_detail(error), "Library request failed");
+        }) {
             Ok(event) => event,
             Err(_) if mutation => Event::Error("Cannot complete the library request".into()),
             Err(_) => Event::RequestError("Cannot complete the library request".into()),

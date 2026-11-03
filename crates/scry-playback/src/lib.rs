@@ -264,6 +264,7 @@ impl Player {
             .as_ref()
             .is_some_and(output::Output::is_finished)
         {
+            tracing::error!("Native video output worker stopped unexpectedly");
             return Some(PlaybackEvent::Failed);
         }
         // SAFETY: copy event data before the next wait_event invalidates it.
@@ -276,9 +277,17 @@ impl Player {
                 21 => Some(PlaybackEvent::Ready),
                 7 => {
                     if event.data.is_null() {
+                        tracing::error!("Player returned an end event without details");
                         return Some(PlaybackEvent::Failed);
                     }
                     let end = &*(event.data as *const EndFile);
+                    if end.reason == 4 || end.error < 0 {
+                        tracing::error!(
+                            reason_code = end.reason,
+                            mpv_error_code = end.error,
+                            "mpv could not play the source"
+                        );
+                    }
                     classify_end(end.reason, end.error)
                 }
                 _ => None,

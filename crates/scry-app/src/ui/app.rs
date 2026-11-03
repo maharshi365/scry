@@ -141,7 +141,10 @@ fn setup(s: &mut State, wake: rune::Waker) {
                 .and_then(|()| crate::library_worker::Worker::start(path, wake));
             match result {
                 Ok(worker) => s.library.worker = Some(worker),
-                Err(_) => s.library.error = Some("Cannot start the local library".into()),
+                Err(error) => {
+                    tracing::error!(reason = %crate::logging::error_detail(&error), "Local library startup failed");
+                    s.library.error = Some("Cannot start the local library".into());
+                }
             }
             s.runtime.services = Some(services);
             s.settings.subtitles.busy = true;
@@ -149,6 +152,7 @@ fn setup(s: &mut State, wake: rune::Waker) {
             s.runtime.events = Some(events);
         }
         Err(error) => {
+            tracing::error!(reason = %crate::logging::error_detail(&error), "Background services startup failed");
             s.addons.busy = false;
             s.runtime.error = Some(error.to_string());
         }

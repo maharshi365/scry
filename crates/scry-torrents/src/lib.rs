@@ -64,6 +64,7 @@ impl Torrents {
     /// # Errors
     /// Returns an error if the cache is in use or the engine cannot start.
     pub async fn with_cache_budget(folder: PathBuf, budget: u64) -> Result<Self> {
+        tracing::info!("Starting torrent engine");
         #[cfg(feature = "profiling")]
         let peer = std::env::var("SCRY_PROFILE_TORRENT_PEER")
             .ok()
@@ -102,8 +103,11 @@ impl Torrents {
                 token: token.clone(),
             });
         let server = tokio::spawn(async move {
-            let _ = axum::serve(listener, router).await;
+            if axum::serve(listener, router).await.is_err() {
+                tracing::error!("Torrent streaming HTTP server failed");
+            }
         });
+        tracing::info!("Torrent engine and local streaming server started");
         Ok(Self {
             #[cfg(feature = "profiling")]
             peer,
@@ -119,6 +123,7 @@ impl Torrents {
     /// # Errors
     /// Returns an error for invalid torrent sources, metadata timeouts, or file initialization failures.
     pub async fn play(&self, stream: &Stream) -> Result<String> {
+        tracing::info!("Torrent playback preparation started");
         self.stop().await;
         let result = self.prepare(stream).await;
         if result.is_err() {
@@ -148,6 +153,7 @@ impl Torrents {
         );
         // Inspect every path before the engine opens files, even with an explicit index.
         let listed = self.list(source).await?;
+        tracing::info!("Torrent metadata resolved");
         if listed.info_hash.as_string() != hash {
             bail!("Cached torrent identity does not match the stream");
         }
@@ -164,6 +170,11 @@ impl Torrents {
                 .collect::<Vec<_>>(),
             stream.file_idx,
         )?;
+        tracing::info!(
+            file_index = index,
+            file_count = files.len(),
+            "Torrent video selected"
+        );
         let metadata = listed.torrent_bytes.clone();
         let metadata_entry = entry.clone();
         tokio::task::spawn_blocking(move || {
@@ -206,6 +217,7 @@ impl Torrents {
         .context("Torrent metadata timed out")??;
         let id = added.id.context("Torrent has no session ID")?;
         let handle = self.api.mgr_handle(id.into())?;
+        tracing::info!("Initializing torrent video file");
         tokio::time::timeout(
             std::time::Duration::from_secs(30),
             handle.wait_until_initialized(),
@@ -215,6 +227,7 @@ impl Torrents {
         let cache = self.cache.clone();
         tokio::task::spawn_blocking(move || cache.trim(&hash)).await??;
         self.session.unpause(&handle).await?;
+        tracing::info!("Torrent started; local media stream available");
         Ok(format!(
             "http://127.0.0.1:{}/{}/{id}/{index}",
             self.port, self.token
@@ -250,7 +263,11 @@ impl Torrents {
             .session
             .with_torrents(|items| items.map(|(id, _)| id).collect::<Vec<_>>());
         for id in ids {
-            let _ = self.session.delete(id.into(), false).await;
+            if self.session.delete(id.into(), false).await.is_err() {
+                tracing::warn!("Cannot stop torrent session entry");
+            } else {
+                tracing::info!("Torrent stopped");
+            }
         }
     }
 }

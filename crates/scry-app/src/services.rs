@@ -34,6 +34,7 @@ use tokio::{
     runtime::Runtime,
     sync::{Mutex, mpsc, watch},
 };
+use tracing::Instrument;
 
 pub use crate::search::SearchResult;
 
@@ -124,6 +125,20 @@ pub struct Inbox {
 
 impl Inbox {
     async fn send(&self, event: Event) {
+        let failure = match &event {
+            Event::Addons(Err(reason)) => Some(("add-on configuration", reason)),
+            Event::Catalog(_, _, Err(reason)) => Some(("catalog lookup", reason)),
+            Event::Detail(_, Err(reason)) => Some(("media details", reason)),
+            Event::StreamingPreferences(Err(reason)) => Some(("streaming settings", reason)),
+            Event::TorrentCacheCleared(Err(reason)) => Some(("torrent cache cleanup", reason)),
+            Event::SubtitlePreferences(Err(reason))
+            | Event::SubtitlePreferencesSaved(Err(reason)) => Some(("subtitle settings", reason)),
+            Event::PlayerWarning(_, reason) => Some(("player control", reason)),
+            _ => None,
+        };
+        if let Some((operation, reason)) = failure {
+            tracing::warn!(operation, reason = %crate::logging::redact(reason), "Background operation failed");
+        }
         if self.tx.send(event).await.is_ok() {
             (self.wake)();
         }
@@ -585,6 +600,7 @@ impl Services {
                 let result = tokio::select! {
                     result = tasks.join_next() => result,
                     () = tokio::time::sleep_until(deadline) => {
+                        tracing::warn!(request = generation, "Search lookup deadline reached");
                         interrupted = true;
                         break;
                     }
@@ -676,6 +692,7 @@ impl Services {
                 let result = tokio::select! {
                     result = tasks.join_next() => result,
                     () = tokio::time::sleep_until(deadline) => {
+                        tracing::warn!(request = generation, "Stream lookup deadline reached");
                         errors.push("Some stream add-ons did not finish before the deadline".into());
                         break;
                     }
@@ -691,10 +708,14 @@ impl Services {
                                 .map(|stream| (name.clone(), stream)),
                         );
                     }
-                    Ok((_, Err(_))) => {
+                    Ok((_, Err(error))) => {
+                        tracing::warn!(request = generation, reason = %crate::logging::error_detail(&error), "Stream add-on request failed");
                         errors.push("A stream add-on request failed or timed out".into());
                     }
-                    Err(_) => errors.push("An add-on request could not finish".into()),
+                    Err(_) => {
+                        tracing::warn!(request = generation, "Stream add-on task failed");
+                        errors.push("An add-on request could not finish".into());
+                    }
                 }
                 inbox
                     .send(Event::Streams(
@@ -705,6 +726,7 @@ impl Services {
                     ))
                     .await;
             }
+            tracing::info!(request = generation, sources = streams.len(), failures = errors.len(), "Stream lookup finished");
             inbox
                 .send(Event::Streams(generation, streams, errors, true))
                 .await;
@@ -1133,6 +1155,9 @@ async fn player_loop(
     let mut generation = 0;
     let mut pending = None;
     let mut started = Instant::now();
+    let mut buffering = false;
+    let mut ready = false;
+    let mut last_wait_log = Instant::now();
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
@@ -1151,18 +1176,46 @@ async fn player_loop(
                     let mut ended = None;
                     // libmpv also emits unhandled events. Bound draining per sample.
                     for _ in 0..64 {
-                        match engine.event(0.0) {
-                            Some(PlaybackEvent::Failed | PlaybackEvent::Shutdown) => { ended = Some(true); break; }
-                            Some(PlaybackEvent::Ended) => { ended = Some(false); break; }
-                            Some(PlaybackEvent::Ready) => inbox.send_player(Event::Ready(generation), &lifecycle).await,
+                        match tracing::info_span!("playback", attempt = generation).in_scope(|| engine.event(0.0)) {
+                            Some(PlaybackEvent::Failed | PlaybackEvent::Shutdown) => {
+                                tracing::error!(attempt = generation, elapsed_s = started.elapsed().as_secs_f64(), "Player failed or shut down unexpectedly");
+                                ended = Some(true); break;
+                            }
+                            Some(PlaybackEvent::Ended) => {
+                                tracing::info!(attempt = generation, "Playback reached end of media");
+                                ended = Some(false); break;
+                            }
+                            Some(PlaybackEvent::Ready) => {
+                                ready = true;
+                                tracing::info!(attempt = generation, elapsed_s = started.elapsed().as_secs_f64(), "Playback ready or resumed");
+                                inbox.send_player(Event::Ready(generation), &lifecycle).await;
+                            }
                             _ => {}
                         }
                     }
                     let sample = engine.sample(started.elapsed().as_secs_f64());
+                    if sample.buffering != buffering {
+                        buffering = sample.buffering;
+                        tracing::info!(attempt = generation, buffering, elapsed_s = started.elapsed().as_secs_f64(), "Buffering state changed");
+                    }
+                    if !ready || buffering {
+                        if last_wait_log.elapsed() >= Duration::from_secs(30) {
+                            let stats = torrents.as_ref().and_then(Torrents::stats);
+                            tracing::warn!(attempt = generation, ready, buffering,
+                                elapsed_s = started.elapsed().as_secs_f64(),
+                                peers = stats.as_ref().and_then(|stats| stats.peers),
+                                download_bytes_per_second = stats.as_ref().and_then(|stats| stats.download_bytes_per_second),
+                                "Playback is still waiting for media data");
+                            last_wait_log = Instant::now();
+                        }
+                    } else {
+                        last_wait_log = Instant::now();
+                    }
                     inbox.notify(Event::Subtitles(generation, scry_playback::subtitles::Snapshot::read(|name| engine.property(name))));
                     inbox.notify(Event::Audio(generation, scry_playback::audio::Snapshot::read(|name| engine.property(name))));
                     if let Some(active) = &mut report
-                        && active.sample(&sample).is_err() {
+                        && let Err(error) = active.sample(&sample) {
+                        tracing::error!(attempt = generation, reason = %crate::logging::error_detail(&error), "Performance report writing failed");
                         ended = Some(true);
                     }
                     inbox.notify(Event::Metrics(generation, sample));
@@ -1211,7 +1264,8 @@ async fn player_loop(
             }
             if let Some(engine) = &player {
                 let refs: Vec<_> = args.iter().map(String::as_str).collect();
-                if engine.command(&refs).is_err() {
+                if let Err(error) = engine.command(&refs) {
+                    tracing::warn!(attempt = generation, reason = %crate::logging::error_detail(&error), "Player control failed");
                     inbox
                         .send_player(
                             Event::PlayerWarning(
@@ -1250,6 +1304,7 @@ async fn player_loop(
         }
         match command {
             Control::Stop(id) => {
+                tracing::info!(attempt = generation, "Player stopped by request");
                 generation = id;
                 inbox
                     .send_player(Event::Stopped(id, None), &lifecycle)
@@ -1258,22 +1313,37 @@ async fn player_loop(
             Control::Play(id, target, source) => {
                 generation = id;
                 started = Instant::now();
+                buffering = false;
+                ready = false;
+                last_wait_log = Instant::now();
+                let source_kind = match &source {
+                    Source::Local(_) => "local",
+                    Source::Stream(stream) | Source::Channel(stream, _) if stream.url.is_none() => {
+                        "torrent"
+                    }
+                    _ => "direct",
+                };
+                tracing::info!(attempt = id, source_kind, "Playback requested");
                 let reports = data.join("reports");
                 let path = reports.join(format!("{}.jsonl", uuid::Uuid::new_v4()));
                 let created = std::fs::create_dir_all(&reports)
                     .map_err(anyhow::Error::from)
                     .and_then(|()| Report::create(&path, "native"));
-                let Ok(active) = created else {
-                    inbox
-                        .send_player(
-                            Event::Stopped(
-                                id,
-                                Some("Cannot create private performance report".into()),
-                            ),
-                            &lifecycle,
-                        )
-                        .await;
-                    continue;
+                let active = match created {
+                    Ok(active) => active,
+                    Err(error) => {
+                        tracing::error!(attempt = id, reason = %crate::logging::error_detail(&error), "Cannot create playback performance report");
+                        inbox
+                            .send_player(
+                                Event::Stopped(
+                                    id,
+                                    Some("Cannot create private performance report".into()),
+                                ),
+                                &lifecycle,
+                            )
+                            .await;
+                        continue;
+                    }
                 };
                 report = Some(active);
                 let result: Result<Box<dyn PlaybackEngine>> = {
@@ -1295,6 +1365,7 @@ async fn player_loop(
                             }
                             Source::Stream(stream) | Source::Channel(stream, _) => {
                                 if let Some(url) = direct_url(&stream)? {
+                                    tracing::info!("Direct stream selected");
                                     url
                                 } else {
                                     let budget =
@@ -1304,17 +1375,26 @@ async fn player_loop(
                                         budget,
                                     )
                                     .await
-                                    .map_err(|_| anyhow::anyhow!("Cannot start torrent engine"))?;
+                                    .map_err(|error| {
+                                        tracing::error!(reason = %crate::logging::error_detail(&error), "Torrent engine startup failed");
+                                        anyhow::anyhow!("Cannot start torrent engine")
+                                    })?;
                                     torrents = Some(session);
                                     let session = torrents
                                         .as_ref()
                                         .context("Torrent session is unavailable")?;
                                     session.play(&stream).await
-                                        .map_err(|_| anyhow::anyhow!("Torrent could not resolve metadata or select a video file"))?
+                                        .map_err(|error| {
+                                            tracing::error!(reason = %crate::logging::error_detail(&error), "Torrent preparation failed");
+                                            anyhow::anyhow!("Torrent could not resolve metadata or select a video file")
+                                        })?
                                 }
                             }
                         };
-                        let engine = playback.open(target)?;
+                        tracing::info!("Opening playback engine");
+                        let engine = playback.open(target).inspect_err(|error| {
+                            tracing::error!(reason = %crate::logging::error_detail(error), "Cannot open playback engine");
+                        })?;
                         engine.command(&["set", "sid", "no"])?;
                         engine.command(&["set", "secondary-sid", "no"])?;
                         engine.command(&["set", "sub-auto", "no"])?;
@@ -1325,13 +1405,19 @@ async fn player_loop(
                                 .max(0);
                             engine.command(&["set", "start", &offset.to_string()])?;
                         }
-                        engine.load(&url)?;
+                        engine.load(&url).inspect_err(|error| {
+                            tracing::error!(reason = %crate::logging::error_detail(error), "Player rejected the media source");
+                        })?;
                         Ok(engine)
-                    };
+                    }.instrument(tracing::info_span!("playback", attempt = id));
                     tokio::select! {
                         biased;
                         changed = lifecycle.changed() => {
-                            if changed.is_err() { break; }
+                            if changed.is_err() {
+                                tracing::info!(attempt = id, "Playback preparation cancelled by shutdown");
+                                break;
+                            }
+                            tracing::info!(attempt = id, elapsed_s = started.elapsed().as_secs_f64(), "Playback preparation cancelled by a new request");
                             pending.clone_from(&lifecycle.borrow_and_update());
                             // Dropping preparation cancels metadata resolution. The next
                             // command stops and drops its session before any replacement.
@@ -1342,6 +1428,11 @@ async fn player_loop(
                 };
                 match result {
                     Ok(engine) => {
+                        tracing::info!(
+                            attempt = id,
+                            elapsed_s = started.elapsed().as_secs_f64(),
+                            "Media load accepted; waiting for playback readiness"
+                        );
                         player = Some(engine);
                         tick.reset();
                         inbox
@@ -1349,6 +1440,7 @@ async fn player_loop(
                             .await;
                     }
                     Err(error) => {
+                        tracing::error!(attempt = id, elapsed_s = started.elapsed().as_secs_f64(), reason = %crate::logging::error_detail(&error), "Playback startup failed");
                         if let Some(active) = report.take() {
                             let _ = active.finish(true);
                         }
@@ -1370,6 +1462,7 @@ async fn player_loop(
             | Control::SubtitleAppearance(_, _) => unreachable!(),
         }
     }
+    tracing::info!(attempt = generation, "Playback worker shutting down");
     destroy_player(&mut player);
     if let Some(report) = report {
         let _ = report.finish(false);

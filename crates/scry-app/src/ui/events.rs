@@ -373,6 +373,7 @@ fn apply(s: &mut State, event: Event) {
             s.player.torrent_stats = stats;
         }
         Event::Stopped(id, error) if id == s.player.generation => {
+            crate::logging::playback_stopped(id, error.as_deref());
             let replay_failed = error
                 .is_some()
                 .then(|| s.library.replaying.take())
