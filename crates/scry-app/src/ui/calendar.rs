@@ -253,10 +253,11 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
                 cells = cells.child(el().key(slot).w_full().h(day_height));
                 continue;
             }
-            let entries: Vec<_> = c.releases.iter().filter(|r| r.date == *date).collect();
+            let mut entry_count = 0_usize;
             let mut list = col().w_full().gap(5.0);
-            for (i, release) in entries.iter().enumerate() {
-                let item = (**release).clone();
+            for (i, release) in c.releases.iter().filter(|r| r.date == *date).enumerate() {
+                entry_count += 1;
+                let item = release_media(release);
                 let menu = release_media(release);
                 let mut copy = col()
                     .w(0.0)
@@ -306,8 +307,7 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
                             release.title
                         ),
                         move |s| {
-                            let media = release_media(&item);
-                            s.open_library_media(&media);
+                            s.open_library_media(&item);
                         },
                     )
                     .h(54.0)
@@ -329,10 +329,10 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
             }
             let today = *date == Local::now().date_naive();
             let day = *date;
-            let caption = if entries.is_empty() {
+            let caption = if entry_count == 0 {
                 date.format("%a %d").to_string()
             } else {
-                format!("{} · {}", date.format("%a %d"), entries.len())
+                format!("{} · {entry_count}", date.format("%a %d"))
             };
             let mut header = row().w_full().center_y().child(
                 label(caption)
@@ -342,7 +342,7 @@ pub(super) fn view(s: &State, cx: &rune::Cx<State>) -> El {
                     .min_w(0.0)
                     .truncate(),
             );
-            if !entries.is_empty() {
+            if entry_count > 0 {
                 header = header.child(
                     Button::new(format!("calendar-expand-{date}"), "Expand day")
                         .variant(Variant::Ghost)
@@ -419,13 +419,8 @@ pub(super) fn day_dialog(s: &State, cx: &rune::Cx<State>) -> El {
         return el();
     };
     let mut list = col().w_full().gap(8.0);
-    let entries: Vec<_> = s
-        .calendar
-        .releases
-        .iter()
-        .filter(|r| r.date == date)
-        .collect();
-    for (index, release) in entries.into_iter().enumerate() {
+    let entries = s.calendar.releases.iter().filter(|r| r.date == date);
+    for (index, release) in entries.enumerate() {
         let media = release_media(release);
         list = list.child(
             button(

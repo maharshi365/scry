@@ -261,10 +261,11 @@ fn best_match<'a>(
     candidates: &'a [Meta],
 ) -> Option<&'a Meta> {
     let title = local_media::normalized(title);
+    let year = year.map(|year| year.to_string());
     let mut found = candidates.iter().filter(|meta| {
         meta.kind == kind
             && local_media::normalized(&meta.name) == title
-            && year.is_none_or(|year| meta.year.starts_with(&year.to_string()))
+            && year.as_ref().is_none_or(|year| meta.year.starts_with(year))
     });
     let first = found.next()?;
     found.next().is_none().then_some(first)
@@ -327,8 +328,13 @@ mod tests {
         )
         .unwrap();
         let (index, _) = update(index, Command::Scan, dir.path()).unwrap();
-        assert_eq!(index.items[0].sources("series", "ttshow:2:5").len(), 1);
-        assert!(index.items[0].sources("series", "ttshow:1:1").is_empty());
+        assert_eq!(index.items[0].sources("series", "ttshow:2:5").count(), 1);
+        assert!(
+            index.items[0]
+                .sources("series", "ttshow:1:1")
+                .next()
+                .is_none()
+        );
         assert!(
             local_media::load(dir.path()).unwrap().items[0]
                 .matched

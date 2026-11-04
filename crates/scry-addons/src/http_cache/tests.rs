@@ -6,6 +6,45 @@
 use super::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+#[test]
+fn stale_directives_preserve_case_quotes_and_first_valid_value() {
+    let request = http::Request::get("https://addon.example/meta/movie/film.json")
+        .body(())
+        .unwrap();
+    let response = http::Response::builder()
+        .header("cache-control", "max-age=0")
+        .body(())
+        .unwrap();
+    for (directives, allowed) in [
+        (vec![" StAlE-If-ErRoR = \"60\" "], true),
+        (vec!["stale-if-error=invalid", "stale-if-error=60"], true),
+        (vec!["stale-if-error=0", "stale-if-error=60"], false),
+        (vec!["stale-if-error=60", " No-CaChE "], false),
+        (vec!["stale-if-error=60, MUST-REVALIDATE"], false),
+        (vec!["NO-STORE, stale-if-error=60"], false),
+        (vec!["stale-while-revalidate=60"], false),
+    ] {
+        let mut headers = http::HeaderMap::new();
+        for directive in &directives {
+            headers.append(
+                "cache-control",
+                http::HeaderValue::from_str(directive).unwrap(),
+            );
+        }
+        let entry = Entry {
+            policy: CachePolicy::new(&request, &response),
+            bytes: Arc::new(Vec::new()),
+            received: SystemTime::now(),
+            headers,
+        };
+        assert_eq!(
+            entry.allows_stale(&request, "stale-if-error"),
+            allowed,
+            "directives: {directives:?}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn typed_stale_readers_use_shared_bytes_until_revalidation_finishes() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

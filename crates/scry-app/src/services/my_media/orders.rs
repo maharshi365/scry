@@ -146,14 +146,21 @@ fn dvd_order(meta: &Meta, list: &DvdList, episodes: Vec<DvdEpisode>) -> Result<O
         );
         for aired in episode.embedded.episodes {
             let title = normalized(&aired.name);
-            let candidates: Vec<_> = meta
+            let mut candidates = meta
                 .videos
                 .iter()
-                .filter(|video| !title.is_empty() && normalized(&video.title) == title)
-                .collect();
-            let target = if candidates.len() == 1 { candidates.first().copied() }
-                else { candidates.into_iter().find(|video| video.season == Some(aired.season) && video.episode == aired.number) }
-                .context("DVD and metadata episode titles disagree; keep the current order and correct the match")?;
+                .filter(|video| !title.is_empty() && normalized(&video.title) == title);
+            let target = match (candidates.next(), candidates.next()) {
+                (Some(first), None) => Some(first),
+                (Some(first), Some(second)) => [first, second]
+                    .into_iter()
+                    .chain(candidates)
+                    .find(|video| {
+                        video.season == Some(aired.season) && video.episode == aired.number
+                    }),
+                _ => None,
+            }
+            .context("DVD and metadata episode titles disagree; keep the current order and correct the match")?;
             let (Some(season), Some(target_number)) = (target.season, target.episode) else {
                 anyhow::bail!("DVD target has no canonical episode number");
             };
@@ -214,6 +221,40 @@ mod tests {
             order.source.as_deref(),
             Some("https://www.tvmaze.com/alternatelists/1")
         );
+    }
+
+    #[test]
+    fn repeated_dvd_titles_require_a_matching_airing_number() {
+        let meta: Meta = serde_json::from_value(serde_json::json!({
+            "id":"show", "type":"series", "name":"Example", "videos":[
+                {"id":"native:first", "title":"Pilot", "season":1, "episode":1},
+                {"id":"native:second", "title":"Pilot", "season":2, "episode":1},
+                {"id":"native:third", "title":"Pilot", "season":3, "episode":1}
+            ]
+        }))
+        .unwrap();
+        let list = DvdList {
+            id: 1,
+            url: "https://www.tvmaze.com/alternatelists/1".into(),
+            dvd_release: true,
+        };
+        for season in [1, 2, 3, 4] {
+            let episodes = serde_json::from_value(serde_json::json!([
+                {"season":1, "number":1, "_embedded":{"episodes":[
+                    {"season":season, "number":1, "name":"Pilot"}
+                ]}}
+            ]))
+            .unwrap();
+            let order = dvd_order(&meta, &list, episodes);
+            if season == 4 {
+                assert!(order.is_err());
+            } else {
+                let order = order.unwrap();
+                assert_eq!(order.episodes[0].season, season);
+                assert_eq!(order.episodes[0].file_season, 1);
+                assert_eq!(order.episodes[0].episode, 1);
+            }
+        }
     }
 
     #[test]

@@ -152,15 +152,13 @@ impl Folders {
         let mut paths = BTreeMap::new();
         for root in roots {
             if let Some(parent) = root.parent() {
-                paths
-                    .entry(parent.to_owned())
-                    .or_insert(RecursiveMode::NonRecursive);
+                paths.entry(parent).or_insert(RecursiveMode::NonRecursive);
             }
-            paths.insert(root.clone(), RecursiveMode::Recursive);
+            paths.insert(root.as_path(), RecursiveMode::Recursive);
         }
         self.retry = false;
         for (path, mode) in paths {
-            self.retry |= watcher.watch(&path, mode).is_err();
+            self.retry |= watcher.watch(path, mode).is_err();
         }
         self.roots = roots.to_vec();
         self.watcher = Some(watcher);

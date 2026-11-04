@@ -19,7 +19,7 @@ pub(super) struct Disk {
     write: Arc<Mutex<()>>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct Stored {
     policy: CachePolicy,
     received: SystemTime,
@@ -108,14 +108,22 @@ impl Disk {
     }
 
     fn write(&self, key: &str, entry: &Entry) -> std::io::Result<()> {
+        #[derive(Serialize)]
+        struct StoredRef<'a> {
+            policy: &'a CachePolicy,
+            received: SystemTime,
+            headers: Vec<(&'a str, &'a str)>,
+            checksum: [u8; 32],
+        }
+
         fs::create_dir_all(&self.path)?;
-        let stored = Stored {
-            policy: entry.policy.clone(),
+        let stored = StoredRef {
+            policy: &entry.policy,
             received: entry.received,
             headers: entry
                 .headers
                 .iter()
-                .filter_map(|(k, v)| Some((k.to_string(), v.to_str().ok()?.to_owned())))
+                .filter_map(|(k, v)| Some((k.as_str(), v.to_str().ok()?)))
                 .collect(),
             checksum: *blake3::hash(&entry.bytes).as_bytes(),
         };

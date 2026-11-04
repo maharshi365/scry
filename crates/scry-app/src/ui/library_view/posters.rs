@@ -69,18 +69,24 @@ impl State {
         media.parent.as_ref().unwrap_or(&media.key)
     }
 
-    pub(in crate::ui) fn saved_grid_media(&self) -> Vec<&Media> {
-        match self.navigation.page {
-            crate::ui::Page::Library => self.library.entries.iter().flatten().collect(),
-            crate::ui::Page::Watching => self
-                .library
-                .watching
-                .iter()
-                .map(|(media, _)| media)
-                .chain(self.library.up_next.iter().map(|(media, _)| media))
-                .collect(),
-            _ => Vec::new(),
-        }
+    pub(in crate::ui) fn saved_grid_media(&self) -> impl Iterator<Item = &Media> {
+        let (entries, watching, up_next) = match self.navigation.page {
+            crate::ui::Page::Library => (
+                self.library.entries.as_deref().unwrap_or_default(),
+                &[][..],
+                &[][..],
+            ),
+            crate::ui::Page::Watching => (
+                &[][..],
+                self.library.watching.as_slice(),
+                self.library.up_next.as_slice(),
+            ),
+            _ => (&[][..], &[][..], &[][..]),
+        };
+        entries
+            .iter()
+            .chain(watching.iter().map(|(media, _)| media))
+            .chain(up_next.iter().map(|(media, _)| media))
     }
 
     pub(in crate::ui) fn library_poster(&self, media: &Media) -> Option<&LibraryPoster> {
@@ -149,7 +155,6 @@ impl State {
     pub(in crate::ui) fn missing_library_posters(&self) -> Vec<Media> {
         let mut seen = HashSet::new();
         self.saved_grid_media()
-            .into_iter()
             .enumerate()
             .filter(|(index, media)| {
                 !self
@@ -158,7 +163,7 @@ impl State {
                     .cache
                     .contains_key(Self::poster_key(media))
                     && crate::ui::poster_grid::visible(self, *index)
-                    && seen.insert(Self::poster_key(media).clone())
+                    && seen.insert(Self::poster_key(media))
             })
             .map(|(_, media)| Media {
                 key: Self::poster_key(media).clone(),

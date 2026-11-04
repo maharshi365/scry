@@ -33,24 +33,21 @@ pub(crate) fn hydrate_progress(
     connection: &mut SqliteConnection,
     records: Vec<MediaProgressRecord>,
 ) -> Result<Vec<(Media, Option<Progress>)>> {
-    let (media, progress): (Vec<_>, Vec<_>) = records
+    let parents = load_parents(connection, records.iter().map(|record| &record.media))?;
+    records
         .into_iter()
         .map(|record| {
-            (
-                record.media,
+            Ok((
+                record.media.into_media(&parents)?,
                 record.position_seconds.zip(record.duration_seconds).map(
                     |(position_seconds, duration_seconds)| Progress {
                         position_seconds,
                         duration_seconds,
                     },
                 ),
-            )
+            ))
         })
-        .unzip();
-    Ok(hydrate(connection, media)?
-        .into_iter()
-        .zip(progress)
-        .collect())
+        .collect()
 }
 
 impl MediaRecord {
@@ -60,6 +57,21 @@ impl MediaRecord {
             MediaKind::parse(&self.kind)?,
             self.external_id,
         ))
+    }
+
+    fn into_media(self, parents: &HashMap<i64, MediaKey>) -> Result<Media> {
+        Ok(Media {
+            key: MediaKey::new(
+                self.namespace,
+                MediaKind::parse(&self.kind)?,
+                self.external_id,
+            ),
+            title: self.title,
+            parent: self
+                .parent_id
+                .map(|id| parents.get(&id).cloned().context("missing media parent"))
+                .transpose()?,
+        })
     }
 }
 
@@ -74,12 +86,12 @@ pub(crate) fn media_id(connection: &mut SqliteConnection, key: &MediaKey) -> Res
         .context("media is not in the library; upsert metadata first")
 }
 
-pub(crate) fn hydrate(
+fn load_parents<'a>(
     connection: &mut SqliteConnection,
-    records: Vec<MediaRecord>,
-) -> Result<Vec<Media>> {
+    records: impl IntoIterator<Item = &'a MediaRecord>,
+) -> Result<HashMap<i64, MediaKey>> {
     let parent_ids: Vec<_> = records
-        .iter()
+        .into_iter()
         .filter_map(|record| record.parent_id)
         .collect();
     let mut parents = HashMap::new();
@@ -92,22 +104,17 @@ pub(crate) fn hydrate(
             parents.insert(parent.media_id, parent.into_key()?);
         }
     }
+    Ok(parents)
+}
+
+pub(crate) fn hydrate(
+    connection: &mut SqliteConnection,
+    records: Vec<MediaRecord>,
+) -> Result<Vec<Media>> {
+    let parents = load_parents(connection, &records)?;
     records
         .into_iter()
-        .map(|record| {
-            Ok(Media {
-                key: MediaKey::new(
-                    record.namespace,
-                    MediaKind::parse(&record.kind)?,
-                    record.external_id,
-                ),
-                title: record.title,
-                parent: record
-                    .parent_id
-                    .map(|id| parents.get(&id).cloned().context("missing media parent"))
-                    .transpose()?,
-            })
-        })
+        .map(|record| record.into_media(&parents))
         .collect()
 }
 
@@ -188,7 +195,7 @@ impl Library {
                         Some(id)
                     } else {
                         let id = media_id(connection, parent)?;
-                        series_ids.insert(parent.clone(), id);
+                        series_ids.insert(parent, id);
                         Some(id)
                     }
                 } else {
@@ -196,7 +203,7 @@ impl Library {
                 };
                 let id = upsert_media_with_parent(connection, item, parent_id)?;
                 if item.key.kind == MediaKind::Series {
-                    series_ids.insert(item.key.clone(), id);
+                    series_ids.insert(&item.key, id);
                 }
             }
             Ok(())

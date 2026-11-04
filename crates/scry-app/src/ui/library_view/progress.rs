@@ -28,7 +28,7 @@ impl State {
     }
 
     pub(in crate::ui) fn save_library_progress(&mut self) {
-        let Some(media) = self.library.playing.clone() else {
+        let Some(media) = &self.library.playing else {
             return;
         };
         // A parent series has no playback duration; only the selected episode does.
@@ -44,7 +44,12 @@ impl State {
             return;
         }
         if self.db(
-            Command::SavePlayback(media, position, duration, self.library.watched_pending),
+            Command::SavePlayback(
+                media.clone(),
+                position,
+                duration,
+                self.library.watched_pending,
+            ),
             false,
         ) {
             self.library.watched_pending = 0.0;
@@ -68,9 +73,9 @@ impl State {
             self.library.last_sample = Some((duration, duration));
         }
         self.save_library_progress();
-        if let Some(media) = self.library.playing.clone() {
+        if let Some(media) = &self.library.playing {
             self.db(
-                Command::FinishPlayback(media.key, self.library.next_episode.clone()),
+                Command::FinishPlayback(media.key.clone(), self.library.next_episode.clone()),
                 false,
             );
         }

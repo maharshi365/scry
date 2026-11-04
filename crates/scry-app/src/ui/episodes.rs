@@ -81,6 +81,14 @@ pub(super) fn season_label(season: Option<u32>) -> String {
     }
 }
 
+fn season_order(season: Option<u32>) -> (u8, u32) {
+    match season {
+        Some(0) => (1, 0),
+        Some(number) => (0, number),
+        None => (2, 0),
+    }
+}
+
 impl State {
     pub(super) fn seasons(&self) -> Vec<Option<u32>> {
         let mut seasons: Vec<_> = self
@@ -90,24 +98,22 @@ impl State {
             .flat_map(|meta| &meta.videos)
             .map(|video| video.season)
             .collect();
-        seasons.sort_by_key(|season| match season {
-            Some(0) => (1, 0),
-            Some(number) => (0, *number),
-            None => (2, 0),
-        });
+        seasons.sort_by_key(|season| season_order(*season));
         seasons.dedup();
         seasons
     }
 
     pub(super) fn active_season(&self) -> Option<u32> {
-        let seasons = self.seasons();
-        let selected = match self.detail.episodes.season {
-            SeasonSelection::Automatic => None,
-            SeasonSelection::Selected(season) => Some(season),
-        };
-        selected
-            .filter(|season| seasons.contains(season))
-            .or_else(|| seasons.first().copied())
+        let meta = self.detail.meta.as_ref()?;
+        if let SeasonSelection::Selected(season) = self.detail.episodes.season
+            && meta.videos.iter().any(|video| video.season == season)
+        {
+            return season;
+        }
+        meta.videos
+            .iter()
+            .map(|video| video.season)
+            .min_by_key(|season| season_order(*season))
             .flatten()
     }
 
@@ -135,7 +141,7 @@ impl State {
     }
 
     pub(super) fn visible_episode_indices(&self) -> Vec<usize> {
-        let indices = self.season_episode_indices();
+        let mut indices = self.season_episode_indices();
         let range = self.detail.episodes.range(indices.len());
         let start = self
             .detail
@@ -143,7 +149,9 @@ impl State {
             .state_offset
             .unwrap_or(range.start)
             .min(indices.len());
-        indices[start..start.saturating_add(EPISODES_PER_PAGE).min(indices.len())].to_vec()
+        indices.truncate(start.saturating_add(EPISODES_PER_PAGE));
+        drop(indices.drain(..start));
+        indices
     }
 
     pub(super) fn select_season(&mut self, season: Option<u32>) {

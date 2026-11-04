@@ -23,7 +23,7 @@ pub fn query(input: &str) -> Result<String, &'static str> {
     if input.chars().nth(256).is_some() {
         return Err("Search is limited to 256 characters");
     }
-    Ok(input.split_whitespace().collect::<Vec<_>>().join(" "))
+    Ok(collapse_whitespace(input))
 }
 
 pub fn plan(addons: Vec<Addon>) -> Result<Vec<Request>, &'static str> {
@@ -58,12 +58,19 @@ pub fn plan(addons: Vec<Addon>) -> Result<Vec<Request>, &'static str> {
     Ok(requests)
 }
 
+fn collapse_whitespace(value: &str) -> String {
+    let mut result = String::with_capacity(value.len());
+    for word in value.split_whitespace() {
+        if !result.is_empty() {
+            result.push(' ');
+        }
+        result.push_str(word);
+    }
+    result
+}
+
 fn normalize(value: &str) -> String {
-    value
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_lowercase()
+    collapse_whitespace(value).to_lowercase()
 }
 
 fn rank(title: &str, query: &str) -> u8 {
@@ -330,6 +337,18 @@ mod tests {
         );
         assert_eq!(found[0].meta.name, "Query original");
         assert_eq!(found[0].addon.manifest.id, "first");
+    }
+
+    #[test]
+    fn whitespace_normalization_preserves_unicode_case_rules() {
+        assert_eq!(
+            query("\u{2003}ΟΣ\t İ\u{a0}Straße \n").unwrap(),
+            "ΟΣ İ Straße"
+        );
+        assert_eq!(
+            normalize("\u{2003}ΟΣ\t İ\u{a0}Straße \n"),
+            "ος i\u{307} straße"
+        );
     }
 
     #[test]

@@ -40,10 +40,10 @@ pub(crate) fn episode_inventory(key: &MediaKey, meta: &Meta) -> Vec<EpisodeRelea
             if video.id.trim().is_empty() {
                 return None;
             }
-            let episode_key = MediaKey::new(&key.namespace, MediaKind::Episode, &video.id);
-            if !seen.insert(episode_key.clone()) {
+            if !seen.insert(video.id.as_str()) {
                 return None;
             }
+            let episode_key = MediaKey::new(&key.namespace, MediaKind::Episode, &video.id);
             let title = format!(
                 "{} · S{} E{} · {}",
                 meta.name,

@@ -39,17 +39,17 @@ impl Services {
         self.cancel_subtitles();
         let (client, inbox) = (self.client.clone(), self.inbox.clone());
         self.subtitle_task = Some(self.runtime.spawn(async move {
+            let mut stream = stream;
             let supplied = stream
-                .as_ref()
+                .as_mut()
                 .map(|stream| {
-                    stream
-                        .subtitles
-                        .iter()
+                    std::mem::take(&mut stream.subtitles)
+                        .into_iter()
                         .take(100)
                         .filter(|s| s.validate_url().is_ok())
                         .map(|s| ExternalSubtitle {
                             provider: "Stream".into(),
-                            subtitle: s.clone(),
+                            subtitle: s,
                         })
                         .collect()
                 })
@@ -63,7 +63,7 @@ impl Services {
                     .await;
                 return;
             };
-            let hints = stream.map_or(serde_json::Value::Null, |s| s.behavior_hints);
+            let hints = Arc::new(stream.map_or(serde_json::Value::Null, |s| s.behavior_hints));
             let mut providers = addons
                 .into_iter()
                 .filter(|a| !a.disabled && a.supports("subtitles", &kind, &id));

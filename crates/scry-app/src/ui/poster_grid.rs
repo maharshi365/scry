@@ -10,6 +10,7 @@ use super::{
 };
 use rune::{Cx, El, GrowthSpec, Tx, col};
 use scry_library::{Media, MediaKey, MediaKind};
+use std::borrow::Cow;
 
 pub(super) struct PosterGridState {
     pub visible: std::ops::Range<usize>,
@@ -31,12 +32,12 @@ impl Default for PosterGridState {
     }
 }
 
-struct Entry {
-    title: String,
+struct Entry<'a> {
+    title: &'a str,
     subtitle: String,
-    poster: Option<String>,
-    media: Option<Media>,
-    identity: Option<MediaKey>,
+    poster: Option<&'a str>,
+    media: Option<&'a Media>,
+    identity: Option<Cow<'a, MediaKey>>,
     overlay: Overlay,
 }
 
@@ -67,7 +68,7 @@ fn saved_media(s: &State, index: usize) -> Option<&Media> {
     }
 }
 
-fn entry(s: &State, index: usize) -> Entry {
+fn entry(s: &State, index: usize) -> Entry<'_> {
     if let Some(media) = saved_media(s, index) {
         let info = s.library_poster(media);
         let subtitle = if s.navigation.page == Page::Watching
@@ -84,11 +85,11 @@ fn entry(s: &State, index: usize) -> Entry {
             })
         };
         return Entry {
-            title: media.title.clone(),
+            title: &media.title,
             subtitle,
-            poster: info.and_then(|p| p.poster.clone()),
-            media: Some(media.clone()),
-            identity: Some(State::poster_key(media).clone()),
+            poster: info.and_then(|p| p.poster.as_deref()),
+            media: Some(media),
+            identity: Some(Cow::Borrowed(State::poster_key(media))),
             overlay: if s.navigation.page == Page::Watching
                 && (media.key.kind == MediaKind::Episode || index >= s.library.watching.len())
             {
@@ -108,10 +109,10 @@ fn entry(s: &State, index: usize) -> Entry {
     }
     let meta = &s.discover.results[index];
     Entry {
-        title: meta.name.clone(),
-        poster: meta.poster.clone(),
+        title: &meta.name,
+        poster: meta.poster.as_deref(),
         media: None,
-        identity: s.result_media(index).map(|m| m.key),
+        identity: s.result_media(index).map(|m| Cow::Owned(m.key)),
         overlay: Overlay::Summary,
         subtitle: if meta.kind == "series"
             && let Some(summary) = s
@@ -139,7 +140,6 @@ fn entry(s: &State, index: usize) -> Entry {
 pub(super) fn movie_keys(s: &State) -> Vec<MediaKey> {
     if matches!(s.navigation.page, Page::Library | Page::Watching) {
         s.saved_grid_media()
-            .into_iter()
             .enumerate()
             .filter(|(index, media)| media.key.kind == MediaKind::Movie && visible(s, *index))
             .map(|(_, media)| media.key.clone())
@@ -164,22 +164,23 @@ pub(super) fn series_keys(s: &State) -> Vec<MediaKey> {
             .into_iter()
             .collect();
     }
-    let media = match s.navigation.page {
-        Page::Watching | Page::Library => s
-            .saved_grid_media()
-            .into_iter()
-            .enumerate()
-            .filter(|(index, _)| visible(s, *index))
-            .map(|(_, m)| State::poster_key(m).clone())
-            .collect::<Vec<_>>(),
-        Page::Discover => (0..s.discover.results.len())
-            .filter(|index| visible(s, *index))
-            .filter_map(|index| s.result_media(index).map(|m| m.key))
-            .collect(),
-        _ => return Vec::new(),
+    let saved = s
+        .saved_grid_media()
+        .enumerate()
+        .filter(|(index, _)| visible(s, *index))
+        .map(|(_, media)| State::poster_key(media))
+        .filter(|key| key.kind == MediaKind::Series)
+        .cloned();
+    let discovered_count = if s.navigation.page == Page::Discover {
+        s.discover.results.len()
+    } else {
+        0
     };
+    let discovered = (0..discovered_count)
+        .filter(|index| visible(s, *index))
+        .filter_map(|index| s.result_media(index).map(|media| media.key));
     let mut keys = Vec::new();
-    for key in media {
+    for key in saved.chain(discovered) {
         if key.kind == MediaKind::Series && !keys.contains(&key) {
             keys.push(key);
         }
@@ -195,7 +196,6 @@ pub(super) fn artwork_urls(s: &State) -> Vec<String> {
         return visible_urls(
             s,
             s.saved_grid_media()
-                .into_iter()
                 .map(|m| s.library_poster(m).and_then(|p| p.poster.as_ref())),
         );
     }
@@ -409,7 +409,7 @@ fn prefix(s: &State) -> &'static str {
     }
 }
 
-fn card(s: &State, entry: &Entry, index: usize, prefix: &str, reduced_motion: bool) -> El {
+fn card(s: &State, entry: &Entry<'_>, index: usize, prefix: &str, reduced_motion: bool) -> El {
     let selected = s.navigation.page == Page::Detail
         && s.detail.preview
         && s.detail
@@ -422,13 +422,13 @@ fn card(s: &State, entry: &Entry, index: usize, prefix: &str, reduced_motion: bo
     } else {
         format!("{prefix}-{index}")
     };
-    let item = entry.media.clone();
+    let item = entry.media.cloned();
     let result = entry
         .media
         .is_none()
         .then(|| s.result_media(index))
         .flatten();
-    let menu = entry.media.clone().or_else(|| result.clone());
+    let menu = entry.media.cloned().or_else(|| result.clone());
     let poster_key = format!("{prefix}-poster-{index}");
     let route = s.navigation.route_key;
     let hovered = s
@@ -439,7 +439,7 @@ fn card(s: &State, entry: &Entry, index: usize, prefix: &str, reduced_motion: bo
     let hover_key = poster_key.clone();
     let surface = image::gallery(
         &poster_key,
-        poster(s, &entry.title, entry.poster.as_deref(), index),
+        poster(s, entry.title, entry.poster, index),
         if hovered && !reduced_motion {
             Zoom::Hovered
         } else {
@@ -462,7 +462,7 @@ fn card(s: &State, entry: &Entry, index: usize, prefix: &str, reduced_motion: bo
         Overlay::Summary => poster_overlay(
             s,
             surface,
-            entry.identity.as_ref(),
+            entry.identity.as_deref(),
             &poster_key,
             tokens::poster::HEIGHT,
         ),
@@ -478,7 +478,7 @@ fn card(s: &State, entry: &Entry, index: usize, prefix: &str, reduced_motion: bo
     gallery::card(
         &key,
         gallery::Content {
-            title: &entry.title,
+            title: entry.title,
             subtitle: &entry.subtitle,
             subtitle_key: &format!("{prefix}-info-{index}"),
             artwork,

@@ -207,9 +207,13 @@ impl Snapshot {
 
 #[must_use]
 pub fn language_code(value: &str) -> String {
-    let lower = value.trim().to_ascii_lowercase();
-    let base = lower.split(['-', '_']).next().unwrap_or("");
-    let code = match base {
+    let lower = value
+        .trim()
+        .split(['-', '_'])
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let code = match lower.as_str() {
         "en" => "eng",
         "es" => "spa",
         "fr" | "fre" => "fra",
@@ -252,7 +256,7 @@ pub fn language_code(value: &str) -> String {
         "uk" => "ukr",
         "ur" => "urd",
         "vi" => "vie",
-        _ => base,
+        _ => return lower,
     };
     code.to_owned()
 }
@@ -329,6 +333,9 @@ mod tests {
     fn language_aliases_and_regions_share_selection_language() {
         assert_eq!(language_code(" EN-us "), "eng");
         assert_eq!(language_code("fre"), "fra");
+        assert_eq!(language_code(" ENG_Us "), "eng");
+        assert_eq!(language_code(" XYZ-region "), "xyz");
+        assert_eq!(language_code("-region"), "");
         assert_eq!(language_label("es"), "Spanish");
         assert_eq!(language_label(""), "Unknown language");
     }

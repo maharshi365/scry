@@ -385,12 +385,13 @@ fn evaluate_snapshot(
     definitions: &[Achievement],
     cache: &mut MetricCache,
 ) -> Result<Snapshot> {
-    let saved: HashMap<_, _> =
+    let saved_rows =
         diesel::sql_query("SELECT id,unlocked,historical,unlocked_at FROM achievement_checks")
-            .load::<Saved>(connection)?
-            .into_iter()
-            .map(|entry| (entry.id.clone(), entry))
-            .collect();
+            .load::<Saved>(connection)?;
+    let saved: HashMap<_, _> = saved_rows
+        .iter()
+        .map(|entry| (entry.id.as_str(), entry))
+        .collect();
     let revision = diesel::sql_query("SELECT library,playback,hours,COALESCE((SELECT MAX(released_at) FROM episode_releases WHERE released_at<=unixepoch()),-9223372036854775808) AS release FROM source_revisions WHERE id=1")
         .get_result::<Revisions>(connection)?;
     let mut db = AchievementDb {
@@ -439,12 +440,13 @@ fn persist(
     connection: &mut SqliteConnection,
     mut result: AchievementEvaluation,
 ) -> Result<AchievementEvaluation> {
-    let saved: HashMap<_, _> =
+    let saved_rows =
         diesel::sql_query("SELECT id,unlocked,historical,unlocked_at FROM achievement_checks")
-            .load::<Saved>(connection)?
-            .into_iter()
-            .map(|entry| (entry.id.clone(), entry))
-            .collect();
+            .load::<Saved>(connection)?;
+    let saved: HashMap<_, _> = saved_rows
+        .iter()
+        .map(|entry| (entry.id.as_str(), entry))
+        .collect();
     result.newly_unlocked.clear();
     for entry in &mut result.entries {
         let previous = saved.get(entry.id);

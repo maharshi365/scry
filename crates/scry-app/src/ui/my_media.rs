@@ -188,23 +188,21 @@ impl State {
         }
     }
 
-    pub(super) fn local_sources(&self) -> Vec<PathBuf> {
-        let Some(meta) = &self.detail.meta else {
-            return Vec::new();
-        };
-        let id = self.detail.episodes.selected.as_deref().unwrap_or(&meta.id);
-        self.my_media
-            .index
-            .items
-            .iter()
-            .flat_map(|item| item.sources(&meta.kind, id))
-            .map(|f| f.path.clone())
-            .collect()
+    pub(super) fn local_sources(&self) -> impl Iterator<Item = &std::path::Path> {
+        self.detail.meta.iter().flat_map(move |meta| {
+            let id = self.detail.episodes.selected.as_deref().unwrap_or(&meta.id);
+            self.my_media
+                .index
+                .items
+                .iter()
+                .flat_map(move |item| item.sources(&meta.kind, id))
+                .map(|file| file.path.as_path())
+        })
     }
 
     pub(super) fn play_local_media(&mut self, path: &std::path::Path) {
         // Only paths from the private index can enter native playback here.
-        if !self.local_sources().iter().any(|p| p == path) {
+        if !self.local_sources().any(|p| p == path) {
             return;
         }
         let title = self
@@ -333,13 +331,13 @@ fn filters(s: &State) -> El {
     filters.child(kinds)
 }
 
-fn visible_items(media: &MediaUi) -> Vec<&Item> {
+fn visible_items(media: &MediaUi) -> impl Iterator<Item = &Item> {
     let filter = media.filter.text.to_lowercase();
     media
         .index
         .items
         .iter()
-        .filter(|i| {
+        .filter(move |i| {
             let kind = i
                 .matched
                 .as_ref()
@@ -348,19 +346,18 @@ fn visible_items(media: &MediaUi) -> Vec<&Item> {
                 || media.kind == MediaFilter::Movies && kind == "movie"
                 || media.kind == MediaFilter::Shows && kind == "series")
                 && (!media.review_only || i.matched.is_none() && !i.keep_unmatched)
-                && i.matched
-                    .as_ref()
-                    .map_or(&i.title, |m| &m.name)
-                    .to_lowercase()
-                    .contains(&filter)
+                && (filter.is_empty()
+                    || i.matched
+                        .as_ref()
+                        .map_or(&i.title, |m| &m.name)
+                        .to_lowercase()
+                        .contains(&filter))
         })
         .take(200)
-        .collect()
 }
 
 pub(super) fn artwork_urls(s: &State) -> Vec<String> {
     visible_items(&s.my_media)
-        .into_iter()
         .filter(|item| {
             s.my_media.rects.get(&item.id).is_none_or(|rect| {
                 s.my_media
@@ -376,7 +373,7 @@ pub(super) fn artwork_urls(s: &State) -> Vec<String> {
 fn title_list(s: &State) -> El {
     let media = &s.my_media;
     let mut content = col().w_full().gap(tokens::layout::PAGE_GAP);
-    for (index, item) in visible_items(media).into_iter().enumerate() {
+    for (index, item) in visible_items(media).enumerate() {
         let id = item.id.clone();
         let review_id = id.clone();
         let layout_id = id.clone();

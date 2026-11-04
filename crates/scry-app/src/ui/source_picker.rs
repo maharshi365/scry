@@ -63,25 +63,26 @@ impl SourceSort {
 // Add-on names often put the quality on a second line. Keep that information
 // together, without interpreting provider-specific text as verified metadata.
 fn source_name(stream: &Stream, addon: &str) -> String {
-    let name = stream.name.split_whitespace().collect::<Vec<_>>().join(" ");
-    if name.is_empty() {
-        addon.to_owned()
-    } else {
-        name
+    let mut words = stream.name.split_whitespace();
+    let Some(first) = words.next() else {
+        return addon.to_owned();
+    };
+    let mut name = String::with_capacity(stream.name.len());
+    name.push_str(first);
+    for word in words {
+        name.push(' ');
+        name.push_str(word);
     }
+    name
 }
 
-fn release_lines(stream: &Stream) -> Vec<&str> {
+fn release_lines(stream: &Stream) -> impl Iterator<Item = &str> {
     let title = if stream.title.trim().is_empty() {
         &stream.description
     } else {
         &stream.title
     };
-    title
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect()
+    title.lines().map(str::trim).filter(|line| !line.is_empty())
 }
 
 // Filenames rarely contain spaces. Offer natural line breaks without changing
@@ -106,17 +107,20 @@ fn filter(
     menu_choice(key, title, selected, f)
 }
 
-fn providers(s: &State) -> Vec<(String, usize)> {
-    let mut providers: Vec<(String, usize)> = Vec::new();
-    let local = s.local_sources().len();
+fn providers(s: &State) -> Vec<(&str, usize)> {
+    let mut providers: Vec<(&str, usize)> = Vec::new();
+    let local = s.local_sources().count();
     if local > 0 {
-        providers.push(("My Media".into(), local));
+        providers.push(("My Media", local));
     }
     for (addon, _) in &s.detail.sources.streams {
-        if let Some((_, count)) = providers.iter_mut().find(|(name, _)| name == addon) {
+        if let Some((_, count)) = providers
+            .iter_mut()
+            .find(|(name, _)| *name == addon.as_str())
+        {
             *count += 1;
         } else {
-            providers.push((addon.clone(), 1));
+            providers.push((addon, 1));
         }
     }
     providers
@@ -171,7 +175,8 @@ pub(super) fn provider_menu(s: &State, cx: &Cx<State>) -> Option<El> {
         },
     ));
     for (index, (provider, _)) in providers.into_iter().enumerate() {
-        let selected = s.detail.sources.provider.as_ref() == Some(&provider);
+        let selected = s.detail.sources.provider.as_deref() == Some(provider);
+        let provider = provider.to_owned();
         filters = filters.child(filter(
             format!("source-provider-{index}"),
             provider.clone(),
@@ -335,20 +340,21 @@ fn header(s: &State) -> El {
 fn source_list(s: &State) -> El {
     let t = theme();
     let sources = visible_sources(s);
-    let local_sources = if s
+    let show_local = s
         .detail
         .sources
         .provider
         .as_deref()
-        .is_none_or(|provider| provider == "My Media")
-    {
-        s.local_sources()
-    } else {
-        Vec::new()
-    };
+        .is_none_or(|provider| provider == "My Media");
+    let mut local_sources = show_local
+        .then(|| s.local_sources())
+        .into_iter()
+        .flatten()
+        .peekable();
     let mut list = col().key("detail-body").w_full().gap(8.0);
-    for (n, path) in local_sources.iter().enumerate() {
-        let path = path.clone();
+    let has_local_sources = local_sources.peek().is_some();
+    for (n, path) in local_sources.enumerate() {
+        let path = path.to_owned();
         let title = format!(
             "My Media · {}",
             path.file_name().unwrap_or_default().to_string_lossy()
@@ -374,7 +380,7 @@ fn source_list(s: &State) -> El {
                 ),
         );
     }
-    if sources.is_empty() && local_sources.is_empty() {
+    if sources.is_empty() && !has_local_sources {
         let (title, message) = if s.detail.request.loading || s.detail.sources.request.loading {
             (
                 "Finding streams…",
@@ -436,8 +442,8 @@ fn source_card(s: &State, index: usize, addon: &str, stream: &Stream) -> El {
     let supported = stream.validate_playback().is_ok();
     let name = source_name(stream, addon);
     let mut details = col().w_full().min_w(0.0).gap(6.0).clip_rounded(0.0);
-    let lines = release_lines(stream);
-    if let Some(release) = lines.first() {
+    let mut lines = release_lines(stream);
+    if let Some(release) = lines.next() {
         details = details.child(
             text(wrap_filename(release))
                 .key(format!("stream-release-{index}"))
@@ -447,12 +453,13 @@ fn source_card(s: &State, index: usize, addon: &str, stream: &Stream) -> El {
                 .color(t.text),
         );
     }
-    if lines.len() > 1 {
-        details = details.child(
-            label(lines[1..].join("\n"))
-                .w_full()
-                .key(format!("stream-details-{index}")),
-        );
+    if let Some(first) = lines.next() {
+        let mut copy = first.to_owned();
+        for line in lines {
+            copy.push('\n');
+            copy.push_str(line);
+        }
+        details = details.child(label(copy).w_full().key(format!("stream-details-{index}")));
     }
     if !supported {
         details = details.child(label(
@@ -525,7 +532,7 @@ mod tests {
         })).unwrap();
         assert_eq!(source_name(&stream, "Add-on"), "Provider 4K HDR");
         assert_eq!(
-            release_lines(&stream),
+            release_lines(&stream).collect::<Vec<_>>(),
             ["Film.2026.2160p.mkv", "12 GB · 30 peers", "English"]
         );
     }
@@ -537,6 +544,9 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(source_name(&stream, "Add-on"), "Add-on");
-        assert_eq!(release_lines(&stream), ["Release", "Audio details"]);
+        assert_eq!(
+            release_lines(&stream).collect::<Vec<_>>(),
+            ["Release", "Audio details"]
+        );
     }
 }

@@ -354,6 +354,8 @@ fn read_report_line(reader: &mut impl BufRead, line: &mut String) -> Result<bool
 }
 
 fn analyze_reader(mut reader: impl BufRead) -> Result<Analysis> {
+    use serde::Deserialize;
+
     let mut tracker = Tracker::default();
     let mut summary = None;
     let mut session = false;
@@ -389,7 +391,7 @@ fn analyze_reader(mut reader: impl BufRead) -> Result<Analysis> {
             }
             Some("sample") => {
                 ensure!(session, "Sample precedes session record");
-                let sample: Sample = serde_json::from_value(value["metrics"].clone())
+                let sample = Sample::deserialize(&value["metrics"])
                     .map_err(|_| anyhow::anyhow!("Invalid sample metrics"))?;
                 ensure!(
                     sample.elapsed_s.is_finite()
@@ -415,7 +417,7 @@ fn analyze_reader(mut reader: impl BufRead) -> Result<Analysis> {
             Some("summary") => {
                 ensure!(session, "Summary precedes session record");
                 summary = Some(
-                    serde_json::from_value::<Summary>(value["metrics"].clone())
+                    Summary::deserialize(&value["metrics"])
                         .map_err(|_| anyhow::anyhow!("Invalid summary metrics"))?,
                 );
             }

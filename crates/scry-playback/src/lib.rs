@@ -153,8 +153,11 @@ impl Player {
                 wait,
                 cache_budget: Cell::new(target.cache_budget()),
             };
-            let mut options = common_options();
-            options.extend(output_options);
+            let options = common_options().into_iter().chain(
+                output_options
+                    .iter()
+                    .map(|(key, value)| (*key, value.as_ref())),
+            );
             for (key, value) in options {
                 let key_c = CString::new(key)?;
                 let value_c = CString::new(value)?;
@@ -192,7 +195,8 @@ impl Player {
             .iter()
             .map(|s| CString::new(*s))
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        let mut pointers: Vec<_> = strings.iter().map(|s| s.as_ptr()).collect();
+        let mut pointers = Vec::with_capacity(strings.len() + 1);
+        pointers.extend(strings.iter().map(|s| s.as_ptr()));
         pointers.push(ptr::null());
         // SAFETY: mpv_command consumes the null-terminated argument array synchronously.
         if unsafe { (self.command)(self.handle, pointers.as_ptr()) } < 0 {
@@ -393,7 +397,7 @@ impl Drop for Player {
     }
 }
 
-fn common_options() -> Vec<(&'static str, String)> {
+fn common_options() -> [(&'static str, &'static str); 14] {
     [
         ("config", "no"),
         ("load-scripts", "no"),
@@ -410,9 +414,6 @@ fn common_options() -> Vec<(&'static str, String)> {
         ("network-timeout", "20"),
         ("msg-level", "all=no"),
     ]
-    .into_iter()
-    .map(|(key, value)| (key, value.to_owned()))
-    .collect()
 }
 
 fn library_path() -> Result<PathBuf> {

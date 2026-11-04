@@ -217,22 +217,20 @@ fn apply(s: &mut State, event: Event) {
                     if s.navigation.page == Page::Calendar {
                         s.fetch_calendar();
                     }
-                    let catalogs = s.catalogs();
-                    s.discover.catalog = s
+                    let catalog = s
                         .discover
                         .catalog
                         .as_ref()
                         .and_then(|(addon, catalog)| {
-                            catalogs
-                                .iter()
-                                .find(|(a, c)| {
-                                    a.manifest.id == addon.manifest.id
-                                        && c.id == catalog.id
-                                        && c.kind == catalog.kind
-                                })
-                                .cloned()
+                            s.catalogs().find(|(a, c)| {
+                                a.manifest.id == addon.manifest.id
+                                    && c.id == catalog.id
+                                    && c.kind == catalog.kind
+                            })
                         })
-                        .or_else(|| catalogs.into_iter().next());
+                        .or_else(|| s.catalogs().next())
+                        .map(|(addon, catalog)| (addon.clone(), catalog.clone()));
+                    s.discover.catalog = catalog;
                     if s.navigation.page == Page::Discover {
                         s.fetch_catalog();
                     }
@@ -298,15 +296,16 @@ fn apply(s: &mut State, event: Event) {
             };
             if done && s.library.quick_play == Some(s.detail.generation) {
                 s.library.quick_play = None;
-                let playable: Vec<_> = s
+                let mut playable = s
                     .detail
                     .sources
                     .streams
                     .iter()
-                    .filter(|(_, stream)| stream.validate_playback().is_ok())
-                    .collect();
-                if playable.len() == 1 {
-                    let stream = playable[0].1.clone();
+                    .filter(|(_, stream)| stream.validate_playback().is_ok());
+                if let Some((_, stream)) = playable.next()
+                    && playable.next().is_none()
+                {
+                    let stream = stream.clone();
                     let title = s
                         .detail
                         .meta

@@ -132,6 +132,49 @@ fn comfort_uses_only_watched_released_regular_episodes_and_movies_are_separate()
 }
 
 #[test]
+fn sequential_programming_breaks_episode_number_ties_by_media_id() {
+    let mut library = Library::memory().unwrap();
+    let parent = show(&mut library, "ties", 0);
+    let inventory: Vec<_> = ["c", "a", "b"]
+        .into_iter()
+        .map(|id| crate::EpisodeRelease {
+            media: Media {
+                key: MediaKey::new("test", MediaKind::Episode, id),
+                title: id.into(),
+                parent: Some(parent.key.clone()),
+            },
+            released_at: Some(0),
+            season: Some(1),
+            episode: Some(1),
+        })
+        .collect();
+    library
+        .sync_episode_releases(&parent.key, &inventory)
+        .unwrap();
+    let snapshot = library
+        .guide_update(
+            GuideAction::Policy(SourcePolicy {
+                order: EpisodeOrder::Sequential,
+                ..SourcePolicy::default()
+            }),
+            10_000,
+        )
+        .unwrap();
+    let channel = snapshot
+        .channels
+        .iter()
+        .find(|channel| channel.id == "library-tv")
+        .unwrap();
+    let ids: Vec<_> = channel
+        .slots
+        .iter()
+        .take(6)
+        .map(|slot| slot.program.media.key.id.as_str())
+        .collect();
+    assert_eq!(ids, ["a", "b", "c", "a", "b", "c"]);
+}
+
+#[test]
 fn shuffle_balances_shows_and_avoids_repeats_until_pool_is_exhausted() {
     let mut library = Library::memory().unwrap();
     show(&mut library, "large", 150);

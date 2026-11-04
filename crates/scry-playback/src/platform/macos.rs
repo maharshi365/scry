@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub(crate) const LIBRARY_NAME: &str = "libmpv.2.dylib";
 
@@ -9,10 +9,10 @@ pub(crate) fn library_path() -> Option<PathBuf> {
         "/usr/local/opt/mpv/lib/libmpv.2.dylib",
     ]
     .into_iter()
+    .find(|path| Path::new(path).is_file())
     .map(PathBuf::from)
-    .find(|path| path.is_file())
 }
 
-pub(crate) fn native_options() -> Vec<(&'static str, String)> {
-    Vec::new()
+pub(crate) fn native_options() -> &'static [(&'static str, &'static str)] {
+    &[]
 }

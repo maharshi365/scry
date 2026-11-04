@@ -142,7 +142,7 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<(Vec<Item>, Preview)> {
     let mut items = BTreeMap::new();
     let mut ambiguous = BTreeSet::new();
     for row in rows {
-        let Ok(item) = serde_json::from_value::<Item>(row.clone()) else {
+        let Ok(item) = Item::deserialize(row) else {
             preview.issue(
                 row.get("name")
                     .and_then(Value::as_str)
@@ -327,7 +327,7 @@ fn append_watched(
             Ok(ids) => {
                 let mut skipped_release = false;
                 for release in inventory {
-                    if ids.contains(&release.media.key.id) {
+                    if ids.contains(release.media.key.id.as_str()) {
                         if scry_library::can_mark_watched(
                             MediaKind::Episode,
                             release.season,

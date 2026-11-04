@@ -194,23 +194,22 @@ impl State {
         categories
     }
 
-    pub(super) fn catalogs(&self) -> Vec<(Addon, Catalog)> {
+    pub(super) fn catalogs(&self) -> impl Iterator<Item = (&Addon, &Catalog)> {
         self.addons
             .installed
             .iter()
             .filter(|a| !a.disabled)
-            .flat_map(|a| {
+            .flat_map(move |a| {
                 a.manifest
                     .catalogs
                     .iter()
-                    .filter(|c| {
+                    .filter(move |c| {
                         c.kind == self.discover.kind
                             && compatible_catalog(c)
                             && !c.extra.iter().any(|e| e.name == "search" && e.is_required)
                     })
-                    .map(|c| (a.clone(), c.clone()))
+                    .map(move |c| (a, c))
             })
-            .collect()
     }
 
     pub(super) fn choose_kind(&mut self, kind: &str) {
@@ -221,14 +220,18 @@ impl State {
         self.leave_guide();
         self.navigation.page = Page::Discover;
         self.discover.kind = kind.into();
-        self.discover.catalog = self.catalogs().into_iter().next();
+        let catalog = self
+            .catalogs()
+            .next()
+            .map(|(addon, catalog)| (addon.clone(), catalog.clone()));
+        self.discover.catalog = catalog;
         self.discover.search = TextEdit::new("");
         self.fetch_catalog();
     }
 
     pub(super) fn select_catalog(&mut self, index: usize) {
         self.discover.menu_open = false;
-        let Some((addon, catalog)) = self.catalogs().into_iter().nth(index) else {
+        let Some((addon, catalog)) = self.catalogs().nth(index) else {
             return;
         };
         if self
@@ -243,9 +246,10 @@ impl State {
         {
             return;
         }
+        let selected = (addon.clone(), catalog.clone());
         self.remember();
         self.navigation.page = Page::Discover;
-        self.discover.catalog = Some((addon, catalog));
+        self.discover.catalog = Some(selected);
         self.discover.search = TextEdit::new("");
         self.fetch_catalog();
     }

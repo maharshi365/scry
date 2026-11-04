@@ -2,7 +2,7 @@ use super::{VideoFile, filename};
 use anyhow::{Result, ensure};
 use scry_addons::Meta;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::{borrow::Cow, collections::BTreeSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum EpisodeOrder {
@@ -58,7 +58,7 @@ impl Ordering {
             .collect();
         videos.sort_by_key(|v| (v.season, v.episode));
         let mut previous = (1, 0);
-        let mut episodes = Vec::new();
+        let mut episodes = Vec::with_capacity(videos.len());
         for (index, video) in videos.into_iter().enumerate() {
             let (Some(season), Some(episode)) = (video.season, video.episode) else {
                 continue;
@@ -134,35 +134,31 @@ impl Ordering {
                 if episode.season != 1 {
                     return Vec::new();
                 }
-                Some((1, episode.numbers.clone()))
+                Some((1, Cow::Borrowed(episode.numbers.as_slice())))
             } else {
-                filename::absolute(&file.path).map(|(_, numbers)| (1, numbers))
+                filename::absolute(&file.path).map(|(_, numbers)| (1, Cow::Owned(numbers)))
             }
         } else {
             file.episode
                 .as_ref()
-                .map(|episode| (episode.season, episode.numbers.clone()))
+                .map(|episode| (episode.season, Cow::Borrowed(episode.numbers.as_slice())))
         };
         let Some((season, numbers)) = position else {
             return Vec::new();
         };
         let mut mapped = Vec::new();
-        for number in numbers {
-            let matches: Vec<_> = self
-                .episodes
-                .iter()
-                .filter(|e| {
-                    if file.corrected {
-                        e.season == season && e.episode == number
-                    } else {
-                        e.file_season == season && e.file_episode == number
-                    }
-                })
-                .collect();
-            if matches.is_empty() {
+        for &number in numbers.iter() {
+            let before = mapped.len();
+            mapped.extend(self.episodes.iter().filter(|e| {
+                if file.corrected {
+                    e.season == season && e.episode == number
+                } else {
+                    e.file_season == season && e.file_episode == number
+                }
+            }));
+            if mapped.len() == before {
                 return Vec::new();
             }
-            mapped.extend(matches);
         }
         mapped
     }
@@ -210,6 +206,39 @@ mod tests {
             corrected: false,
             available: true,
         };
+        assert!(order.resolve(&file).is_empty());
+    }
+
+    #[test]
+    fn dvd_mapping_keeps_all_targets_in_file_episode_order() {
+        let mut order = Ordering::from_meta(&meta(), EpisodeOrder::Aired).unwrap();
+        order.mode = EpisodeOrder::Dvd;
+        order.episodes.retain(|episode| episode.season > 0);
+        order.episodes[2].file_season = 1;
+        order.episodes[2].file_episode = 1;
+        order.validate().unwrap();
+        let mut file = VideoFile {
+            path: PathBuf::from("Example.S01E02E01.mkv"),
+            episode: Some(crate::local_media::Episode {
+                season: 1,
+                numbers: vec![2, 1],
+            }),
+            corrected: false,
+            available: true,
+        };
+        assert_eq!(
+            order
+                .resolve(&file)
+                .iter()
+                .map(|video| video.id.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "provider:second",
+                "provider:first",
+                "provider:second-season"
+            ]
+        );
+        file.episode.as_mut().unwrap().numbers.push(99);
         assert!(order.resolve(&file).is_empty());
     }
 

@@ -3,7 +3,7 @@ mod software;
 pub use software::Surface as FrameSurface;
 
 use anyhow::{Result, bail};
-use std::{ffi::c_void, path::Path};
+use std::{borrow::Cow, ffi::c_void, path::Path};
 
 /// Select a video output independently of the operating system.
 #[derive(Clone)]
@@ -21,15 +21,19 @@ impl PlaybackTarget {
         }
     }
 
-    pub(crate) fn options(&self) -> Result<Vec<(&'static str, String)>> {
+    pub(crate) fn options(&self) -> Result<Vec<(&'static str, Cow<'static, str>)>> {
         Ok(match self {
             Self::NativeWindow(window) => {
                 let mut options = vec![
-                    ("wid", window.to_string()),
+                    ("wid", window.to_string().into()),
                     ("vo", VideoRenderer::from_env()?.name().into()),
                     ("hwdec", "auto-safe".into()),
                 ];
-                options.extend(crate::platform::native_options());
+                options.extend(
+                    crate::platform::native_options()
+                        .iter()
+                        .map(|(key, value)| (*key, (*value).into())),
+                );
                 options
             }
             Self::DecodeOnly => vec![

@@ -10,6 +10,6 @@ pub(crate) fn library_path() -> Option<PathBuf> {
     Some(LIBRARY_NAME.into())
 }
 
-pub(crate) fn native_options() -> Vec<(&'static str, String)> {
-    Vec::new()
+pub(crate) fn native_options() -> &'static [(&'static str, &'static str)] {
+    &[]
 }

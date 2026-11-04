@@ -42,9 +42,9 @@ fn database(data: &Path) -> Result<scry_library::Library> {
 // Local preferences share the stored manifest document, not the remote manifest.
 // The optional flag needs no database schema change or data migration.
 #[derive(serde::Serialize, serde::Deserialize)]
-struct StoredManifest {
+struct StoredManifest<T = scry_addons::Manifest> {
     #[serde(flatten)]
-    manifest: scry_addons::Manifest,
+    manifest: T,
     #[serde(default, rename = "_scry_disabled")]
     disabled: bool,
 }
@@ -89,7 +89,7 @@ pub(super) fn save(data: &Path, addons: &[Addon]) -> Result<()> {
                 id: addon.manifest.id.clone(),
                 manifest_url: addon.manifest_url.clone(),
                 manifest_json: serde_json::to_string(&StoredManifest {
-                    manifest: addon.manifest.clone(),
+                    manifest: &addon.manifest,
                     disabled: addon.disabled,
                 })?,
             })
@@ -108,10 +108,12 @@ pub(super) async fn update(
     let mut current = config.lock().await;
     let mut next = current.clone();
     change(&mut next)?;
-    let stored = next.clone();
-    tokio::task::spawn_blocking(move || save(&data, &stored))
-        .await
-        .context("Cannot save add-ons configuration")??;
+    let next = tokio::task::spawn_blocking(move || {
+        save(&data, &next)?;
+        Ok::<_, anyhow::Error>(next)
+    })
+    .await
+    .context("Cannot save add-ons configuration")??;
     current.clone_from(&next);
     Ok(next)
 }

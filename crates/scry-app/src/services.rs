@@ -498,32 +498,37 @@ impl Services {
         }
         let (client, inbox) = (self.client.clone(), self.inbox.clone());
         let config = self.config.clone();
-        self.catalog_task = Some(self.runtime.spawn(async move {
-            // History can hold older manifest snapshots. Resolve current capability
-            // before fetching, including removal, disable, and pagination changes.
-            let current = config
-                .lock()
-                .await
-                .iter()
-                .find(|current| !current.disabled && current.manifest_url == addon.manifest_url)
-                .and_then(|addon| {
-                    addon
-                        .manifest
-                        .catalogs
-                        .iter()
-                        .find(|current| current.id == catalog.id && current.kind == catalog.kind)
-                        .map(|catalog| (addon.clone(), catalog.clone()))
-                });
-            let result = if let Some((addon, catalog)) = current {
-                client
-                    .catalog_page(&addon, &catalog, offset)
+        self.catalog_task =
+            Some(self.runtime.spawn(async move {
+                // History can hold older manifest snapshots. Resolve current capability
+                // before fetching, including removal, disable, and pagination changes.
+                let current = config
+                    .lock()
                     .await
-                    .map_err(|e| e.to_string())
-            } else {
-                Err("This catalog is no longer available from the installed add-ons".into())
-            };
-            inbox.send(Event::Catalog(generation, offset, result)).await;
-        }));
+                    .iter()
+                    .find(|current| !current.disabled && current.manifest_url == addon.manifest_url)
+                    .filter(|addon| {
+                        addon
+                            .manifest
+                            .catalogs
+                            .iter()
+                            .any(|current| current.id == catalog.id && current.kind == catalog.kind)
+                    })
+                    .cloned();
+                let result = if let Some(addon) = current
+                    && let Some(catalog) =
+                        addon.manifest.catalogs.iter().find(|current| {
+                            current.id == catalog.id && current.kind == catalog.kind
+                        }) {
+                    client
+                        .catalog_page(&addon, catalog, offset)
+                        .await
+                        .map_err(|e| e.to_string())
+                } else {
+                    Err("This catalog is no longer available from the installed add-ons".into())
+                };
+                inbox.send(Event::Catalog(generation, offset, result)).await;
+            }));
     }
 
     pub fn search(&mut self, generation: u64, addons: Vec<Addon>, query: String) {
@@ -772,6 +777,7 @@ impl Services {
             task.abort();
         }
         let (client, inbox) = (self.client.clone(), self.inbox.clone());
+        let addons = Arc::new(addons);
         self.guide_task = Some(self.runtime.spawn(async move {
             let mut titles = titles.into_iter().take(12);
             let mut tasks = tokio::task::JoinSet::new();
@@ -1132,9 +1138,9 @@ impl Drop for Services {
     }
 }
 
-fn direct_url(stream: &Stream) -> Result<Option<String>> {
+fn direct_url(stream: &mut Stream) -> Result<Option<String>> {
     stream.validate_playback()?;
-    Ok(stream.url.clone())
+    Ok(stream.url.take())
 }
 
 async fn torrent_session(
@@ -1408,8 +1414,8 @@ async fn player_loop(
                                     .map_err(|()| anyhow::anyhow!("Invalid local video path"))?
                                     .to_string()
                             }
-                            Source::Stream(stream) | Source::Channel(stream, _) => {
-                                if let Some(url) = direct_url(&stream)? {
+                            Source::Stream(mut stream) | Source::Channel(mut stream, _) => {
+                                if let Some(url) = direct_url(&mut stream)? {
                                     tracing::info!("Direct stream selected");
                                     url
                                 } else {

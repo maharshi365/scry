@@ -143,16 +143,16 @@ pub(super) fn extend(
             automatic(channels, id.into(), name.into(), kind, source);
         }
     }
-    let mut genres = BTreeMap::<String, Vec<MediaKey>>::new();
+    let mut genres = BTreeMap::<&str, Vec<&MediaKey>>::new();
     for candidate in candidates
         .iter()
         .filter(|c| c.saved && c.program.media.key.kind == MediaKind::Episode)
     {
         for genre in &candidate.genres {
-            let keys = genres.entry(genre.clone()).or_default();
+            let keys = genres.entry(genre.as_str()).or_default();
             let key = group_key(&candidate.program);
-            if !keys.contains(key) {
-                keys.push(key.clone());
+            if !keys.contains(&key) {
+                keys.push(key);
             }
         }
     }
@@ -165,9 +165,9 @@ pub(super) fn extend(
         automatic(
             channels,
             format!("genre-{genre}"),
-            genre.clone(),
+            genre.into(),
             MediaKind::Series,
-            ChannelSource::Genre(genre),
+            ChannelSource::Genre(genre.into()),
         );
     }
     for channel in channels {
@@ -175,14 +175,13 @@ pub(super) fn extend(
         channel
             .slots
             .retain(|slot| slot.ends_at() > now.saturating_sub(HORIZON));
-        let eligible: Vec<_> = candidates
-            .iter()
-            .filter(|candidate| {
-                matches_channel(candidate, channel.kind, &channel.source, collections)
-                    && (!policy.watched_only || candidate.watched)
-            })
-            .collect();
-        fill(channel, &eligible, policy.order, now);
+        let kind = channel.kind;
+        let source = &channel.source;
+        let eligible = candidates.iter().filter(|candidate| {
+            matches_channel(candidate, kind, source, collections)
+                && (!policy.watched_only || candidate.watched)
+        });
+        fill(&channel.id, &mut channel.slots, eligible, policy.order, now);
     }
     Ok(())
 }
@@ -224,7 +223,20 @@ fn hash(value: &str, seed: u64) -> u64 {
         })
 }
 
-fn fill(channel: &mut Channel, candidates: &[&Candidate], order: EpisodeOrder, now: i64) {
+fn fill<'a>(
+    channel_id: &str,
+    slots: &mut Vec<Slot>,
+    candidates: impl IntoIterator<Item = &'a Candidate>,
+    order: EpisodeOrder,
+    now: i64,
+) {
+    // New channels begin at the day's boundary, not at app launch. Their first
+    // tune therefore joins an already-running program instead of resetting it.
+    let anchor = now - now.rem_euclid(HORIZON);
+    let mut starts_at = slots.last().map_or(anchor, Slot::ends_at).max(anchor);
+    if starts_at >= now.saturating_add(HORIZON) || slots.len() >= 3000 {
+        return;
+    }
     let mut groups: BTreeMap<(&str, &str), Vec<&Program>> = BTreeMap::new();
     for candidate in candidates {
         let key = group_key(&candidate.program);
@@ -234,23 +246,25 @@ fn fill(channel: &mut Channel, candidates: &[&Candidate], order: EpisodeOrder, n
             .push(&candidate.program);
     }
     for programs in groups.values_mut() {
-        programs.sort_by_key(|p| (p.season, p.episode, p.media.key.id.clone()));
+        programs.sort_by(|left, right| {
+            (left.season, left.episode, &left.media.key.id).cmp(&(
+                right.season,
+                right.episode,
+                &right.media.key.id,
+            ))
+        });
     }
-    let mut recent: HashMap<MediaKey, i64> = channel
-        .slots
-        .iter()
-        .map(|slot| (slot.program.media.key.clone(), slot.starts_at))
-        .collect();
-    // New channels begin at the day's boundary, not at app launch. Their first
-    // tune therefore joins an already-running program instead of resetting it.
-    let anchor = now - now.rem_euclid(HORIZON);
-    let mut starts_at = channel.slots.last().map_or(anchor, Slot::ends_at);
-    if starts_at < anchor {
-        starts_at = anchor;
-    }
-    while starts_at < now.saturating_add(HORIZON) && channel.slots.len() < 3000 {
-        let previous = channel.slots.last().map(|slot| group_key(&slot.program));
-        let seed = hash(&channel.id, u64::try_from(starts_at).unwrap_or_default());
+    let mut recent: HashMap<MediaKey, i64> = if order == EpisodeOrder::Shuffle {
+        slots
+            .iter()
+            .map(|slot| (slot.program.media.key.clone(), slot.starts_at))
+            .collect()
+    } else {
+        HashMap::new()
+    };
+    while starts_at < now.saturating_add(HORIZON) && slots.len() < 3000 {
+        let previous = slots.last().map(|slot| group_key(&slot.program));
+        let seed = hash(channel_id, u64::try_from(starts_at).unwrap_or_default());
         let Some((_, programs)) = groups
             .iter()
             .filter(|(_, programs)| {
@@ -264,7 +278,7 @@ fn fill(channel: &mut Channel, candidates: &[&Candidate], order: EpisodeOrder, n
             break;
         };
         let program = if order == EpisodeOrder::Sequential {
-            let last = channel.slots.iter().rev().find(|slot| {
+            let last = slots.iter().rev().find(|slot| {
                 programs
                     .first()
                     .is_some_and(|p| group_key(p) == group_key(&slot.program))
@@ -288,8 +302,14 @@ fn fill(channel: &mut Channel, candidates: &[&Candidate], order: EpisodeOrder, n
         let Some(program) = program else {
             break;
         };
-        recent.insert(program.media.key.clone(), starts_at);
-        channel.slots.push(Slot {
+        if order == EpisodeOrder::Shuffle {
+            if let Some(last) = recent.get_mut(&program.media.key) {
+                *last = starts_at;
+            } else {
+                recent.insert(program.media.key.clone(), starts_at);
+            }
+        }
+        slots.push(Slot {
             starts_at,
             program: program.clone(),
         });

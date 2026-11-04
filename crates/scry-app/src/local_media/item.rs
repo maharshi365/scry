@@ -2,7 +2,7 @@ use super::Ordering;
 use anyhow::Result;
 use scry_addons::Meta;
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{borrow::Cow, collections::BTreeMap, path::PathBuf};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct Item {
@@ -61,7 +61,7 @@ impl Item {
                     self.id.as_str(),
                     self.kind.as_str(),
                     self.title.as_str(),
-                    self.year.map(|v| v.to_string()).unwrap_or_default(),
+                    Cow::Owned(self.year.map(|v| v.to_string()).unwrap_or_default()),
                     None,
                 )
             },
@@ -70,8 +70,8 @@ impl Item {
                     m.id.as_str(),
                     m.kind.as_str(),
                     m.name.as_str(),
-                    m.year.clone(),
-                    m.poster.clone(),
+                    Cow::Borrowed(m.year.as_str()),
+                    m.poster.as_deref(),
                 )
             },
         );
@@ -111,44 +111,47 @@ impl Item {
         }))?)
     }
 
-    pub fn sources(&self, kind: &str, id: &str) -> Vec<&VideoFile> {
+    pub fn sources<'a>(
+        &'a self,
+        kind: &'a str,
+        id: &'a str,
+    ) -> impl Iterator<Item = &'a VideoFile> {
         let (media_id, media_kind) = self
             .matched
             .as_ref()
             .map_or((self.id.as_str(), self.kind.as_str()), |m| (&m.id, &m.kind));
-        if media_kind != kind {
-            return Vec::new();
-        }
-        self.files
-            .iter()
-            .filter(|file| {
-                if !file.available {
-                    return false;
-                }
-                if kind == "movie" {
-                    return media_id == id;
-                }
-                if self.needs_episode_order() {
-                    return id == file.local_id();
-                }
-                if let Some(ordering) = &self.ordering {
-                    let mapped = ordering.resolve(file);
-                    return if mapped.is_empty() {
-                        id == file.local_id()
-                    } else {
-                        mapped.iter().any(|video| video.id == id)
-                    };
-                }
-                file.episode.as_ref().map_or_else(
-                    || id == file.local_id(),
-                    |ep| {
-                        ep.numbers
-                            .iter()
-                            .any(|n| id == format!("{media_id}:{}:{n}", ep.season))
-                    },
-                )
-            })
-            .collect()
+        let files = if media_kind == kind {
+            self.files.as_slice()
+        } else {
+            &[]
+        };
+        files.iter().filter(move |file| {
+            if !file.available {
+                return false;
+            }
+            if kind == "movie" {
+                return media_id == id;
+            }
+            if self.needs_episode_order() {
+                return id == file.local_id();
+            }
+            if let Some(ordering) = &self.ordering {
+                let mapped = ordering.resolve(file);
+                return if mapped.is_empty() {
+                    id == file.local_id()
+                } else {
+                    mapped.iter().any(|video| video.id == id)
+                };
+            }
+            file.episode.as_ref().map_or_else(
+                || id == file.local_id(),
+                |ep| {
+                    ep.numbers
+                        .iter()
+                        .any(|n| id == format!("{media_id}:{}:{n}", ep.season))
+                },
+            )
+        })
     }
 
     fn unresolved(&self, file: &VideoFile) -> bool {

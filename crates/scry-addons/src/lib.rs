@@ -4,7 +4,7 @@ pub mod http_cache;
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use std::{borrow::Cow, time::Duration};
 use url::Url;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -388,9 +388,10 @@ pub fn catalog_page_url(addon: &Addon, catalog: &Catalog, skip: u32) -> Result<U
 /// Returns an error if the input is not a valid HTTP or HTTPS add-on manifest URL.
 pub fn manifest_url(input: &str) -> Result<Url> {
     let input = input.trim();
-    let input = input
-        .strip_prefix("stremio://")
-        .map_or_else(|| input.to_owned(), |rest| format!("https://{rest}"));
+    let input = input.strip_prefix("stremio://").map_or_else(
+        || Cow::Borrowed(input),
+        |rest| Cow::Owned(format!("https://{rest}")),
+    );
     let mut url = Url::parse(&input).context("Enter an HTTP or HTTPS add-on manifest URL")?;
     if !matches!(url.scheme(), "http" | "https")
         || url.host_str().is_none()
@@ -441,12 +442,10 @@ pub fn resource_url(
     if let Some(query) = search {
         // Extras use query-string escaping, but live in a path, not the URL query.
         // set_path preserves the escapes; push would encode the percent signs again.
-        let encoded: String = url::form_urlencoded::byte_serialize(query.as_bytes()).collect();
-        url.set_path(&format!(
-            "{}/search={}.json",
-            url.path(),
-            encoded.replace('+', "%20")
-        ));
+        let encoded: String = url::form_urlencoded::byte_serialize(query.as_bytes())
+            .map(|part| if part == "+" { "%20" } else { part })
+            .collect();
+        url.set_path(&format!("{}/search={encoded}.json", url.path()));
     }
     Ok(url)
 }
@@ -668,17 +667,23 @@ impl Client {
             subtitles: Vec<Subtitle>,
         }
         let mut url = resource_url(&addon.manifest_url, "subtitles", kind, id, None)?;
-        let mut extras = Vec::new();
+        let mut extras = String::new();
         for key in ["videoHash", "videoSize", "filename"] {
             let value = hints.get(key).and_then(|v| match v {
-                serde_json::Value::String(s) => Some(s.clone()),
-                serde_json::Value::Number(n) => Some(n.to_string()),
+                serde_json::Value::String(s) => Some(Cow::Borrowed(s.as_str())),
+                serde_json::Value::Number(n) => Some(Cow::Owned(n.to_string())),
                 _ => None,
             });
             if let Some(value) = value.filter(|s| !s.is_empty() && s.len() <= 1024) {
-                let escaped: String =
-                    url::form_urlencoded::byte_serialize(value.as_bytes()).collect();
-                extras.push(format!("{key}={}", escaped.replace('+', "%20")));
+                if !extras.is_empty() {
+                    extras.push('&');
+                }
+                extras.push_str(key);
+                extras.push('=');
+                extras.extend(
+                    url::form_urlencoded::byte_serialize(value.as_bytes())
+                        .map(|part| if part == "+" { "%20" } else { part }),
+                );
             }
         }
         if !extras.is_empty() {
@@ -686,7 +691,7 @@ impl Client {
                 .map_err(|()| anyhow::anyhow!("Invalid subtitle resource"))?
                 .pop()
                 .push(id);
-            url.set_path(&format!("{}/{}.json", url.path(), extras.join("&")));
+            url.set_path(&format!("{}/{extras}.json", url.path()));
         }
         Ok(self
             .json_mode::<Response>(url, false)

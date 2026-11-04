@@ -195,12 +195,15 @@ fn hero(s: &State, compact: bool) -> El {
             info = info.child(title);
         }
         let year = super::formatting::release_year(&meta.year);
-        let facts = [&meta.runtime, &year, &meta.imdb_rating]
-            .into_iter()
-            .filter(|value| !value.is_empty())
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(" / ");
+        let mut facts = String::new();
+        for value in [&meta.runtime, &year, &meta.imdb_rating] {
+            if !value.is_empty() {
+                if !facts.is_empty() {
+                    facts.push_str(" / ");
+                }
+                facts.push_str(value);
+            }
+        }
         info = info.child(text(facts).wrap().font(type_::SECTION).color(theme().text));
         for (title, values) in [
             ("GENRES", &meta.genres),

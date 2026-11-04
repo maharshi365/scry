@@ -280,15 +280,15 @@ async fn resolve(
             || (now >= record.fetched_at
                 && now.saturating_sub(record.fetched_at) < UNKNOWN_LIFETIME))
     {
-        return Ok(Resolution::Ready(data.intro.clone()));
+        return Ok(Resolution::Ready(saved.and_then(|data| data.intro)));
     }
     if !network_allowed {
         return Ok(Resolution::Ready(None));
     }
     let mut request = client.get(endpoint).query(&[
-        ("imdb_id", key.imdb_id.clone()),
-        ("season", key.season.to_string()),
-        ("episode", key.episode.to_string()),
+        ("imdb_id", key.imdb_id.as_str()),
+        ("season", &key.season.to_string()),
+        ("episode", &key.episode.to_string()),
     ]);
     if let Some(etag) = cached.as_ref().and_then(|record| record.etag.as_ref()) {
         request = request.header(reqwest::header::IF_NONE_MATCH, etag);

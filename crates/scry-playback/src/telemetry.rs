@@ -140,7 +140,15 @@ impl Tracker {
                 self.in_stall = false;
             }
         }
-        self.previous = Some(sample.clone());
+        // Only interval inputs are retained; decoder names need no per-sample copy.
+        self.previous = Some(Sample {
+            elapsed_s: sample.elapsed_s,
+            position_s: sample.position_s,
+            cpu_time_s: sample.cpu_time_s,
+            buffering: sample.buffering,
+            paused: sample.paused,
+            ..Sample::default()
+        });
     }
 }
 

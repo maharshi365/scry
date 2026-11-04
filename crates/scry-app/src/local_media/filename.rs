@@ -318,7 +318,7 @@ fn parse_name(name: &str) -> Parsed {
         .min()
         .unwrap_or(tokens.len());
     let max_year = u32::try_from(chrono::Utc::now().year() + 1).unwrap_or(2100);
-    let years: Vec<_> = tokens
+    let mut years = tokens
         .iter()
         .enumerate()
         .take(boundary)
@@ -331,13 +331,11 @@ fn parse_name(name: &str) -> Parsed {
                 .filter(|y| value.len() == 4 && (1888..=max_year).contains(y))
                 .map(|y| (i, y))
         })
-        .collect();
+        .rev();
     let year = years
-        .iter()
-        .rev()
+        .clone()
         .find(|(i, _)| tokens.get(*i).is_some_and(|t| t.starts_with('(')))
-        .or_else(|| years.last())
-        .copied();
+        .or_else(|| years.next());
     let end = [ep.as_ref().map(|(i, _)| *i), year.map(|(i, _)| i), release]
         .into_iter()
         .flatten()

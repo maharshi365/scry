@@ -37,7 +37,6 @@ pub struct Torrents {
     cache: Arc<cache::Cache>,
 }
 
-#[derive(Clone)]
 struct Server {
     api: Api,
     token: String,
@@ -136,10 +135,10 @@ impl Torrents {
         let token = uuid::Uuid::new_v4().to_string();
         let router = Router::new()
             .route("/:token/:id/:file", get(serve))
-            .with_state(Server {
+            .with_state(Arc::new(Server {
                 api: api.clone(),
                 token: token.clone(),
-            });
+            }));
         let server = tokio::spawn(async move {
             if axum::serve(listener, router).await.is_err() {
                 tracing::error!("Torrent streaming HTTP server failed");
@@ -186,7 +185,7 @@ impl Torrents {
         })
         .await??;
         let source = cached.map_or_else(
-            || AddTorrent::from_url(magnet.clone()),
+            || AddTorrent::from_url(magnet.as_str()),
             AddTorrent::from_bytes,
         );
         // Inspect every path before the engine opens files, even with an explicit index.
@@ -195,24 +194,21 @@ impl Torrents {
         if listed.info_hash.as_string() != hash {
             bail!("Cached torrent identity does not match the stream");
         }
-        let files = listed
-            .info
-            .iter_file_details()?
-            .take(MAX_TORRENT_FILES + 1)
-            .map(|file| Ok((file.filename.to_string()?, file.len)))
-            .collect::<Result<Vec<_>>>()?;
-        let index = select_torrent_file(
-            &files
-                .iter()
-                .map(|(name, len)| (name.as_str(), *len))
-                .collect::<Vec<_>>(),
-            stream.file_idx,
-        )?;
-        tracing::info!(
-            file_index = index,
-            file_count = files.len(),
-            "Torrent video selected"
-        );
+        let index = {
+            let files = listed
+                .info
+                .iter_file_details()?
+                .take(MAX_TORRENT_FILES + 1)
+                .map(|file| Ok((file.filename.to_string()?, file.len)))
+                .collect::<Result<Vec<_>>>()?;
+            let index = select_torrent_file(&files, stream.file_idx)?;
+            tracing::info!(
+                file_index = index,
+                file_count = files.len(),
+                "Torrent video selected"
+            );
+            index
+        };
         let metadata = listed.torrent_bytes.clone();
         let metadata_entry = entry.clone();
         tokio::task::spawn_blocking(move || {
@@ -342,31 +338,32 @@ pub fn magnet(stream: &Stream) -> Result<String> {
     Ok(url.to_string())
 }
 
-fn select_video(files: &[(&str, u64)]) -> Option<usize> {
+fn select_video(files: &[(impl AsRef<str>, u64)]) -> Option<usize> {
     files
         .iter()
         .enumerate()
         .filter(|(_, (name, _))| {
-            std::path::Path::new(name)
+            std::path::Path::new(name.as_ref())
                 .extension()
                 .and_then(|e| e.to_str())
                 .is_some_and(|e| {
                     ["mkv", "mp4", "webm", "avi", "mov", "m4v", "ts"]
-                        .contains(&e.to_ascii_lowercase().as_str())
+                        .iter()
+                        .any(|extension| e.eq_ignore_ascii_case(extension))
                 })
         })
         .max_by_key(|(_, (_, len))| *len)
         .map(|(i, _)| i)
 }
 
-fn select_torrent_file(files: &[(&str, u64)], index: Option<usize>) -> Result<usize> {
+fn select_torrent_file(files: &[(impl AsRef<str>, u64)], index: Option<usize>) -> Result<usize> {
     if files.len() > MAX_TORRENT_FILES {
         bail!("Torrent contains too many files");
     }
     // The engine opens unselected files too. Reject Windows prefixes, alternate
     // streams, device aliases, and components Win32 can normalize into parents.
     for (name, _) in files {
-        if name.split(['/', '\\']).any(|part| {
+        if name.as_ref().split(['/', '\\']).any(|part| {
             part.is_empty()
                 || part.contains(':')
                 || part.ends_with(['.', ' '])
@@ -436,7 +433,7 @@ fn byte_range(value: Option<&str>, len: u64) -> Result<(u64, u64, bool)> {
 }
 
 async fn serve(
-    State(state): State<Server>,
+    State(state): State<Arc<Server>>,
     Path((token, id, file)): Path<(String, usize, usize)>,
     headers: HeaderMap,
 ) -> Response {
@@ -524,6 +521,17 @@ mod tests {
             Some(2)
         );
         assert_eq!(select_video(&[("a.txt", 100)]), None);
+    }
+
+    #[test]
+    fn owned_file_names_keep_case_insensitive_selection_and_last_tie() {
+        let files = [
+            (String::from("first.Mp4"), 100),
+            (String::from("not-video.m\u{212a}v"), 200),
+            (String::from("last.mKv"), 100),
+        ];
+        assert_eq!(select_torrent_file(&files, None).unwrap(), 2);
+        assert_eq!(select_torrent_file(&files, Some(0)).unwrap(), 0);
     }
 
     #[test]
@@ -890,10 +898,10 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let router = Router::new()
             .route("/:token/:id/:file", get(serve))
-            .with_state(Server {
+            .with_state(Arc::new(Server {
                 api,
                 token: "test-token".into(),
-            });
+            }));
         let server = tokio::spawn(async move {
             axum::serve(listener, router).await.unwrap();
         });

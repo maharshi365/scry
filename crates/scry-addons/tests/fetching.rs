@@ -47,6 +47,33 @@ fn response(status: &str, headers: &str, name: &str) -> String {
 }
 
 #[tokio::test]
+async fn subtitle_hints_keep_their_order_encoding_and_size_limit() {
+    let body = r#"{"subtitles":[]}"#;
+    let reply = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let (addon, requests, server) = provider(vec![reply.clone(), reply]).await;
+    let client = Client::new().unwrap();
+    for hints in [
+        serde_json::json!({"videoHash":"a b/+", "videoSize":1234, "filename":"a&b?.mkv"}),
+        serde_json::json!({"videoHash":"x".repeat(1025), "videoSize":null, "filename":""}),
+    ] {
+        assert!(
+            client
+                .subtitles(&addon, "series", "tt1:1:2", &hints)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+    server.await.unwrap();
+    let requests = requests.lock().unwrap();
+    assert!(requests[0].starts_with("GET /private/subtitles/series/tt1:1:2/videoHash=a%20b%2F%2B&videoSize=1234&filename=a%26b%3F.mkv.json HTTP/1.1\r\n"));
+    assert!(requests[1].starts_with("GET /private/subtitles/series/tt1:1:2.json HTTP/1.1\r\n"));
+}
+
+#[tokio::test]
 async fn repeated_metadata_reuses_a_fresh_response() {
     let (addon, requests, server) = provider(vec![response(
         "200 OK",

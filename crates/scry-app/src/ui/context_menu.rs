@@ -92,7 +92,7 @@ impl State {
                 self.refresh_library();
             }
             Page::Detail => {
-                if let Some(meta) = self.detail.meta.clone() {
+                if let Some(meta) = &self.detail.meta {
                     if meta.kind == "movie" {
                         self.find_streams(meta.kind.clone(), meta.id.clone());
                     } else if meta.kind == "series"
@@ -115,7 +115,7 @@ impl State {
                             services.detail(
                                 self.detail.generation,
                                 self.addons.installed.clone(),
-                                meta,
+                                meta.clone(),
                                 self.detail.namespace.clone(),
                             );
                         }

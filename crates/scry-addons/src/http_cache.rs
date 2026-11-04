@@ -559,11 +559,12 @@ impl HttpCache {
             });
         }
         let bytes = read_body(response, limit).await?;
+        let (parts, ()) = parts.into_parts();
         Ok(Entry {
             policy,
             bytes: Arc::new(bytes),
             received: started,
-            headers: parts.headers().clone(),
+            headers: parts.headers,
         })
     }
 }
@@ -611,34 +612,29 @@ impl Entry {
     }
 
     fn allows_stale(&self, request: &http::Request<()>, directive: &str) -> bool {
-        let directives: Vec<_> = self
+        let directives = self
             .headers
             .get_all("cache-control")
             .iter()
             .filter_map(|h| h.to_str().ok())
             .flat_map(|s| s.split(','))
-            .map(str::trim)
-            .collect();
-        if directives.iter().any(|s| {
-            matches!(
-                s.split('=')
-                    .next()
-                    .unwrap_or("")
-                    .trim()
-                    .to_ascii_lowercase()
-                    .as_str(),
-                "no-cache" | "must-revalidate" | "no-store"
-            )
-        }) {
-            return false;
+            .map(str::trim);
+        let mut seconds = None;
+        for directive_value in directives {
+            let key = directive_value.split('=').next().unwrap_or("").trim();
+            if ["no-cache", "must-revalidate", "no-store"]
+                .iter()
+                .any(|forbidden| key.eq_ignore_ascii_case(forbidden))
+            {
+                return false;
+            }
+            if seconds.is_none()
+                && let Some((key, value)) = directive_value.split_once('=')
+                && key.trim().eq_ignore_ascii_case(directive)
+            {
+                seconds = value.trim().trim_matches('"').parse::<u64>().ok();
+            }
         }
-        let seconds = directives.iter().find_map(|s| {
-            let (key, value) = s.split_once('=')?;
-            key.trim()
-                .eq_ignore_ascii_case(directive)
-                .then(|| value.trim().trim_matches('"').parse::<u64>().ok())
-                .flatten()
-        });
         let Some(seconds) = seconds else {
             return false;
         };

@@ -132,3 +132,37 @@ fn episode_page_bounds_handle_empty_and_out_of_range_offsets() {
     s.move_episode_page(true);
     assert_eq!(s.detail.episodes.offset, 200);
 }
+
+#[test]
+fn active_season_preserves_explicit_other_and_falls_back_from_missing_seasons() {
+    let mut s = init();
+    s.detail.meta = Some(multi_season_series());
+    s.detail.episodes.season = super::super::episodes::SeasonSelection::Selected(None);
+    assert_eq!(s.visible_episode_indices(), [5]);
+    s.detail.episodes.season = super::super::episodes::SeasonSelection::Selected(Some(99));
+    assert_eq!(s.active_season(), Some(1));
+    assert_eq!(s.visible_episode_indices(), [4, 2]);
+    s.detail
+        .meta
+        .as_mut()
+        .unwrap()
+        .videos
+        .retain(|video| video.season == Some(0) || video.season.is_none());
+    assert_eq!(s.active_season(), Some(0));
+    s.detail.meta.as_mut().unwrap().videos.clear();
+    assert!(s.visible_episode_indices().is_empty());
+}
+
+#[test]
+fn visible_episode_window_uses_state_offset_and_clamps_past_the_end() {
+    let mut s = init();
+    s.detail.meta = Some(series(250));
+    s.detail.episodes.offset = 0;
+    s.detail.episodes.state_offset = Some(175);
+    let indices = s.visible_episode_indices();
+    assert_eq!(indices.len(), 75);
+    assert_eq!(indices.first(), Some(&175));
+    assert_eq!(indices.last(), Some(&249));
+    s.detail.episodes.state_offset = Some(usize::MAX);
+    assert!(s.visible_episode_indices().is_empty());
+}

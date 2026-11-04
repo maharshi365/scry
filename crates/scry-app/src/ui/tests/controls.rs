@@ -635,7 +635,7 @@ fn installed_addons_share_the_available_list_without_duplicate_cards() {
     assert!(
         (remove[0] + remove[2] - (card[0] + card[2] - tokens::layout::PANEL_INSET)).abs() < 2.0
     );
-    assert_eq!(rt.state.catalogs().len(), 1);
+    assert_eq!(rt.state.catalogs().count(), 1);
     rt.update(|s, _| s.addons.installed[0].disabled = true);
     rt.frame(0.0);
     let toggle = rt
@@ -645,7 +645,7 @@ fn installed_addons_share_the_available_list_without_duplicate_cards() {
         .unwrap();
     assert_eq!(toggle.label.as_deref(), Some("Enable"));
     assert_eq!(rect(&rt, "toggle-addon-0"), bounds);
-    assert!(rt.state.catalogs().is_empty());
+    assert!(rt.state.catalogs().next().is_none());
 }
 
 #[test]

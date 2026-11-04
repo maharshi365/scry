@@ -68,7 +68,7 @@ fn unmatched_movie_opens_with_a_local_source_without_any_addons() {
     tap(&mut rt, &format!("media-open-{id}"));
     assert_eq!(rt.state.navigation.page, Page::Detail);
     assert_eq!(rt.state.detail.meta.as_ref().unwrap().name, "Arrival");
-    assert_eq!(rt.state.local_sources().len(), 1);
+    assert_eq!(rt.state.local_sources().count(), 1);
     assert!(rt.find("local-source-0").is_some());
     assert!(
         !rt.elements()
@@ -92,11 +92,11 @@ fn matched_files_are_sources_on_normal_metadata_details_and_episode_selection() 
     s.my_media.index = index;
     s.detail.meta = Some(meta);
     s.detail.episodes.selected = Some("ttshow:1:2".into());
-    let sources = s.local_sources();
+    let sources: Vec<_> = s.local_sources().collect();
     assert_eq!(sources.len(), 1);
     assert!(sources[0].ends_with("Example.S01E02.mkv"));
     s.detail.episodes.selected = Some("ttshow:1:3".into());
-    assert!(s.local_sources().is_empty());
+    assert!(s.local_sources().next().is_none());
 }
 
 #[test]

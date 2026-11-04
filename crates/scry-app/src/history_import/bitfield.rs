@@ -7,11 +7,11 @@ const INVALID: &str = "Episode history skipped: invalid watched bitmap";
 const MAPPING: &str = "Episode history skipped: episode order or anchor could not be verified";
 const MAX_BITS: usize = 50_000;
 
-pub(super) fn decode(
+pub(super) fn decode<'inventory>(
     encoded: &str,
     parent: &str,
-    inventory: &[EpisodeRelease],
-) -> Result<BTreeSet<String>, &'static str> {
+    inventory: &'inventory [EpisodeRelease],
+) -> Result<BTreeSet<&'inventory str>, &'static str> {
     if encoded.len() > 16_384 {
         return Err(INVALID);
     }
@@ -73,7 +73,7 @@ pub(super) fn decode(
             if index >= length {
                 return Err(MAPPING);
             }
-            ids.insert(release.media.key.id.clone());
+            ids.insert(release.media.key.id.as_str());
         }
     }
     if !ids.contains(anchor) {

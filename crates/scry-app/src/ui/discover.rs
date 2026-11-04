@@ -109,9 +109,8 @@ pub(super) fn catalog_menu(s: &State, cx: &Cx<State>) -> Option<El> {
         return None;
     }
     let anchor = cx.layout("catalog-select")?;
-    let catalogs = s.catalogs();
     let mut choices = col().w_full().gap(tokens::layout::COPY_GAP);
-    for (index, (addon, catalog)) in catalogs.iter().enumerate() {
+    for (index, (addon, catalog)) in s.catalogs().enumerate() {
         let selected = s
             .discover
             .catalog

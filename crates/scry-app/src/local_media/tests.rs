@@ -95,6 +95,17 @@ fn movie_release_patterns_keep_title_words_and_drop_technical_suffixes() {
 }
 
 #[test]
+fn release_year_prefers_the_last_parenthesized_year_then_the_last_plain_year() {
+    for (name, expected) in [
+        ("Example.1999.(2001).2005.mkv", 2001),
+        ("Example.(1999).(2001).2005.mkv", 2001),
+        ("Example.1999.2005.mkv", 2005),
+    ] {
+        assert_eq!(parse(Path::new(name)).year, Some(expected), "{name}");
+    }
+}
+
+#[test]
 fn leading_codec_and_language_tags_do_not_hide_volume_numbers() {
     for name in [
         "DIvX-ITa Kill Bill Vol. 2",
@@ -236,7 +247,9 @@ fn an_unnumbered_file_stays_playable_after_matching_to_a_series() {
     let detail = index.items[0].meta().unwrap();
     assert_eq!(detail.videos.len(), 1);
     assert_eq!(
-        index.items[0].sources("series", &detail.videos[0].id).len(),
+        index.items[0]
+            .sources("series", &detail.videos[0].id)
+            .count(),
         1
     );
 }
@@ -290,11 +303,16 @@ fn offline_roots_retain_unavailable_files_and_matches_survive_restart() {
     save(dir.path(), &index).unwrap();
     save(dir.path(), &index).unwrap();
     let mut index = load(dir.path()).unwrap();
-    assert_eq!(index.items[0].sources("movie", "tt2543164").len(), 1);
+    assert_eq!(index.items[0].sources("movie", "tt2543164").count(), 1);
     fs::rename(&root, dir.path().join("disconnected")).unwrap();
     assert!(index.scan() > 0);
     assert_eq!(index.items.len(), 1);
-    assert!(index.items[0].sources("movie", "tt2543164").is_empty());
+    assert!(
+        index.items[0]
+            .sources("movie", "tt2543164")
+            .next()
+            .is_none()
+    );
     assert!(index.items[0].matched.as_ref().unwrap().manual);
 }
 
@@ -476,7 +494,7 @@ fn anime_files_group_without_guessing_season_one_and_new_files_use_the_saved_ord
     let mut index = load(data.path()).unwrap();
     fs::write(root.path().join("Example - 003.mkv"), []).unwrap();
     index.scan();
-    assert_eq!(index.items[0].sources("series", "kitsu:42:3").len(), 1);
+    assert_eq!(index.items[0].sources("series", "kitsu:42:3").count(), 1);
     assert_eq!(index.items[0].meta().unwrap().videos[2].id, "kitsu:42:3");
 }
 
@@ -509,8 +527,13 @@ fn dvd_display_numbering_does_not_change_the_canonical_stream_identity() {
     let detail = index.items[0].meta().unwrap();
     assert_eq!(detail.videos[0].episode, Some(1));
     assert_eq!(detail.videos[0].id, "show:1:11");
-    assert_eq!(index.items[0].sources("series", "show:1:11").len(), 1);
-    assert!(index.items[0].sources("series", "show:1:1").is_empty());
+    assert_eq!(index.items[0].sources("series", "show:1:11").count(), 1);
+    assert!(
+        index.items[0]
+            .sources("series", "show:1:1")
+            .next()
+            .is_none()
+    );
 }
 
 #[test]
@@ -528,8 +551,15 @@ fn an_unverified_anime_match_does_not_invent_provider_episode_ids() {
     let detail = index.items[0].meta().unwrap();
     assert!(detail.videos[0].id.starts_with("local-file:"));
     assert_eq!(
-        index.items[0].sources("series", &detail.videos[0].id).len(),
+        index.items[0]
+            .sources("series", &detail.videos[0].id)
+            .count(),
         1
     );
-    assert!(index.items[0].sources("series", "kitsu:42:1:1").is_empty());
+    assert!(
+        index.items[0]
+            .sources("series", "kitsu:42:1:1")
+            .next()
+            .is_none()
+    );
 }

@@ -29,7 +29,7 @@ impl Index {
     }
 
     pub fn scan(&mut self) -> usize {
-        self.scan_directories(&self.roots.clone())
+        Self::scan_directories(&self.roots, &mut self.items, &self.roots)
     }
 
     pub fn scan_changed(&mut self, directories: &[PathBuf]) -> usize {
@@ -56,33 +56,30 @@ impl Index {
             scopes.retain(|child| !child.starts_with(&scope));
             scopes.insert(scope);
         }
-        self.scan_directories(&scopes.into_iter().collect::<Vec<_>>())
+        Self::scan_directories(
+            &self.roots,
+            &mut self.items,
+            &scopes.into_iter().collect::<Vec<_>>(),
+        )
     }
 
-    fn scan_directories(&mut self, directories: &[PathBuf]) -> usize {
+    fn scan_directories(
+        roots: &[PathBuf],
+        current: &mut Vec<Item>,
+        directories: &[PathBuf],
+    ) -> usize {
         if directories.is_empty() {
             return 0;
         }
-        let previous: BTreeMap<_, _> = self
-            .items
-            .iter()
-            .flat_map(|item| {
-                item.files
-                    .iter()
-                    .map(move |f| (f.path.clone(), (item.id.clone(), f.clone())))
-            })
-            .collect();
-        let mut items: BTreeMap<_, _> = self
-            .items
-            .iter()
-            .cloned()
-            .map(|mut item| {
-                item.files.clear();
-                (item.id.clone(), item)
-            })
-            .collect();
-        let (found, incomplete) = discover(&self.roots, directories);
-        let mut previous = previous;
+        let (found, incomplete) = discover(roots, directories);
+        let mut previous = BTreeMap::new();
+        let mut items = BTreeMap::new();
+        for mut item in std::mem::take(current) {
+            for file in item.files.drain(..) {
+                previous.insert(file.path.clone(), (item.id.clone(), file));
+            }
+            items.insert(item.id.clone(), item);
+        }
         for path in found {
             if let Some((id, mut file)) = previous.remove(&path) {
                 if let Some(item) = items.get_mut(&id) {
@@ -91,7 +88,7 @@ impl Index {
                 }
                 continue;
             }
-            let parsed = parse_in_roots(&path, &self.roots);
+            let parsed = parse_in_roots(&path, roots);
             let kind = if parsed.episode.is_some() || parsed.absolute {
                 "series"
             } else {
@@ -127,11 +124,11 @@ impl Index {
                 item.files.push(file);
             }
         }
-        self.items = items
+        *current = items
             .into_values()
             .filter(|i| !i.files.is_empty())
             .collect();
-        self.items.sort_by_cached_key(|i| i.title.to_lowercase());
+        current.sort_by_cached_key(|i| i.title.to_lowercase());
         incomplete.len()
     }
 }
@@ -205,27 +202,11 @@ fn discover(roots: &[PathBuf], directories: &[PathBuf]) -> (BTreeSet<PathBuf>, V
 
 pub(crate) fn is_video(path: &Path) -> bool {
     path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
-        matches!(
-            e.to_ascii_lowercase().as_str(),
-            "mkv"
-                | "mp4"
-                | "avi"
-                | "mov"
-                | "m4v"
-                | "webm"
-                | "ts"
-                | "m2ts"
-                | "mpg"
-                | "mpeg"
-                | "flv"
-                | "wmv"
-                | "ogv"
-                | "vob"
-                | "mxf"
-                | "3gp"
-                | "3g2"
-                | "asf"
-                | "rmvb"
-        )
+        [
+            "mkv", "mp4", "avi", "mov", "m4v", "webm", "ts", "m2ts", "mpg", "mpeg", "flv", "wmv",
+            "ogv", "vob", "mxf", "3gp", "3g2", "asf", "rmvb",
+        ]
+        .iter()
+        .any(|extension| e.eq_ignore_ascii_case(extension))
     })
 }

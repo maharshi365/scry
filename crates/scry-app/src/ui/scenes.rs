@@ -113,7 +113,11 @@ fn discover(s: &mut State) -> serde_json::Result<()> {
             {"id":"classics","type":"movie","name":"Modern classics"}
         ]}
     }))?];
-    s.discover.catalog = s.catalogs().into_iter().next();
+    let catalog = s
+        .catalogs()
+        .next()
+        .map(|(addon, catalog)| (addon.clone(), catalog.clone()));
+    s.discover.catalog = catalog;
     let names = [
         "The Grand Budapest Hotel",
         "Arrival",
