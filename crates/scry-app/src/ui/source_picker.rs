@@ -1,9 +1,11 @@
-use super::episodes::season_label;
 use super::{
     State,
-    design::tokens::{self, theme, type_, warning},
+    design::{
+        icons,
+        tokens::{self, theme, type_, warning},
+    },
     primitives::{
-        button::{DropdownVariant, dropdown_trigger, menu_choice},
+        button::{Button, DropdownVariant, dropdown_trigger, menu_choice},
         surface::{Variant as SurfaceVariant, dropdown, scroll},
         text::label,
     },
@@ -26,7 +28,7 @@ impl Default for SourcesState {
             request: super::request::RequestState::default(),
             streams: Vec::new(),
             provider: None,
-            sort: SourceSort::Provider,
+            sort: SourceSort::Best,
             menu_open: false,
             sort_open: false,
         }
@@ -45,7 +47,6 @@ impl SourcesState {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum SourceSort {
-    Original,
     Best,
     Provider,
 }
@@ -53,7 +54,6 @@ pub(super) enum SourceSort {
 impl SourceSort {
     fn title(self) -> &'static str {
         match self {
-            Self::Original => "Original order",
             Self::Best => "Best available",
             Self::Provider => "Provider",
         }
@@ -147,7 +147,6 @@ fn visible_sources(s: &State) -> Vec<(usize, &String, &Stream)> {
             |(_, addon, stream)| (addon.as_str(), *stream),
             "",
         ),
-        SourceSort::Original => sources.collect(),
         SourceSort::Provider => {
             let mut sources: Vec<_> = sources.collect();
             sources.sort_by_cached_key(|(_, addon, _)| addon.to_lowercase());
@@ -222,12 +221,6 @@ pub(super) fn sort_menu(s: &State, cx: &Cx<State>) -> Option<El> {
                 s.detail.sources.sort == SourceSort::Best,
             ))
             .child(sort_option(
-                "source-original",
-                "Original order",
-                SourceSort::Original,
-                s.detail.sources.sort == SourceSort::Original,
-            ))
-            .child(sort_option(
                 "source-provider-sort",
                 "Provider",
                 SourceSort::Provider,
@@ -245,25 +238,16 @@ fn header(s: &State) -> El {
             .find(|video| Some(&video.id) == s.detail.episodes.selected.as_ref())
     });
     let mut controls = row().w_full().center_y().gap(8.0);
-    if let Some(video) = video {
-        let season = video.season;
+    if s.detail
+        .meta
+        .as_ref()
+        .is_some_and(|meta| meta.kind == "series")
+    {
         controls = controls.child(
-            dropdown_trigger(
-                "season-select",
-                season_label(season),
-                DropdownVariant::Transparent,
-            )
-            .on_press(|s: &mut State| {
-                s.detail.sources.menu_open = false;
-                s.detail.sources.sort_open = false;
-                s.detail.episodes.menu_open = !s.detail.episodes.menu_open;
-            })
-            .on_secondary_press(move |s: &mut State, point, _| {
-                s.open_season_menu(point, season);
-            }),
+            Button::new("episode-back", "Back to episodes")
+                .icon(&icons::LEFT)
+                .on_press(State::show_episodes),
         );
-    } else {
-        controls = controls.child(text("Sources").font(type_::SECTION_TITLE).color(t.text));
     }
     let sort = dropdown_trigger(
         "source-sort",

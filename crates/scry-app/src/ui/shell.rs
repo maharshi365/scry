@@ -149,6 +149,82 @@ fn fullscreen_player(s: &State, cx: &mut Cx<State>) -> El {
         .children(super::player::audio::panel(s))
 }
 
+fn sidebar_pages(s: &State) -> El {
+    let mut collection = col().w_full().gap(tokens::shell::NAV_GAP).child(
+        eyebrow("YOUR COLLECTION")
+            .key("sidebar-collection-heading")
+            .px(10.0)
+            .py(6.0),
+    );
+    for (key, title, page, glyph) in [
+        (
+            "nav-watching",
+            "Currently watching",
+            Page::Watching,
+            &icons::PLAY,
+        ),
+        ("nav-library", "Library", Page::Library, &icons::LIBRARY),
+        ("nav-my-media", "My Media", Page::MyMedia, &icons::LIBRARY),
+    ] {
+        collection = collection.child(
+            nav_action(key, title, glyph, s.navigation.page == page, move |s| {
+                s.navigate(page);
+            })
+            .w_full(),
+        );
+    }
+    let mut discover = col().w_full().gap(tokens::shell::NAV_GAP).child(
+        eyebrow("DISCOVER")
+            .key("sidebar-discover-heading")
+            .px(10.0)
+            .py(6.0),
+    );
+    for kind in s.catalog_categories() {
+        let (key, title, glyph) = match kind.as_str() {
+            "movie" => ("movies".to_owned(), "Movies".to_owned(), &icons::MOVIE),
+            "series" => ("series".to_owned(), "Series".to_owned(), &icons::TV),
+            _ => (
+                format!("category-{kind}"),
+                super::catalog::category_label(&kind),
+                &icons::MOVIE,
+            ),
+        };
+        discover = discover.child(
+            nav_action(
+                &key,
+                &title,
+                glyph,
+                s.navigation.page == Page::Discover && s.discover.kind == kind,
+                move |s| s.choose_kind(&kind),
+            )
+            .w_full(),
+        );
+    }
+    let mut schedule = col().w_full().gap(tokens::shell::NAV_GAP).child(
+        eyebrow("SCHEDULE")
+            .key("sidebar-schedule-heading")
+            .px(10.0)
+            .py(6.0),
+    );
+    for (key, title, page, glyph) in [
+        ("nav-guide", "Guide", Page::Guide, &icons::TV),
+        ("nav-calendar", "Calendar", Page::Calendar, &icons::CALENDAR),
+    ] {
+        schedule = schedule.child(
+            nav_action(key, title, glyph, s.navigation.page == page, move |s| {
+                s.navigate(page);
+            })
+            .w_full(),
+        );
+    }
+    col()
+        .w_full()
+        .gap(tokens::layout::PAGE_GAP)
+        .child(collection)
+        .child(discover)
+        .child(schedule)
+}
+
 fn sidebar(s: &State) -> El {
     let mut sidebar = col()
         .key("sidebar")
@@ -158,59 +234,8 @@ fn sidebar(s: &State) -> El {
         .min_h(0.0)
         .padding(tokens::shell::SIDEBAR_INSET)
         .gap(tokens::layout::PAGE_GAP)
-        .fill(tokens::sidebar());
-    let mut links = col()
-        .w_full()
-        .gap(tokens::shell::NAV_GAP)
-        .child(eyebrow("COLLECTION").px(10.0).py(6.0));
-    for (key, title, page, glyph) in [
-        (
-            "nav-watching",
-            "Currently watching",
-            Page::Watching,
-            &icons::PLAY,
-        ),
-        ("nav-library", "Library", Page::Library, &icons::LIBRARY),
-        ("nav-guide", "Guide", Page::Guide, &icons::TV),
-        ("nav-calendar", "Calendar", Page::Calendar, &icons::CALENDAR),
-    ] {
-        links = links.child(
-            nav_action(key, title, glyph, s.navigation.page == page, move |s| {
-                s.navigate(page);
-            })
-            .w_full(),
-        );
-        if page == Page::Watching {
-            for kind in s.catalog_categories() {
-                let (key, glyph) = match kind.as_str() {
-                    "movie" => ("movies".to_owned(), &icons::MOVIE),
-                    "series" => ("series".to_owned(), &icons::TV),
-                    _ => (format!("category-{kind}"), &icons::MOVIE),
-                };
-                links = links.child(
-                    nav_action(
-                        &key,
-                        &super::catalog::category_label(&kind),
-                        glyph,
-                        s.navigation.page == Page::Discover && s.discover.kind == kind,
-                        move |s| s.choose_kind(&kind),
-                    )
-                    .w_full(),
-                );
-            }
-            links = links.child(
-                nav_action(
-                    "nav-my-media",
-                    "My Media",
-                    &icons::LIBRARY,
-                    s.navigation.page == Page::MyMedia,
-                    |s| s.navigate(Page::MyMedia),
-                )
-                .w_full(),
-            );
-        }
-    }
-    sidebar = sidebar.child(scroll("sidebar-pages", links));
+        .fill(tokens::sidebar())
+        .child(scroll("sidebar-pages", sidebar_pages(s)));
     let mut utilities = col()
         .key("sidebar-utilities")
         .w_full()

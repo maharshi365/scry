@@ -13,7 +13,7 @@ fn torrent(title: &str, seeders: u64, bytes: u64) -> Stream {
 fn runtime(width: f32) -> rune::Runtime<State> {
     let mut s = init();
     scene_detail(&mut s);
-    s.detail.sources.sort = SourceSort::Original;
+    s.detail.sources.sort = SourceSort::Provider;
     s.detail.sources.streams = vec![
         ("Provider A".into(), torrent("Weak", 1, 10)),
         ("Provider A".into(), torrent("Healthy", 100, 300)),
@@ -45,13 +45,13 @@ fn choose_sort(rt: &mut rune::Runtime<State>, best: bool) {
         if best {
             "source-best"
         } else {
-            "source-original"
+            "source-provider-sort"
         },
     );
 }
 
 #[test]
-fn best_available_menu_ranks_sources_and_restores_original_order() {
+fn best_available_menu_ranks_sources_and_switches_back_to_provider_order() {
     let mut rt = runtime(1000.0);
     assert_order(&mut rt, &[0, 1, 2]);
     choose_sort(&mut rt, true);
@@ -122,10 +122,12 @@ fn header_sort_fits_and_provider_selection_ranks_only_visible_swarms() {
         choose_sort(&mut rt, true);
         assert_order(&mut rt, &[2, 0, 1]);
         let header = rect(&rt, "source-picker-header");
-        let heading = rect(&rt, "season-select");
+        let back = rect(&rt, "episode-back");
         let provider = rect(&rt, "source-select");
         let sort = rect(&rt, "source-sort");
-        assert!(heading[0] + heading[2] <= sort[0]);
+        assert!((back[1] - sort[1]).abs() < 0.5);
+        assert!(back[0] + back[2] <= sort[0]);
+        assert!(rt.find("source-heading").is_none());
         assert!(sort[0] + sort[2] <= header[0] + header[2] + 1.0);
         assert!(provider[1] >= sort[1] + sort[3]);
         tap(&mut rt, "source-select");
@@ -152,10 +154,11 @@ fn single_provider_has_a_compact_header_sort_without_an_empty_toolbar() {
     let before = rect(&rt, "stream-0");
     let header = rect(&rt, "source-picker-header");
     let sort = rect(&rt, "source-sort");
-    let heading = rect(&rt, "season-select");
+    let back = rect(&rt, "episode-back");
     assert!(sort[2] < header[2] * 0.65);
-    assert!(sort[1] < heading[1] + heading[3] && sort[1] + sort[3] > heading[1]);
-    assert!(heading[0] + heading[2] <= sort[0]);
+    assert!((back[1] - sort[1]).abs() < 0.5);
+    assert!(back[0] + back[2] <= sort[0]);
+    assert!(rt.find("source-heading").is_none());
     tap(&mut rt, "source-sort");
     assert!(rt.find("source-sort-menu").is_some());
     assert_eq!(rect(&rt, "stream-0"), before);
@@ -169,9 +172,29 @@ fn single_provider_has_a_compact_header_sort_without_an_empty_toolbar() {
 }
 
 #[test]
-fn season_and_sort_selectors_use_pointer_cursors() {
+fn movie_sources_keep_sorting_without_an_episode_back_button_or_heading() {
+    let mut state = init();
+    super::super::scenes::scene_movie(&mut state);
+    let mut rt = rune::Runtime::new(state, view, (880.0, 650.0), rune::Env::default());
+    rt.frame(0.0);
+    assert!(rt.find("episode-back").is_none());
+    assert!(rt.find("source-heading").is_none());
+    let sort = rect(&rt, "source-sort");
+    let header = rect(&rt, "source-picker-header");
+    assert!((sort[1] - header[1]).abs() < 0.5);
+    assert!(rect(&rt, "stream-0")[1] >= sort[1] + sort[3]);
+    tap(&mut rt, "source-sort");
+    tap(&mut rt, "source-provider-sort");
+    assert_eq!(rt.state.detail.sources.sort, SourceSort::Provider);
+}
+
+#[test]
+fn season_and_sort_selectors_use_pointer_cursors_on_their_own_screens() {
     let mut rt = runtime(880.0);
-    for key in ["season-select", "source-sort"] {
+    for key in ["source-sort", "season-select"] {
+        if key == "season-select" {
+            tap(&mut rt, "episode-back");
+        }
         let (x, y) = rt.find(key).unwrap();
         rt.pointer_move(x, y);
         rt.frame(1.0 / 60.0);
@@ -180,10 +203,29 @@ fn season_and_sort_selectors_use_pointer_cursors() {
 }
 
 #[test]
+fn episode_stream_list_has_no_season_navigation() {
+    let mut rt = runtime(880.0);
+    assert!(rt.find("season-select").is_none());
+    assert!(rt.find("season-prev").is_none());
+    assert!(rt.find("season-next").is_none());
+    assert!(rt.find("source-episode").is_some());
+    assert!(rt.find("source-episode-number").is_some());
+    tap(&mut rt, "episode-back");
+    assert!(rt.find("season-select").is_some());
+    assert!(rt.state.detail.episodes.selected.is_none());
+}
+
+#[test]
 fn sort_menu_marks_only_the_current_order() {
     let mut rt = runtime(880.0);
     tap(&mut rt, "source-sort");
-    assert!(rt.find("source-original-selected").is_some());
+    assert!(rt.find("source-provider-sort-selected").is_some());
+    assert!(rt.find("source-original").is_none());
+    assert!(
+        !rt.elements()
+            .iter()
+            .any(|element| element.text.as_deref() == Some("Original order"))
+    );
     tap(&mut rt, "source-best");
     tap(&mut rt, "source-sort");
     assert!(rt.find("source-best-selected").is_some());
@@ -208,23 +250,21 @@ fn provider_sort_is_ascending_and_preserves_order_within_providers() {
     tap(&mut rt, "source-provider-sort");
     assert_order(&mut rt, &[1, 3, 0, 2]);
     assert_eq!(rt.state.detail.sources.streams[0].1.title, "First Zulu");
-    choose_sort(&mut rt, false);
-    assert_order(&mut rt, &[0, 1, 2, 3]);
 }
 
 #[test]
-fn provider_sort_is_the_default() {
+fn best_available_is_the_default_regardless_of_provider_name() {
     let mut s = init();
     scene_detail(&mut s);
     s.detail.sources.streams = vec![
-        ("Zulu".into(), torrent("Last", 1, 10)),
-        ("alpha".into(), torrent("First", 1, 10)),
+        ("Zulu".into(), torrent("Healthy", 100, 300)),
+        ("alpha".into(), torrent("Weak", 1, 10)),
     ];
     let mut rt = rune::Runtime::new(s, view, (1000.0, 820.0), rune::Env::default());
     rt.frame(0.0);
-    assert_order(&mut rt, &[1, 0]);
+    assert_order(&mut rt, &[0, 1]);
     tap(&mut rt, "source-sort");
-    assert!(rt.find("source-provider-sort-selected").is_some());
+    assert!(rt.find("source-best-selected").is_some());
 }
 
 #[test]

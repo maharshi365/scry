@@ -88,13 +88,6 @@ pub(super) fn detail(s: &State) -> El {
         if meta.kind == "series" && s.detail.episodes.selected.is_none() {
             side = side.child(episodes(s, meta));
         } else {
-            if meta.kind == "series" {
-                side = side.child(
-                    Button::new("episode-back", "Back to episodes")
-                        .icon(&icons::LEFT)
-                        .on_press(State::show_episodes),
-                );
-            }
             side = side.child(source_picker::view(s).w_full());
         }
     }
@@ -550,38 +543,52 @@ fn season_selector(s: &State) -> El {
         .iter()
         .position(|season| *season == current)
         .unwrap_or(0);
-    let mut bar = row().w_full().center_y().gap(8.0);
-    if position > 0 {
-        let previous = seasons[position - 1];
-        bar = bar.child(
-            icon_action("season-prev", "Previous season", &icons::LEFT, move |s| {
-                s.select_season(previous);
-            })
-            .w(tokens::control::HEIGHT),
-        );
-    }
-    bar = bar.child(
-        super::primitives::button::dropdown_trigger(
-            "season-select",
-            season_label(current),
-            super::primitives::button::DropdownVariant::Transparent,
+    let previous = position
+        .checked_sub(1)
+        .and_then(|index| seasons.get(index))
+        .copied();
+    let next = seasons.get(position + 1).copied();
+    row()
+        .w_full()
+        .center_y()
+        .gap(8.0)
+        .child(
+            Button::new("season-prev", "Previous season")
+                .icon(&icons::LEFT)
+                .enabled(previous.is_some())
+                .on_press(move |s: &mut State| {
+                    if let Some(previous) = previous {
+                        s.select_season(previous);
+                    }
+                }),
         )
-        .on_press(|s: &mut State| {
-            s.detail.sources.menu_open = false;
-            s.detail.sources.sort_open = false;
-            s.detail.episodes.menu_open = !s.detail.episodes.menu_open;
-        })
-        .on_secondary_press(move |s: &mut State, point, _| s.open_season_menu(point, current)),
-    );
-    if let Some(next) = seasons.get(position + 1).copied() {
-        bar = bar.child(
-            icon_action("season-next", "Next season", &icons::RIGHT, move |s| {
-                s.select_season(next);
-            })
-            .w(tokens::control::HEIGHT),
-        );
-    }
-    bar
+        .child(
+            el().grow(1.0).min_w(0.0).center().child(
+                super::primitives::button::dropdown_trigger(
+                    "season-select",
+                    season_label(current),
+                    super::primitives::button::DropdownVariant::Transparent,
+                )
+                .on_press(|s: &mut State| {
+                    s.detail.sources.menu_open = false;
+                    s.detail.sources.sort_open = false;
+                    s.detail.episodes.menu_open = !s.detail.episodes.menu_open;
+                })
+                .on_secondary_press(move |s: &mut State, point, _| {
+                    s.open_season_menu(point, current);
+                }),
+            ),
+        )
+        .child(
+            Button::new("season-next", "Next season")
+                .icon(&icons::RIGHT)
+                .enabled(next.is_some())
+                .on_press(move |s: &mut State| {
+                    if let Some(next) = next {
+                        s.select_season(next);
+                    }
+                }),
+        )
 }
 
 pub(super) fn season_menu(s: &State, cx: &Cx<State>) -> Option<El> {

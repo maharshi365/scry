@@ -247,20 +247,29 @@ fn compact_source_header_keeps_controls_and_episode_on_two_rows() {
     s.detail.episodes.selected = Some("show:1:1".into());
     let mut rt = rune::Runtime::new(s, view, (880.0, 650.0), rune::Env::default());
     rt.frame(0.0);
-    let season = rect(&rt, "season-select");
+    let back = rect(&rt, "episode-back");
     let sort = rect(&rt, "source-sort");
     let title = rect(&rt, "source-episode");
     let episode = rect(&rt, "source-episode-number");
-    assert!((season[1] - sort[1]).abs() < 1.0);
-    assert!(title[1] >= season[1] + season[3]);
+    assert!((back[1] - sort[1]).abs() < 0.5);
+    assert!((back[3] - sort[3]).abs() < 0.5);
+    assert!(rt.find("source-heading").is_none());
+    assert!(
+        !rt.elements()
+            .iter()
+            .any(|element| element.text.as_deref() == Some("Sources"))
+    );
+    assert!(title[1] >= sort[1] + sort[3]);
     assert!(episode[0] >= title[0] + title[2]);
     assert!(episode[1] < title[1] + title[3]);
     tap(&mut rt, "source-sort");
-    tap(&mut rt, "source-original");
+    tap(&mut rt, "source-provider-sort");
     assert_eq!(
         rt.state.detail.sources.sort,
-        crate::ui::source_picker::SourceSort::Original
+        crate::ui::source_picker::SourceSort::Provider
     );
+    assert!(rt.find("season-select").is_none());
+    tap(&mut rt, "episode-back");
     tap(&mut rt, "season-select");
     tap(&mut rt, "season-option-1");
     assert_eq!(rt.state.active_season(), Some(2));

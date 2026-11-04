@@ -60,6 +60,46 @@ fn season_group_controls_have_equal_heights() {
 }
 
 #[test]
+fn season_controls_stay_centered_and_fixed_across_season_boundaries() {
+    for width in [880.0, 1280.0] {
+        let mut s = init();
+        s.navigation.page = Page::Detail;
+        s.detail.meta = Some(multi_season_series());
+        let mut rt = rune::Runtime::new(s, view, (width, 820.0), rune::Env::default());
+        rt.frame(0.0);
+        let controls = rect(&rt, "episodes");
+        let previous = rect(&rt, "season-prev");
+        let next = rect(&rt, "season-next");
+        assert!((previous[0] - controls[0]).abs() < 0.5);
+        assert!((next[0] + next[2] - controls[0] - controls[2]).abs() < 0.5);
+        tap(&mut rt, "season-prev");
+        assert_eq!(rt.state.active_season(), Some(1));
+        for season in [Some(1), Some(2), Some(0), None] {
+            assert_eq!(rt.state.active_season(), season);
+            for _ in 0..30 {
+                rt.frame(1.0 / 60.0);
+            }
+            let select = rect(&rt, "season-select");
+            assert!(
+                (select[0] + select[2] / 2.0 - controls[0] - controls[2] / 2.0).abs() < 0.5,
+                "Season {season:?} is not centered at width {width}"
+            );
+            assert_eq!(rect(&rt, "season-prev"), previous);
+            assert_eq!(rect(&rt, "season-next"), next);
+            tap(&mut rt, "season-select");
+            assert!(rt.find("season-menu").is_some());
+            assert_eq!(rect(&rt, "season-prev"), previous);
+            assert_eq!(rect(&rt, "season-next"), next);
+            tap(&mut rt, "season-select");
+            tap(&mut rt, "season-next");
+        }
+        assert_eq!(rt.state.active_season(), None);
+        tap(&mut rt, "season-prev");
+        assert_eq!(rt.state.active_season(), Some(0));
+    }
+}
+
+#[test]
 fn topbar_controls_share_height_and_alignment_while_searching() {
     for width in [880.0, 1280.0] {
         let mut rt = rune::Runtime::new(init(), view, (width, 600.0), rune::Env::default());

@@ -5,7 +5,7 @@ fn compact_shell_gives_space_to_content_and_keeps_navigation_usable() {
     for width in [880.0, 1280.0] {
         let mut rt = rune::Runtime::new(init(), view, (width, 600.0), rune::Env::default());
         rt.frame(0.0);
-        for title in ["COLLECTION", "SYSTEM"] {
+        for title in ["YOUR COLLECTION", "DISCOVER", "SCHEDULE", "SYSTEM"] {
             assert!(
                 rt.elements()
                     .iter()
@@ -15,12 +15,103 @@ fn compact_shell_gives_space_to_content_and_keeps_navigation_usable() {
         }
         assert!(rect(&rt, "topbar")[3] <= 52.0);
         assert!(rect(&rt, "sidebar")[2] <= 200.0);
+        let pages = rect(&rt, "sidebar-pages");
+        let settings = rect(&rt, "nav-settings");
+        rt.update(|_, tx| tx.scroll_into_view("nav-calendar"));
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        let calendar = rect(&rt, "nav-calendar");
+        assert!(
+            calendar[1] >= pages[1] && calendar[1] + calendar[3] <= pages[1] + pages[3] + 0.5,
+            "Calendar must remain fully reachable at minimum height"
+        );
+        assert_eq!(rect(&rt, "nav-settings"), settings);
+        tap(&mut rt, "nav-calendar");
+        assert_eq!(rt.state.navigation.page, Page::Calendar);
         let nav = rect(&rt, "nav-settings");
         assert!(nav[3] >= 32.0 && nav[3] <= 36.0);
         assert!(nav[1] + nav[3] <= 600.0);
         tap(&mut rt, "nav-settings");
         assert_eq!(rt.state.navigation.page, Page::Settings);
         assert!(rt.find("streaming-settings").is_some());
+    }
+}
+
+#[test]
+fn sidebar_groups_collection_discovery_and_schedule_links_in_order() {
+    for width in [880.0, 1280.0] {
+        let mut state = init();
+        state.addons.installed = vec![
+            serde_json::from_value(serde_json::json!({
+                "manifest_url":"https://example.invalid/manifest.json",
+                "manifest":{"id":"example", "name":"Example", "catalogs":[
+                    {"id":"anime", "type":"anime"}
+                ]}
+            }))
+            .unwrap(),
+        ];
+        let mut rt = rune::Runtime::new(state, view, (width, 820.0), rune::Env::default());
+        rt.frame(0.0);
+        for (last_link, heading) in [
+            ("nav-my-media", "sidebar-discover-heading"),
+            ("category-anime", "sidebar-schedule-heading"),
+        ] {
+            let link = rect(&rt, last_link);
+            let heading = rect(&rt, heading);
+            assert!(
+                heading[1] - link[1] - link[3]
+                    >= super::super::design::tokens::layout::PAGE_GAP - 0.5,
+                "Navigation groups need more spacing than links within a group"
+            );
+        }
+        let keys = [
+            "sidebar-collection-heading",
+            "nav-watching",
+            "nav-library",
+            "nav-my-media",
+            "sidebar-discover-heading",
+            "movies",
+            "series",
+            "category-anime",
+            "sidebar-schedule-heading",
+            "nav-guide",
+            "nav-calendar",
+        ];
+        for pair in keys.windows(2) {
+            let previous = rect(&rt, pair[0]);
+            let next = rect(&rt, pair[1]);
+            assert!(
+                next[1] >= previous[1] + previous[3],
+                "{} must follow {}",
+                pair[1],
+                pair[0]
+            );
+        }
+        assert!(
+            rt.elements()
+                .iter()
+                .any(|element| element.text.as_deref() == Some("Series"))
+        );
+        for (key, page) in [
+            ("nav-library", Page::Library),
+            ("nav-my-media", Page::MyMedia),
+            ("nav-watching", Page::Watching),
+            ("nav-guide", Page::Guide),
+            ("nav-calendar", Page::Calendar),
+        ] {
+            tap(&mut rt, key);
+            assert_eq!(rt.state.navigation.page, page);
+        }
+        for (key, kind) in [
+            ("movies", "movie"),
+            ("series", "series"),
+            ("category-anime", "anime"),
+        ] {
+            tap(&mut rt, key);
+            assert_eq!(rt.state.navigation.page, Page::Discover);
+            assert_eq!(rt.state.discover.kind, kind);
+        }
     }
 }
 
