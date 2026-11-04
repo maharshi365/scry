@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod cache;
+mod read_trace;
 mod stats;
 pub use stats::Stats;
 
@@ -43,6 +44,12 @@ struct Server {
 }
 
 impl Torrents {
+    /// Returns the configured disk cache budget in bytes.
+    #[must_use]
+    pub fn cache_budget(&self) -> u64 {
+        self.cache.budget()
+    }
+
     /// Remove downloaded torrent entries, retaining unrelated files and settings.
     /// # Errors
     /// Returns an error if the cache is in use, contains unsafe paths, or cannot be cleared.
@@ -64,7 +71,6 @@ impl Torrents {
     /// # Errors
     /// Returns an error if the cache is in use or the engine cannot start.
     pub async fn with_cache_budget(folder: PathBuf, budget: u64) -> Result<Self> {
-        tracing::info!("Starting torrent engine");
         #[cfg(feature = "profiling")]
         let peer = std::env::var("SCRY_PROFILE_TORRENT_PEER")
             .ok()
@@ -75,6 +81,38 @@ impl Torrents {
         if peer.is_some_and(|peer| !peer.ip().is_loopback()) {
             bail!("Profiling peer must be loopback");
         }
+        Self::open(
+            folder,
+            budget,
+            #[cfg(feature = "profiling")]
+            peer,
+        )
+        .await
+    }
+
+    /// Opens an isolated profiling session using only the given loopback peer.
+    /// DHT and tracker discovery are disabled.
+    ///
+    /// # Errors
+    /// Returns an error for a non-loopback peer or if the cache/session cannot open.
+    #[cfg(feature = "profiling")]
+    pub async fn with_local_peer(
+        folder: PathBuf,
+        budget: u64,
+        peer: std::net::SocketAddr,
+    ) -> Result<Self> {
+        if !peer.ip().is_loopback() {
+            bail!("Profiling peer must be loopback");
+        }
+        Self::open(folder, budget, Some(peer)).await
+    }
+
+    async fn open(
+        folder: PathBuf,
+        budget: u64,
+        #[cfg(feature = "profiling")] peer: Option<std::net::SocketAddr>,
+    ) -> Result<Self> {
+        tracing::info!("Starting torrent engine");
         let cache = Arc::new(
             tokio::task::spawn_blocking(move || cache::Cache::open(&folder, budget)).await??,
         );
@@ -439,7 +477,7 @@ async fn serve(
     }
     response
         .body(Body::from_stream(ReaderStream::with_capacity(
-            stream.take(end - start + 1),
+            read_trace::ReadTrace::new(stream.take(end - start + 1), id, file, start, end),
             64 * 1024,
         )))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
@@ -723,6 +761,86 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn switching_videos_in_a_reused_session_stops_the_old_torrent_and_enforces_the_budget() {
+        let root = tempfile::tempdir().unwrap();
+        let cache = root.path().join("cache");
+        let engine = Torrents::with_cache_budget(cache.clone(), 512)
+            .await
+            .unwrap();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .unwrap();
+        for video in 0..3 {
+            let media = root.path().join("fixture.mp4");
+            let bytes = vec![video; 1024];
+            std::fs::write(&media, &bytes).unwrap();
+            let torrent =
+                librqbit::create_torrent(&media, librqbit::CreateTorrentOptions::default())
+                    .await
+                    .unwrap();
+            let hash = torrent.info_hash().as_string();
+            let entry = cache.join("v1").join(&hash);
+            std::fs::create_dir_all(entry.join("data")).unwrap();
+            std::fs::copy(&media, entry.join("data/fixture.mp4")).unwrap();
+            std::fs::write(entry.join("metadata.torrent"), torrent.as_bytes().unwrap()).unwrap();
+            let stream: Stream =
+                serde_json::from_value(serde_json::json!({"infoHash":hash, "fileIdx":0})).unwrap();
+            let url = tokio::time::timeout(std::time::Duration::from_secs(5), engine.play(&stream))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                client
+                    .get(url)
+                    .send()
+                    .await
+                    .unwrap()
+                    .bytes()
+                    .await
+                    .unwrap()
+                    .as_ref(),
+                bytes,
+                "Switching must serve the selected video's bytes, not the previous video"
+            );
+            assert_eq!(
+                engine.session.with_torrents(|torrents| torrents.count()),
+                1,
+                "Session reuse must not leave previous torrents running"
+            );
+            let retained: Vec<_> = std::fs::read_dir(cache.join("v1"))
+                .unwrap()
+                .map(|item| item.unwrap().path())
+                .filter(|path| path.is_dir())
+                .collect();
+            assert_eq!(
+                retained,
+                vec![entry],
+                "Only the active oversized video may remain"
+            );
+        }
+        engine.stop().await;
+        drop(engine);
+        Torrents::clear_cache(cache).await.unwrap();
+    }
+
+    #[cfg(feature = "profiling")]
+    #[tokio::test]
+    async fn profiling_peer_cannot_enable_remote_discovery() {
+        let root = tempfile::tempdir().unwrap();
+        let cache = root.path().join("cache");
+        assert!(
+            Torrents::with_local_peer(cache.clone(), 512, "192.0.2.1:1234".parse().unwrap())
+                .await
+                .is_err()
+        );
+        assert!(
+            !cache.exists(),
+            "Reject a remote profiling peer before starting storage or networking"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

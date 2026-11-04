@@ -4341,6 +4341,7 @@ dependencies = [
  "librqbit",
  "reqwest",
  "scry-addons",
+ "scry-playback",
  "serde_json",
  "tempfile",
  "tokio",

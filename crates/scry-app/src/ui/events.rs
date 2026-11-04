@@ -338,6 +338,10 @@ fn apply(s: &mut State, event: Event) {
                 }
             }
             s.player.ready = true;
+            // Playback-restart is newer than the last 1 Hz metrics snapshot.
+            // Do not keep ready video covered by stale buffering/seek feedback.
+            s.player.sample.buffering = false;
+            s.player.sample.seeking = false;
             if s.navigation.page == Page::Guide && first_ready {
                 s.seek_guide_now();
             } else if let Some(position) = s.library.resume_position.take() {

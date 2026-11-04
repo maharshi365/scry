@@ -20,6 +20,10 @@ pub(crate) struct Cache {
 }
 
 impl Cache {
+    pub(crate) fn budget(&self) -> u64 {
+        self.budget
+    }
+
     pub(crate) fn open(root: &Path, budget: u64) -> Result<Self> {
         fs::create_dir_all(root)?;
         check_directory(root)?;

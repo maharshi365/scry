@@ -772,6 +772,32 @@ fn only_current_playback_ready_event_replaces_loading_artwork() {
 }
 
 #[test]
+fn readiness_removes_loading_without_waiting_for_another_metrics_sample() {
+    let (mut state, events) = state_with_events();
+    state.navigation.page = Page::Player;
+    state.player.playing = true;
+    state.player.sample.buffering = true;
+    state.player.sample.seeking = true;
+    events
+        .try_send(Event::Ready(state.player.generation))
+        .unwrap();
+    poll(&mut state, 0.0, &mut Tx::default());
+    state.poll_player_interaction(&mut Tx::default());
+    let mut rt = rune::Runtime::new(state, view, (880.0, 600.0), rune::Env::default());
+    rt.frame(0.0);
+    assert!(rt.state.player.ready);
+    assert!(
+        rt.find("player-loading").is_none(),
+        "A stale buffering sample must not cover ready video"
+    );
+    assert!(!rt.state.player.interaction.feedback.loading());
+    assert!(
+        !rt.state.player.sample.seeking,
+        "Readiness also ends the stale seek state"
+    );
+}
+
+#[test]
 fn stop_and_failure_leave_fullscreen_and_reset_loading() {
     let mut rt = player_runtime();
     key(&mut rt, rune::Key::Text("f".into()));

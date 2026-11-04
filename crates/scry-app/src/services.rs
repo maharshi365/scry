@@ -1137,6 +1137,24 @@ fn direct_url(stream: &Stream) -> Result<Option<String>> {
     Ok(stream.url.clone())
 }
 
+async fn torrent_session(
+    torrents: &mut Option<Torrents>,
+    folder: PathBuf,
+    budget: u64,
+) -> Result<&Torrents> {
+    if torrents
+        .as_ref()
+        .is_some_and(|session| session.cache_budget() != budget)
+        && let Some(session) = torrents.take()
+    {
+        session.stop().await;
+    }
+    if torrents.is_none() {
+        *torrents = Some(Torrents::with_cache_budget(folder, budget).await?);
+    }
+    torrents.as_ref().context("Torrent session is unavailable")
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "One task owns the native engine, torrent session, and ordered cancellation/teardown lifecycle"
@@ -1160,6 +1178,9 @@ async fn player_loop(
     let mut last_wait_log = Instant::now();
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    // Readiness controls video visibility; it must not wait for the 1 Hz metrics sample.
+    let mut events_tick = tokio::time::interval(Duration::from_millis(20));
+    events_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         let command = if let Some(command) = pending.take() {
             Some(command)
@@ -1171,10 +1192,10 @@ async fn player_loop(
                     lifecycle.borrow_and_update().clone()
                 }
                 args = commands.recv() => args,
-                _ = tick.tick(), if player.is_some() => {
+                _ = events_tick.tick(), if player.is_some() => {
                     let Some(engine) = player.as_ref() else { continue; };
                     let mut ended = None;
-                    // libmpv also emits unhandled events. Bound draining per sample.
+                    // libmpv also emits unhandled events. Bound draining per poll.
                     for _ in 0..64 {
                         match tracing::info_span!("playback", attempt = generation).in_scope(|| engine.event(0.0)) {
                             Some(PlaybackEvent::Failed | PlaybackEvent::Shutdown) => {
@@ -1190,9 +1211,28 @@ async fn player_loop(
                                 tracing::info!(attempt = generation, elapsed_s = started.elapsed().as_secs_f64(), "Playback ready or resumed");
                                 inbox.send_player(Event::Ready(generation), &lifecycle).await;
                             }
-                            _ => {}
+                            Some(_) => {}
+                            None => break,
                         }
                     }
+                    if let Some(mut failed) = ended {
+                        let sample = engine.sample(started.elapsed().as_secs_f64());
+                        if let Some(active) = &mut report
+                            && let Err(error) = active.sample(&sample) {
+                            tracing::error!(attempt = generation, reason = %crate::logging::error_detail(&error), "Performance report writing failed");
+                            failed = true;
+                        }
+                        inbox.notify(Event::Metrics(generation, sample));
+                        destroy_player(&mut player);
+                        if let Some(report) = report.take() { let _ = report.finish(failed); }
+                        if let Some(torrents) = torrents.take() { torrents.stop().await; }
+                        inbox.send_player(Event::Stopped(generation, failed.then(|| "Playback failed. Check the runtime and stream source.".into())), &lifecycle).await;
+                    }
+                    continue;
+                }
+                _ = tick.tick(), if player.is_some() => {
+                    let Some(engine) = player.as_ref() else { continue; };
+                    let mut ended = None;
                     let sample = engine.sample(started.elapsed().as_secs_f64());
                     if sample.buffering != buffering {
                         buffering = sample.buffering;
@@ -1299,7 +1339,12 @@ async fn player_loop(
         if let Some(report) = report.take() {
             let _ = report.finish(false);
         }
-        if let Some(session) = torrents.take() {
+        // Keep networking warm for torrent-to-torrent switches, as enginefs does.
+        // play() removes the old torrent before preparing its replacement. Explicit
+        // stop, direct playback, and shutdown still release the cache lock.
+        if !matches!(&command, Control::Play(_, _, Source::Stream(stream) | Source::Channel(stream, _)) if stream.url.is_none())
+            && let Some(session) = torrents.take()
+        {
             session.stop().await;
         }
         match command {
@@ -1370,7 +1415,8 @@ async fn player_loop(
                                 } else {
                                     let budget =
                                         streaming_settings::cache_budget(data.clone()).await?;
-                                    let session = Torrents::with_cache_budget(
+                                    let session = torrent_session(
+                                        &mut torrents,
                                         data.join("torrent-cache"),
                                         budget,
                                     )
@@ -1379,10 +1425,6 @@ async fn player_loop(
                                         tracing::error!(reason = %crate::logging::error_detail(&error), "Torrent engine startup failed");
                                         anyhow::anyhow!("Cannot start torrent engine")
                                     })?;
-                                    torrents = Some(session);
-                                    let session = torrents
-                                        .as_ref()
-                                        .context("Torrent session is unavailable")?;
                                     session.play(&stream).await
                                         .map_err(|error| {
                                             tracing::error!(reason = %crate::logging::error_detail(&error), "Torrent preparation failed");
@@ -1435,6 +1477,7 @@ async fn player_loop(
                         );
                         player = Some(engine);
                         tick.reset();
+                        events_tick.reset();
                         inbox
                             .send_player(Event::Playing(id, path), &lifecycle)
                             .await;
