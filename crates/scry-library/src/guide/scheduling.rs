@@ -143,25 +143,22 @@ pub(super) fn extend(
             automatic(channels, id, name, kind, || source);
         }
     }
-    let mut genres = BTreeMap::<&str, Vec<&MediaKey>>::new();
+    let mut genres = BTreeMap::<&str, (&MediaKey, bool)>::new();
     for candidate in candidates
         .iter()
         .filter(|c| c.saved && c.program.media.key.kind == MediaKind::Episode)
     {
         for genre in &candidate.genres {
-            let keys = genres.entry(genre.as_str()).or_default();
             let key = group_key(&candidate.program);
-            if !keys.contains(&key) {
-                keys.push(key);
-            }
+            let (first, multiple) = genres.entry(genre.as_str()).or_insert((key, false));
+            *multiple |= *first != key;
         }
     }
-    for (genre, shows) in genres
+    for (genre, _) in genres
         .into_iter()
-        .filter(|(_, shows)| shows.len() >= 2)
+        .filter(|(_, (_, multiple))| *multiple)
         .take(6)
     {
-        let _ = shows;
         automatic(
             channels,
             format!("genre-{genre}"),

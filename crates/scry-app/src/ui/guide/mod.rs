@@ -370,7 +370,7 @@ impl State {
     }
 
     pub(in crate::ui) fn play_guide_alternative(&mut self) {
-        let Some((_, slot)) = self.guide.tuned.clone() else {
+        let Some((_, slot)) = &self.guide.tuned else {
             return;
         };
         if !slot.contains(chrono::Utc::now().timestamp()) {
@@ -384,10 +384,15 @@ impl State {
             }.into());
             return;
         }
+        let media = slot.program.media.clone();
+        let artwork = slot.program.artwork.clone();
+        let starts_at = slot.starts_at;
         let stream = self.guide.alternatives.remove(0);
         let fullscreen = self.player.fullscreen;
         self.stop();
-        self.library.playing = Some(slot.program.media.clone());
+        self.player.video_id = Some(media.key.id.clone());
+        let title = media.title.clone();
+        self.library.playing = Some(media);
         self.library.next_episode = None;
         self.library.resume_position = None;
         self.library.observed = None;
@@ -396,13 +401,9 @@ impl State {
         self.library.saved_sample = None;
         self.library.last_save = std::time::Instant::now();
         self.player.meta_id = None;
-        self.player.video_id = Some(slot.program.media.key.id.clone());
-        self.play_source(
-            Source::Channel(stream, slot.starts_at),
-            slot.program.media.title,
-        );
+        self.play_source(Source::Channel(stream, starts_at), title);
         self.set_fullscreen(fullscreen);
-        self.player.background = slot.program.artwork;
+        self.player.background = artwork;
         self.guide_join_started();
     }
 

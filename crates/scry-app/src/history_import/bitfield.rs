@@ -1,7 +1,7 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
 use flate2::{Decompress, FlushDecompress, Status};
 use scry_library::EpisodeRelease;
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, fmt::Write};
 
 const INVALID: &str = "Episode history skipped: invalid watched bitmap";
 const MAPPING: &str = "Episode history skipped: episode order or anchor could not be verified";
@@ -44,13 +44,14 @@ pub(super) fn decode<'inventory>(
     let mut sorted: Vec<_> = inventory.iter().collect();
     sorted.sort_by_key(|r| (r.season, r.episode, r.released_at));
     let mut previous = None;
+    let mut expected = String::new();
     for release in &sorted {
         let (Some(season), Some(episode)) = (release.season, release.episode) else {
             return Err(MAPPING);
         };
-        if release.media.key.id != format!("{parent}:{season}:{episode}")
-            || previous == Some((season, episode))
-        {
+        expected.clear();
+        let _ = write!(expected, "{parent}:{season}:{episode}");
+        if release.media.key.id != expected || previous == Some((season, episode)) {
             return Err(MAPPING);
         }
         previous = Some((season, episode));

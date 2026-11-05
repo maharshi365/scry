@@ -264,8 +264,8 @@ fn best_match<'a>(
     let year = year.map(|year| year.to_string());
     let mut found = candidates.iter().filter(|meta| {
         meta.kind == kind
-            && local_media::normalized(&meta.name) == title
             && year.as_ref().is_none_or(|year| meta.year.starts_with(year))
+            && local_media::normalized(&meta.name) == title
     });
     let first = found.next()?;
     found.next().is_none().then_some(first)

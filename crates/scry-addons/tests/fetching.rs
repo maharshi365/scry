@@ -47,6 +47,67 @@ fn response(status: &str, headers: &str, name: &str) -> String {
 }
 
 #[tokio::test]
+async fn bounded_resource_lists_preserve_provider_order_and_subtitle_filtering() {
+    let metas: Vec<_> = (0..1024)
+        .map(|index| serde_json::json!({"id":index.to_string(),"type":"movie","name":"Film"}))
+        .collect();
+    let streams: Vec<_> = (0..1024)
+        .map(|index| serde_json::json!({"name":index.to_string()}))
+        .collect();
+    let subtitles: Vec<_> = (0..1024)
+        .map(|index| {
+            serde_json::json!({
+                "id":index.to_string(), "lang":"eng",
+                "url":if index == 0 { "file:///private" } else { "https://example.com/sub.srt" }
+            })
+        })
+        .collect();
+    let replies = [
+        serde_json::json!({"metas":metas}),
+        serde_json::json!({"streams":streams}),
+        serde_json::json!({"subtitles":subtitles}),
+    ]
+    .map(|body| {
+        let body = body.to_string();
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    });
+    let (addon, _, server) = provider(replies.into()).await;
+    let client = Client::new().unwrap();
+    let catalog = serde_json::from_value(serde_json::json!({"id":"top","type":"movie"})).unwrap();
+    let metas = client.catalog(&addon, &catalog, None).await.unwrap();
+    assert_eq!(metas.len(), 100);
+    assert!(
+        metas
+            .iter()
+            .enumerate()
+            .all(|(index, meta)| meta.id == index.to_string())
+    );
+    let streams = client.streams(&addon, "movie", "film").await.unwrap();
+    assert_eq!(streams.len(), 100);
+    assert!(
+        streams
+            .iter()
+            .enumerate()
+            .all(|(index, stream)| stream.name == index.to_string())
+    );
+    let subtitles = client
+        .subtitles(&addon, "movie", "film", &serde_json::Value::Null)
+        .await
+        .unwrap();
+    assert_eq!(subtitles.len(), 99);
+    assert!(
+        subtitles
+            .iter()
+            .enumerate()
+            .all(|(index, subtitle)| subtitle.id == (index + 1).to_string())
+    );
+    server.await.unwrap();
+}
+
+#[tokio::test]
 async fn subtitle_hints_keep_their_order_encoding_and_size_limit() {
     let body = r#"{"subtitles":[]}"#;
     let reply = format!(

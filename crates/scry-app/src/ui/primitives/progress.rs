@@ -108,10 +108,11 @@ pub(in crate::ui) fn buffered_slider(
     buffered: Option<(f64, f64)>,
 ) -> El {
     let key = key.into();
+    let buffered_key = format!("{key}-buffered");
     let fraction = fraction(value);
     let buffered_end = buffered.map_or(fraction, |(_, end)| self::fraction(end).max(fraction));
     row()
-        .key(key.clone())
+        .key(key)
         .role("slider")
         .h(progress::SLIDER_HEIGHT)
         .center_y()
@@ -129,7 +130,7 @@ pub(in crate::ui) fn buffered_slider(
                 .fill(tokens::theme().text),
         )
         .child(
-            el().key(format!("{key}-buffered"))
+            el().key(buffered_key)
                 .w(0.0)
                 .min_w(0.0)
                 .grow(buffered_end - fraction)

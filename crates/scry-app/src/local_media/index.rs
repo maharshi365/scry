@@ -75,14 +75,16 @@ impl Index {
         let mut previous = BTreeMap::new();
         let mut items = BTreeMap::new();
         for mut item in std::mem::take(current) {
-            for file in item.files.drain(..) {
-                previous.insert(file.path.clone(), (item.id.clone(), file));
+            for mut file in item.files.drain(..) {
+                let path = std::mem::take(&mut file.path);
+                previous.insert(path, (item.id.clone(), file));
             }
             items.insert(item.id.clone(), item);
         }
         for path in found {
             if let Some((id, mut file)) = previous.remove(&path) {
                 if let Some(item) = items.get_mut(&id) {
+                    file.path = path;
                     file.available = true;
                     item.files.push(file);
                 }
@@ -121,6 +123,7 @@ impl Index {
                 if !untouched {
                     file.available = false;
                 }
+                file.path = path;
                 item.files.push(file);
             }
         }

@@ -170,12 +170,7 @@ impl Torrents {
     }
 
     async fn prepare(&self, stream: &Stream) -> Result<String> {
-        let magnet = magnet(stream)?;
-        let hash = stream
-            .info_hash
-            .as_deref()
-            .context("Stream has no torrent hash")?
-            .to_ascii_lowercase();
+        let hash = info_hash(stream)?.to_ascii_lowercase();
         let cache = self.cache.clone();
         let (hash, entry, cached) = tokio::task::spawn_blocking(move || {
             let entry = cache.entry(&hash)?;
@@ -183,10 +178,13 @@ impl Torrents {
             Ok::<_, anyhow::Error>((hash, entry, metadata))
         })
         .await??;
-        let source = cached.map_or_else(
-            || AddTorrent::from_url(magnet.as_str()),
-            AddTorrent::from_bytes,
-        );
+        let magnet_url;
+        let source = if let Some(bytes) = cached {
+            AddTorrent::from_bytes(bytes)
+        } else {
+            magnet_url = magnet(stream)?;
+            AddTorrent::from_url(magnet_url.as_str())
+        };
         // Inspect every path before the engine opens files, even with an explicit index.
         let listed = self.list(source).await?;
         tracing::info!("Torrent metadata resolved");
@@ -310,13 +308,7 @@ impl Drop for Torrents {
 /// # Errors
 /// Returns an error if the stream lacks a valid 40-character hexadecimal torrent hash.
 pub fn magnet(stream: &Stream) -> Result<String> {
-    let hash = stream
-        .info_hash
-        .as_deref()
-        .context("Stream has no torrent hash")?;
-    if hash.len() != 40 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
-        bail!("Invalid torrent info hash");
-    }
+    let hash = info_hash(stream)?;
     let mut url = url::Url::parse("magnet:")?;
     url.query_pairs_mut()
         .append_pair("xt", &format!("urn:btih:{hash}"));
@@ -324,6 +316,17 @@ pub fn magnet(stream: &Stream) -> Result<String> {
         url.query_pairs_mut().append_pair("tr", tracker);
     }
     Ok(url.into())
+}
+
+fn info_hash(stream: &Stream) -> Result<&str> {
+    let hash = stream
+        .info_hash
+        .as_deref()
+        .context("Stream has no torrent hash")?;
+    if hash.len() != 40 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+        bail!("Invalid torrent info hash");
+    }
+    Ok(hash)
 }
 
 fn trackers(stream: &Stream) -> impl Iterator<Item = &str> {
@@ -622,6 +625,24 @@ mod tests {
                 "path {name}"
             );
         }
+    }
+
+    #[test]
+    fn torrent_hash_validation_is_shared_with_cached_preparation() {
+        for hash in [None, Some(""), Some("0123"), Some("../private")] {
+            let stream: Stream =
+                serde_json::from_value(serde_json::json!({"infoHash": hash})).unwrap();
+            assert!(info_hash(&stream).is_err(), "hash {hash:?}");
+            assert!(magnet(&stream).is_err(), "hash {hash:?}");
+        }
+        let hash = "0123456789ABCDEF0123456789ABCDEF01234567";
+        let stream: Stream = serde_json::from_value(serde_json::json!({"infoHash": hash})).unwrap();
+        assert_eq!(info_hash(&stream).unwrap(), hash);
+        let url = url::Url::parse(&magnet(&stream).unwrap()).unwrap();
+        assert_eq!(
+            url.query_pairs().find(|(key, _)| key == "xt").unwrap().1,
+            format!("urn:btih:{hash}")
+        );
     }
 
     #[test]

@@ -63,20 +63,21 @@ fn medallion(entry: &AchievementEntry) -> El {
     )
 }
 
-fn ordered_entries(entries: &[AchievementEntry]) -> Vec<&AchievementEntry> {
-    let mut ordered: Vec<_> = entries.iter().collect();
-    ordered.sort_by_key(|entry| {
-        if entry.unlocked {
-            0
-        } else if !entry.hidden
-            && matches!(entry.progress, Evaluation::Progress { target, .. } if target > 0.0)
-        {
-            1
-        } else {
-            2
-        }
-    });
-    ordered
+fn ordered_entries(entries: &[AchievementEntry]) -> impl Iterator<Item = &AchievementEntry> {
+    (0..3).flat_map(move |group| {
+        entries.iter().filter(move |entry| {
+            let rank = if entry.unlocked {
+                0
+            } else if !entry.hidden
+                && matches!(entry.progress, Evaluation::Progress { target, .. } if target > 0.0)
+            {
+                1
+            } else {
+                2
+            };
+            rank == group
+        })
+    })
 }
 
 pub(super) fn view(s: &State) -> El {
@@ -235,10 +236,7 @@ mod tests {
                 },
             ),
         ];
-        let ordered: Vec<_> = ordered_entries(&entries)
-            .into_iter()
-            .map(|entry| entry.id)
-            .collect();
+        let ordered: Vec<_> = ordered_entries(&entries).map(|entry| entry.id).collect();
         assert_eq!(
             ordered,
             [

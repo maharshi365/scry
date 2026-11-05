@@ -197,8 +197,9 @@ impl Library {
         projections::validate(connection)?;
         ensure!(
             diesel::sql_query("PRAGMA foreign_key_check")
-                .load::<ForeignKeyViolation>(connection)?
-                .is_empty(),
+                .get_result::<ForeignKeyViolation>(connection)
+                .optional()?
+                .is_none(),
             "app database contains invalid foreign keys"
         );
         Ok(())
@@ -208,6 +209,24 @@ impl Library {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn validation_rejects_multiple_foreign_key_violations() -> Result<()> {
+        let library = Library::memory()?;
+        library.with_connection(|connection| {
+            connection.batch_execute(
+                "PRAGMA foreign_keys=OFF;
+                 INSERT INTO media_runtime(media_id,seconds) VALUES(1001,60),(1002,60);
+                 PRAGMA foreign_keys=ON;",
+            )?;
+            let error = Library::validate(connection).err();
+            assert_eq!(
+                error.as_ref().map(ToString::to_string).as_deref(),
+                Some("app database contains invalid foreign keys")
+            );
+            Ok(())
+        })
+    }
 
     #[test]
     fn reentrant_connection_borrow_returns_error_instead_of_panicking() -> Result<()> {

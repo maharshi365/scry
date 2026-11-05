@@ -17,8 +17,8 @@ impl Services {
                     inbox
                         .send(Event::HistoryProgress(generation, 0, total))
                         .await;
-                    for (index, item) in items.iter().enumerate() {
-                        let meta = if history_import::needs_metadata(item) {
+                    for (index, item) in items.into_iter().enumerate() {
+                        let meta = if history_import::needs_metadata(&item) {
                             metadata::fetch(
                                 &client,
                                 &addons,
@@ -33,7 +33,7 @@ impl Services {
                         } else {
                             None
                         };
-                        history_import::append(&mut preview, item, meta.as_ref());
+                        history_import::append(&mut preview, &item, meta.as_ref());
                         inbox
                             .send(Event::HistoryProgress(generation, index + 1, total))
                             .await;

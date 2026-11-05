@@ -1,6 +1,7 @@
 //! Subtitle preferences and bounded discovery through the playback adapter.
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 pub const SIZES: &[u16] = &[75, 100, 125, 150, 175, 200, 250];
 pub const LANGUAGES: &[(&str, &str)] = &[
@@ -217,13 +218,17 @@ impl Snapshot {
 
 #[must_use]
 pub fn language_code(value: &str) -> String {
-    let mut lower = value
-        .trim()
-        .split(['-', '_'])
-        .next()
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    let code = match lower.as_str() {
+    normalized_language_code(value).into_owned()
+}
+
+fn normalized_language_code(value: &str) -> Cow<'_, str> {
+    let base = value.trim().split(['-', '_']).next().unwrap_or("");
+    let lower = if base.bytes().any(|byte| byte.is_ascii_uppercase()) {
+        Cow::Owned(base.to_ascii_lowercase())
+    } else {
+        Cow::Borrowed(base)
+    };
+    let code = match lower.as_ref() {
         "en" => "eng",
         "es" => "spa",
         "fr" | "fre" => "fra",
@@ -268,15 +273,20 @@ pub fn language_code(value: &str) -> String {
         "vi" => "vie",
         _ => return lower,
     };
-    lower.clear();
-    lower.reserve_exact(code.len());
-    lower.push_str(code);
-    lower
+    match lower {
+        Cow::Borrowed(_) => Cow::Borrowed(code),
+        Cow::Owned(mut lower) => {
+            lower.clear();
+            lower.reserve_exact(code.len());
+            lower.push_str(code);
+            Cow::Owned(lower)
+        }
+    }
 }
 
 #[must_use]
 pub fn language_label(value: &str) -> String {
-    let code = language_code(value);
+    let code = normalized_language_code(value);
     LANGUAGES.iter().find(|(key, _)| *key == code).map_or_else(
         || {
             if value.is_empty() {
@@ -389,5 +399,20 @@ mod tests {
         assert_eq!(language_code("-region"), "");
         assert_eq!(language_label("es"), "Spanish");
         assert_eq!(language_label(""), "Unknown language");
+    }
+
+    #[test]
+    fn language_labels_preserve_unknown_input_and_ascii_only_normalization() {
+        for (input, code, label) in [
+            (" en-US ", "eng", "English"),
+            ("ENG", "eng", "English"),
+            (" nOb_NO ", "nor", "Norwegian"),
+            (" XYZ-region ", "xyz", " XYZ-region "),
+            ("ÉN-us", "Én", "ÉN-us"),
+            ("   ", "", "   "),
+        ] {
+            assert_eq!(language_code(input), code, "input {input:?}");
+            assert_eq!(language_label(input), label, "input {input:?}");
+        }
     }
 }

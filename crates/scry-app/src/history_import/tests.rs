@@ -313,6 +313,35 @@ fn bitmap_rejects_repeated_episode_positions_with_different_release_dates() -> R
 }
 
 #[test]
+fn bitmap_maps_changing_id_widths_and_rejects_noncanonical_inventory_ids() -> Result<()> {
+    let meta = serde_json::from_value(json!({
+        "id":"tt100", "type":"series", "name":"Sample show", "videos":[
+            {"id":"tt100:2:3", "season":2, "episode":3},
+            {"id":"tt100:1:12", "season":1, "episode":12},
+            {"id":"tt100:1:1", "season":1, "episode":1}
+        ]
+    }))?;
+    let mut releases = crate::media_metadata::episode_inventory(
+        &MediaKey::new("imdb", MediaKind::Series, "tt100"),
+        &meta,
+    );
+    let encoded = bitmap("tt100:2:3", 3, &[0b101])?;
+    let watched = bitfield::decode(&encoded, "tt100", &releases).map_err(anyhow::Error::msg)?;
+    assert_eq!(watched, BTreeSet::from(["tt100:1:1", "tt100:2:3"]));
+
+    for release in &mut releases {
+        if release.episode == Some(12) {
+            release.media.key.id = "tt100:1:012".into();
+        }
+    }
+    assert!(
+        bitfield::decode(&encoded, "tt100", &releases).is_err(),
+        "Even an unwatched episode must have an exact canonical ID to verify the mapping"
+    );
+    Ok(())
+}
+
+#[test]
 fn removed_resume_is_retained_but_not_reactivated() -> Result<()> {
     let mut source = item("movie", "tt100", json!({"timeOffset":10,"duration":100}))?;
     source.temp = false;

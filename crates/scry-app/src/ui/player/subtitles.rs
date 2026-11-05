@@ -280,11 +280,7 @@ fn track_list(s: &State) -> El {
         } else {
             "Embedded"
         };
-        let title = if track.title.is_empty() {
-            language
-        } else {
-            format!("{language} · {}", track.title)
-        };
+        let separator = if track.title.is_empty() { "" } else { " · " };
         let badge = if track.styled() {
             " · ASS"
         } else if track.bitmap() {
@@ -295,7 +291,7 @@ fn track_list(s: &State) -> El {
         tracks = tracks.child(
             Button::new(
                 format!("subtitle-track-{id}"),
-                format!("{title} · {source}{badge}"),
+                format!("{language}{separator}{} · {source}{badge}", track.title),
             )
             .list_item()
             .selected(selected == Some(id))

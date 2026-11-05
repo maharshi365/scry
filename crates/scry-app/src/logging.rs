@@ -124,12 +124,23 @@ pub(crate) fn redact(text: &str) -> String {
     let Some(pattern) = PRIVATE.as_ref() else {
         return "[error details unavailable]".into();
     };
-    pattern
-        .replace_all(text, "[redacted]")
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .take(4096)
-        .collect()
+    // Stream into the capped output instead of allocating a redacted copy of
+    // the entire input, which can include a large response or error body.
+    let mut output = String::with_capacity(text.len().min(4096));
+    let mut remaining = 4096;
+    let mut append = |part: &str| {
+        for c in part.chars().take(remaining) {
+            output.push(if c.is_control() { ' ' } else { c });
+            remaining -= 1;
+        }
+        remaining != 0
+    };
+    for (index, part) in pattern.split(text).enumerate() {
+        if (index != 0 && !append("[redacted]")) || !append(part) {
+            break;
+        }
+    }
+    output
 }
 
 pub(crate) fn playback_stopped(attempt: u64, error: Option<&str>) {

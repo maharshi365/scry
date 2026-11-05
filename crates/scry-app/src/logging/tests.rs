@@ -128,6 +128,19 @@ fn credentials_in_error_headers_are_redacted() {
     assert!(!text.contains("json-secret"));
 }
 
+#[test]
+fn redaction_limits_output_after_replacing_secrets_and_keeps_unicode() {
+    let prefix = "é\n".repeat(2046);
+    let text = format!(
+        "{prefix}https://example.com/private 🦀\t{}",
+        "x".repeat(100_000)
+    );
+    assert_eq!(redact(&text), format!("{}[red", "é ".repeat(2046)));
+
+    let text = format!("token={}\n🦀\tend", "secret".repeat(100_000));
+    assert_eq!(redact(&text), "[redacted] 🦀 end");
+}
+
 #[cfg(windows)]
 #[test]
 fn locked_expired_log_does_not_prevent_new_logs() -> Result<()> {

@@ -1,6 +1,9 @@
 //! Search planning and deterministic merging, independent of network completion order.
 use scry_addons::{Addon, Catalog, Meta};
-use std::collections::{BTreeMap, HashSet};
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
+};
 
 pub const CONCURRENCY: usize = 4;
 const RESULT_LIMIT: usize = 100;
@@ -13,7 +16,7 @@ pub struct SearchResult {
 }
 
 pub struct Request {
-    pub addon: Addon,
+    pub addon: Arc<Addon>,
     pub catalog: Catalog,
     pub addon_index: usize,
     pub catalog_index: usize,
@@ -35,6 +38,7 @@ pub fn plan(addons: Vec<Addon>) -> Result<Vec<Request>, &'static str> {
         if addon.disabled {
             continue;
         }
+        let addon = Arc::new(addon);
         for (catalog_index, catalog) in addon.manifest.catalogs.iter().enumerate() {
             if !catalog.kind.trim().is_empty()
                 && catalog.extra.iter().any(|extra| extra.name == "search")
@@ -70,7 +74,13 @@ fn collapse_whitespace(value: &str) -> String {
 }
 
 fn normalize(value: &str) -> String {
-    collapse_whitespace(value).to_lowercase()
+    let mut value = collapse_whitespace(value);
+    if value.is_ascii() {
+        value.make_ascii_lowercase();
+        value
+    } else {
+        value.to_lowercase()
+    }
 }
 
 fn rank(title: &str, query: &str) -> u8 {
@@ -88,7 +98,7 @@ fn rank(title: &str, query: &str) -> u8 {
 #[derive(Default)]
 pub struct Results {
     // Plan order, not response order, determines which provider owns a duplicate.
-    batches: BTreeMap<usize, (Addon, Vec<Meta>)>,
+    batches: BTreeMap<usize, (Arc<Addon>, Vec<Meta>)>,
     warnings: BTreeMap<usize, String>,
 }
 
@@ -141,7 +151,7 @@ impl Results {
             .take(RESULT_LIMIT)
             .map(|(_, addon, meta)| SearchResult {
                 meta: meta.clone(),
-                addon: addon.clone(),
+                addon: addon.as_ref().clone(),
             })
             .collect();
         (results, self.warnings.values().cloned().collect())
@@ -385,6 +395,7 @@ mod tests {
 
     #[test]
     fn whitespace_normalization_preserves_unicode_case_rules() {
+        assert_eq!(normalize(" \tTHE  Film: II\n"), "the film: ii");
         assert_eq!(
             query("\u{2003}ΟΣ\t İ\u{a0}Straße \n").unwrap(),
             "ΟΣ İ Straße"

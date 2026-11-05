@@ -155,18 +155,18 @@ impl State {
                 self.player.muted = false;
                 self.player.report = None;
                 self.player.status = "Loading…".into();
-                let stream = match &source {
-                    Source::Stream(stream) | Source::Channel(stream, _) => Some(stream.clone()),
-                    Source::Local(_) => None,
-                };
-                let identity = self.player.meta_id.as_ref().map(|(kind, id)| {
-                    (
-                        kind.clone(),
-                        self.player.video_id.clone().unwrap_or_else(|| id.clone()),
-                    )
-                });
                 self.player.subtitles.searching = true;
                 if let Some(services) = &mut self.runtime.services {
+                    let stream = match &source {
+                        Source::Stream(stream) | Source::Channel(stream, _) => Some(stream.clone()),
+                        Source::Local(_) => None,
+                    };
+                    let identity = self.player.meta_id.as_ref().map(|(kind, id)| {
+                        (
+                            kind.clone(),
+                            self.player.video_id.clone().unwrap_or_else(|| id.clone()),
+                        )
+                    });
                     let episode = self
                         .player
                         .meta_id

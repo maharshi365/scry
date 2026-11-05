@@ -28,6 +28,50 @@ fn show(library: &mut Library, id: &str, episodes: u32) -> Media {
 }
 
 #[test]
+fn genre_channels_count_distinct_shows_without_limiting_their_programs() {
+    let mut library = Library::memory().unwrap();
+    for id in ["first", "second", "third"] {
+        let parent = show(&mut library, id, 4);
+        library
+            .set_guide_metadata(
+                &parent,
+                &GuideMetadata {
+                    genres: vec!["Comedy".into(), "Comedy".into()],
+                    ..GuideMetadata::default()
+                },
+            )
+            .unwrap();
+        let snapshot = library.guide_update(GuideAction::Refresh, 10_000).unwrap();
+        assert_eq!(
+            snapshot
+                .channels
+                .iter()
+                .any(|channel| channel.id == "genre-Comedy"),
+            id != "first"
+        );
+    }
+    let snapshot = library
+        .guide_update(GuideAction::Refresh, 10_000 + HORIZON)
+        .unwrap();
+    let channel = snapshot
+        .channels
+        .iter()
+        .find(|channel| channel.id == "genre-Comedy")
+        .unwrap();
+    for id in ["first", "second", "third"] {
+        assert!(channel.slots.iter().any(|slot| {
+            slot.starts_at >= 10_000 + HORIZON
+                && slot
+                    .program
+                    .media
+                    .parent
+                    .as_ref()
+                    .is_some_and(|key| key.id == id)
+        }));
+    }
+}
+
+#[test]
 fn collection_snapshots_follow_edits_refresh_and_policy_changes() {
     let mut library = Library::memory().unwrap();
     let parent = show(&mut library, "office", 2);

@@ -102,17 +102,18 @@ pub(in crate::ui) fn menu_choice<S: 'static>(
 ) -> El {
     let key = key.into();
     let title = title.into();
-    let mut choice = menu_item(key.clone(), title.clone(), f)
+    let selected_key = selected.then(|| format!("{key}-selected"));
+    let mut choice = menu_item(key, title.clone(), f)
         .label(if selected {
             format!("{title}, selected")
         } else {
             title
         })
         .child(el().grow(1.0));
-    if selected {
+    if let Some(selected_key) = selected_key {
         choice = choice.child(
             icon(&super::super::design::icons::CHECK, 14.0)
-                .key(format!("{key}-selected"))
+                .key(selected_key)
                 .color(tokens::accent()),
         );
     }

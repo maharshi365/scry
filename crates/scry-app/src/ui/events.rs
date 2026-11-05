@@ -434,18 +434,16 @@ fn apply_detail(s: &mut State, meta: Meta) {
     {
         s.detail.episodes.season =
             super::episodes::SeasonSelection::Selected(meta.videos[index].season);
-        let mut indices: Vec<_> = meta
+        let selected = &meta.videos[index];
+        let position = meta
             .videos
             .iter()
             .enumerate()
-            .filter(|(_, video)| video.season == meta.videos[index].season)
-            .map(|(index, _)| index)
-            .collect();
-        indices.sort_by_key(|index| meta.videos[*index].episode);
-        let position = indices
-            .iter()
-            .position(|value| *value == index)
-            .unwrap_or(0);
+            .filter(|(position, video)| {
+                video.season == selected.season
+                    && (video.episode, *position) < (selected.episode, index)
+            })
+            .count();
         s.detail.episodes.offset = position / EPISODES_PER_PAGE * EPISODES_PER_PAGE;
     }
     s.detail.episodes.selected.clone_from(&episode);
@@ -457,5 +455,30 @@ fn apply_detail(s: &mut State, meta: Meta) {
         s.find_streams(kind, id);
     } else if let Some(episode) = episode {
         s.find_streams(kind, episode);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selected_episode_page_preserves_stable_ties_and_missing_numbers() -> anyhow::Result<()> {
+        for (selected, offset) in [("101", 100), ("100", 0), ("0", 0)] {
+            let mut state = super::super::app::init();
+            state.detail.pending_episode = Some(selected.into());
+            let meta = serde_json::from_value(serde_json::json!({
+                "id": "show", "type": "series", "name": "Show",
+                "videos": (0..102).map(|index| serde_json::json!({
+                    "id": index.to_string(),
+                    "season": if index == 1 { 2 } else { 1 },
+                    "episode": if index == 0 { None } else { Some(2) }
+                })).collect::<Vec<_>>()
+            }))?;
+            apply_detail(&mut state, meta);
+            assert_eq!(state.detail.episodes.offset, offset, "selected {selected}");
+            assert_eq!(state.detail.episodes.selected.as_deref(), Some(selected));
+        }
+        Ok(())
     }
 }
