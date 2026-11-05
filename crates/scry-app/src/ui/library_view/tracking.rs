@@ -73,24 +73,25 @@ impl State {
             return;
         }
         self.library.tracking.more = items.len() == 12;
-        self.library.tracking.keys = items.into_iter().map(|media| media.key).collect();
+        let keys: Vec<_> = items.into_iter().map(|media| media.key).collect();
         let mut missing = Vec::new();
-        for key in self.library.tracking.keys.clone() {
+        for key in &keys {
             let cached = self
                 .library
                 .series
                 .details
-                .get(&key)
+                .get(key)
                 .filter(|(_, fetched)| fetched.elapsed() < Duration::from_mins(10));
             if let Some((meta, _)) = cached {
                 if let Some(meta) = meta.clone() {
-                    self.reconcile_series_metadata(&key, &meta);
-                    self.remember_series_poster(&key, &meta);
+                    self.reconcile_series_metadata(key, &meta);
+                    self.remember_series_poster(key, &meta);
                 }
             } else {
-                missing.push(key);
+                missing.push(key.clone());
             }
         }
+        self.library.tracking.keys = keys;
         if !missing.is_empty()
             && !self.addons.installed.is_empty()
             && let Some(services) = &mut self.runtime.services

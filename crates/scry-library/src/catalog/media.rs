@@ -11,7 +11,8 @@ use crate::{
 #[derive(Queryable, Selectable, QueryableByName)]
 #[diesel(table_name = media)]
 pub(crate) struct MediaRecord {
-    media_id: i64,
+    #[diesel(column_name = media_id)]
+    _media_id: i64,
     namespace: String,
     kind: String,
     external_id: String,
@@ -51,14 +52,6 @@ pub(crate) fn hydrate_progress(
 }
 
 impl MediaRecord {
-    fn into_key(self) -> Result<MediaKey> {
-        Ok(MediaKey::new(
-            self.namespace,
-            MediaKind::parse(&self.kind)?,
-            self.external_id,
-        ))
-    }
-
     fn into_media(self, parents: &HashMap<i64, MediaKey>) -> Result<Media> {
         Ok(Media {
             key: MediaKey::new(
@@ -90,18 +83,31 @@ fn load_parents<'a>(
     connection: &mut SqliteConnection,
     records: impl IntoIterator<Item = &'a MediaRecord>,
 ) -> Result<HashMap<i64, MediaKey>> {
-    let parent_ids: Vec<_> = records
+    let mut parent_ids: Vec<_> = records
         .into_iter()
         .filter_map(|record| record.parent_id)
         .collect();
+    parent_ids.sort_unstable();
+    parent_ids.dedup();
     let mut parents = HashMap::new();
     if !parent_ids.is_empty() {
         for parent in media::table
             .filter(media::media_id.eq_any(parent_ids))
-            .select(MediaRecord::as_select())
-            .load(connection)?
+            .select((
+                media::media_id,
+                media::namespace,
+                media::kind,
+                media::external_id,
+            ))
+            .load_iter::<(i64, String, String, String), diesel::connection::DefaultLoadingMode>(
+                connection,
+            )?
         {
-            parents.insert(parent.media_id, parent.into_key()?);
+            let (id, namespace, kind, external_id) = parent?;
+            parents.insert(
+                id,
+                MediaKey::new(namespace, MediaKind::parse(&kind)?, external_id),
+            );
         }
     }
     Ok(parents)

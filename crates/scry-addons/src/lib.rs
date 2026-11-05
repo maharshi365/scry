@@ -574,8 +574,9 @@ impl Client {
     /// Returns an error for an invalid manifest URL, failed request, or invalid manifest.
     pub async fn install(&self, input: &str) -> Result<Addon> {
         let url = manifest_url(input)?;
+        let manifest_url = url.as_str().to_owned();
         let manifest = self
-            .json_checked(url.clone(), true, |manifest: &Manifest| {
+            .json_checked(url, true, |manifest: &Manifest| {
                 if manifest.id.trim().is_empty() || manifest.name.trim().is_empty() {
                     bail!("Add-on manifest has no ID or name");
                 }
@@ -584,7 +585,7 @@ impl Client {
             .await?;
         Ok(Addon {
             disabled: false,
-            manifest_url: url.to_string(),
+            manifest_url,
             manifest,
         })
     }

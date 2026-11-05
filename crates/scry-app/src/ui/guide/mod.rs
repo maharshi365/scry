@@ -342,8 +342,14 @@ impl State {
         self.player.generation = self.player.generation.wrapping_add(1);
         self.set_fullscreen(fullscreen);
         self.leave_guide();
+        let kind = if slot.program.media.key.kind == MediaKind::Movie {
+            "movie"
+        } else {
+            "series"
+        };
+        let video_id = slot.program.media.key.id.clone();
         self.guide.selected = Some(id.clone());
-        self.guide.tuned = Some((id, slot.clone()));
+        self.guide.tuned = Some((id, slot));
         self.guide.resolving = true;
         self.guide.error = None;
         let generation = self
@@ -354,13 +360,8 @@ impl State {
             services.streams(
                 generation,
                 self.addons.installed.clone(),
-                if slot.program.media.key.kind == MediaKind::Movie {
-                    "movie"
-                } else {
-                    "series"
-                }
-                .into(),
-                slot.program.media.key.id,
+                kind.into(),
+                video_id,
             );
         } else {
             self.guide.resolving = false;
@@ -473,36 +474,35 @@ impl State {
     }
 
     fn guide_step(&mut self, direction: i32, tune: bool) {
-        let channels: Vec<_> = self
+        let channels = self
             .guide
             .data
             .channels
             .iter()
-            .filter(|c| c.kind == self.guide.kind)
-            .map(|c| c.id.clone())
-            .collect();
-        if channels.is_empty() {
+            .filter(|c| c.kind == self.guide.kind);
+        let count = channels.clone().count();
+        if count == 0 {
             return;
         }
         let current = self
             .guide
             .selected
             .as_ref()
-            .and_then(|id| channels.iter().position(|c| c == id))
+            .and_then(|id| channels.clone().position(|c| &c.id == id))
             .unwrap_or(0);
         let next = if direction < 0 {
-            if current == 0 {
-                channels.len() - 1
-            } else {
-                current - 1
-            }
+            if current == 0 { count - 1 } else { current - 1 }
         } else {
-            (current + 1) % channels.len()
+            (current + 1) % count
         };
-        if let Some(id) = channels.get(next) {
+        if let Some(id) = channels
+            .into_iter()
+            .nth(next)
+            .map(|channel| channel.id.clone())
+        {
             self.guide.selected = Some(id.clone());
             if tune {
-                self.tune_guide(id.clone());
+                self.tune_guide(id);
             }
         }
     }

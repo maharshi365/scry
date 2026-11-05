@@ -1,5 +1,22 @@
 use super::*;
 
+#[test]
+fn grouped_metric_counts_keep_validation_and_overflow_bounds() {
+    for (text, expected) in [
+        ("0", Some(0)),
+        ("1,234", Some(1234)),
+        ("18446744073709551615", Some(u64::MAX)),
+        ("18446744073709551616", None),
+        ("18,446,744,073,709,551,615", None),
+        ("1234,567", None),
+        (",123", None),
+        ("1,23", None),
+        ("", None),
+    ] {
+        assert_eq!(count(text), expected, "count {text:?}");
+    }
+}
+
 fn torrent(name: &str, title: &str, hints: serde_json::Value) -> Stream {
     let mut stream: Stream = serde_json::from_value(serde_json::json!({"name":name,"title":title,"infoHash":"0123456789abcdef0123456789abcdef01234567","fileIdx":0})).unwrap();
     stream.behavior_hints = hints;

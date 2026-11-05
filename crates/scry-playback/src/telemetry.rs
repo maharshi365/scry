@@ -158,6 +158,12 @@ pub struct Report {
     started: Instant,
 }
 
+#[derive(Serialize)]
+struct MetricsRecord<'a, T> {
+    event: &'static str,
+    metrics: &'a T,
+}
+
 impl Report {
     /// # Errors
     /// Returns an error if the report cannot be created or its session record cannot be written.
@@ -183,11 +189,14 @@ impl Report {
     /// Returns an error if the sample cannot be serialized or written to the report.
     pub fn sample(&mut self, sample: &Sample) -> Result<()> {
         self.tracker.observe(sample);
-        writeln!(
-            self.file,
-            "{}",
-            serde_json::json!({"event":"sample", "metrics":sample})
+        serde_json::to_writer(
+            &mut self.file,
+            &MetricsRecord {
+                event: "sample",
+                metrics: sample,
+            },
         )?;
+        self.file.write_all(b"\n")?;
         self.file.flush()?;
         Ok(())
     }
@@ -195,11 +204,14 @@ impl Report {
     /// Returns an error if the final summary cannot be written or flushed.
     pub fn finish(mut self, error: bool) -> Result<Summary> {
         self.tracker.summary.error = error;
-        writeln!(
-            self.file,
-            "{}",
-            serde_json::json!({"event":"summary", "metrics":self.tracker.summary})
+        serde_json::to_writer(
+            &mut self.file,
+            &MetricsRecord {
+                event: "summary",
+                metrics: &self.tracker.summary,
+            },
         )?;
+        self.file.write_all(b"\n")?;
         self.file.flush()?;
         Ok(self.tracker.summary)
     }
@@ -217,6 +229,48 @@ pub fn memory() -> (Option<u64>, Option<u64>) {
 )]
 mod tests {
     use super::*;
+    #[test]
+    fn reports_keep_session_sample_and_summary_records() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let path = root.path().join("report.jsonl");
+        let mut report = Report::create(&path, "test")?;
+        let sample = Sample {
+            elapsed_s: 1.0,
+            position_s: Some(2.0),
+            av_sync_s: Some(f64::NAN),
+            hw_decoder: Some("decoder\"name".into()),
+            resident_bytes: Some(4096),
+            ..Sample::default()
+        };
+        report.sample(&sample)?;
+        let summary = report.finish(true)?;
+        let contents = std::fs::read_to_string(path)?;
+        let records = contents
+            .lines()
+            .map(serde_json::from_str::<serde_json::Value>)
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        assert_eq!(records.len(), 3);
+        assert_eq!(
+            records.first(),
+            Some(&serde_json::json!({
+                "event": "session", "schema": 1, "mode": "test",
+                "app_version": env!("CARGO_PKG_VERSION")
+            }))
+        );
+        assert_eq!(
+            records.get(1),
+            Some(&serde_json::json!({"event": "sample", "metrics": sample}))
+        );
+        assert_eq!(
+            records.get(2),
+            Some(&serde_json::json!({"event": "summary", "metrics": summary}))
+        );
+        assert_eq!(summary.samples, 1);
+        assert_eq!(summary.peak_resident_bytes, 4096);
+        assert!(summary.error);
+        Ok(())
+    }
+
     fn sample(t: f64, p: f64) -> Sample {
         Sample {
             elapsed_s: t,

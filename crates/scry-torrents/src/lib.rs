@@ -177,11 +177,10 @@ impl Torrents {
             .context("Stream has no torrent hash")?
             .to_ascii_lowercase();
         let cache = self.cache.clone();
-        let cache_hash = hash.clone();
-        let (entry, cached) = tokio::task::spawn_blocking(move || {
-            let entry = cache.entry(&cache_hash)?;
+        let (hash, entry, cached) = tokio::task::spawn_blocking(move || {
+            let entry = cache.entry(&hash)?;
             let metadata = cache::Cache::metadata(&entry)?;
-            Ok::<_, anyhow::Error>((entry, metadata))
+            Ok::<_, anyhow::Error>((hash, entry, metadata))
         })
         .await??;
         let source = cached.map_or_else(
@@ -209,10 +208,11 @@ impl Torrents {
             );
             index
         };
-        let metadata = listed.torrent_bytes.clone();
-        let metadata_entry = entry.clone();
-        tokio::task::spawn_blocking(move || {
-            cache::Cache::save_metadata(&metadata_entry, &metadata)
+        drop(listed.info);
+        let metadata = listed.torrent_bytes;
+        let (entry, metadata) = tokio::task::spawn_blocking(move || {
+            cache::Cache::save_metadata(&entry, &metadata)?;
+            Ok::<_, anyhow::Error>((entry, metadata))
         })
         .await??;
         let initial_peers = listed.seen_peers;
@@ -221,7 +221,7 @@ impl Torrents {
         let added = tokio::time::timeout(
             std::time::Duration::from_secs(90),
             self.api.api_add_torrent(
-                AddTorrent::from_bytes(listed.torrent_bytes),
+                AddTorrent::from_bytes(metadata),
                 Some(AddTorrentOptions {
                     initial_peers: Some(initial_peers),
                     #[cfg(feature = "profiling")]
@@ -335,7 +335,7 @@ pub fn magnet(stream: &Stream) -> Result<String> {
             url.query_pairs_mut().append_pair("tr", tracker);
         }
     }
-    Ok(url.to_string())
+    Ok(url.into())
 }
 
 fn select_video(files: &[(impl AsRef<str>, u64)]) -> Option<usize> {

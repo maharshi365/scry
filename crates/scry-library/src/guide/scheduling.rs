@@ -49,39 +49,39 @@ struct Candidate {
 
 fn candidates(connection: &mut SqliteConnection, now: i64) -> Result<Vec<Candidate>> {
     let rows = diesel::sql_query("SELECT m.namespace,m.kind,m.external_id,m.title,p.namespace AS parent_namespace,p.external_id AS parent_external_id,COALESCE(p.title,m.title) AS show_title,e.season,e.episode,CAST(COALESCE(CASE WHEN CAST(pr.duration_seconds AS INTEGER) BETWEEN 60 AND 43200 THEN pr.duration_seconds END,r.seconds) AS INTEGER) AS duration,COALESCE(w.watched,0) AS watched,EXISTS(SELECT 1 FROM watchlist l WHERE l.media_id=COALESCE(p.media_id,m.media_id)) AS saved,COALESCE(g.payload,'{}') AS metadata FROM media m LEFT JOIN media p ON p.media_id=m.parent_id JOIN episode_releases e ON e.media_id=m.media_id LEFT JOIN progress pr ON pr.media_id=m.media_id LEFT JOIN media_runtime r ON r.media_id=m.media_id LEFT JOIN watched w ON w.media_id=m.media_id LEFT JOIN guide_metadata g ON g.media_id=COALESCE(p.media_id,m.media_id) WHERE e.released_at<=? AND (m.kind='movie' OR (m.kind='episode' AND e.season>0 AND e.episode>0)) AND (EXISTS(SELECT 1 FROM watchlist l WHERE l.media_id=COALESCE(p.media_id,m.media_id)) OR w.watched=1 OR EXISTS(SELECT 1 FROM playlist_items pi WHERE pi.media_id=COALESCE(p.media_id,m.media_id))) ORDER BY m.media_id LIMIT 20000")
-        .bind::<BigInt,_>(now).load::<CandidateRow>(connection)?;
-    rows.into_iter()
-        .map(|row| {
-            let kind = MediaKind::parse(&row.kind)?;
-            let metadata: GuideMetadata = serde_json::from_str(&row.metadata)?;
-            let known = row
-                .duration
-                .and_then(|n| u32::try_from(n).ok())
-                .filter(|n| (60..=43_200).contains(n));
-            Ok(Candidate {
-                program: Program {
-                    media: Media {
-                        key: MediaKey::new(row.namespace, kind, row.external_id),
-                        title: row.title,
-                        parent: row
-                            .parent_namespace
-                            .zip(row.parent_external_id)
-                            .map(|(namespace, id)| MediaKey::new(namespace, MediaKind::Series, id)),
-                    },
-                    show_title: row.show_title,
-                    season: row.season.and_then(|n| n.try_into().ok()),
-                    episode: row.episode.and_then(|n| n.try_into().ok()),
-                    description: metadata.description,
-                    artwork: metadata.artwork,
-                    duration: known.unwrap_or(if kind == MediaKind::Movie { 7200 } else { 1800 }),
-                    estimated: known.is_none(),
+        .bind::<BigInt,_>(now).load_iter::<CandidateRow, diesel::connection::DefaultLoadingMode>(connection)?;
+    rows.map(|row| {
+        let row = row?;
+        let kind = MediaKind::parse(&row.kind)?;
+        let metadata: GuideMetadata = serde_json::from_str(&row.metadata)?;
+        let known = row
+            .duration
+            .and_then(|n| u32::try_from(n).ok())
+            .filter(|n| (60..=43_200).contains(n));
+        Ok(Candidate {
+            program: Program {
+                media: Media {
+                    key: MediaKey::new(row.namespace, kind, row.external_id),
+                    title: row.title,
+                    parent: row
+                        .parent_namespace
+                        .zip(row.parent_external_id)
+                        .map(|(namespace, id)| MediaKey::new(namespace, MediaKind::Series, id)),
                 },
-                genres: metadata.genres,
-                watched: row.watched,
-                saved: row.saved,
-            })
+                show_title: row.show_title,
+                season: row.season.and_then(|n| n.try_into().ok()),
+                episode: row.episode.and_then(|n| n.try_into().ok()),
+                description: metadata.description,
+                artwork: metadata.artwork,
+                duration: known.unwrap_or(if kind == MediaKind::Movie { 7200 } else { 1800 }),
+                estimated: known.is_none(),
+            },
+            genres: metadata.genres,
+            watched: row.watched,
+            saved: row.saved,
         })
-        .collect()
+    })
+    .collect()
 }
 
 fn automatic(

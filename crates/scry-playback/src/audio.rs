@@ -20,7 +20,13 @@ impl Snapshot {
             .min(256);
         let mut tracks = Vec::new();
         for index in 0..count {
-            let get = |name: &str| property(&format!("track-list/{index}/{name}"));
+            let mut key = format!("track-list/{index}/");
+            let prefix_len = key.len();
+            let mut get = |name: &str| {
+                key.truncate(prefix_len);
+                key.push_str(name);
+                property(&key)
+            };
             if get("type").as_deref() != Some("audio") {
                 continue;
             }

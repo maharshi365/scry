@@ -152,11 +152,11 @@ impl State {
         }
     }
 
-    pub(in crate::ui) fn missing_library_posters(&self) -> Vec<Media> {
+    fn missing_poster_media(&self) -> impl Iterator<Item = &Media> {
         let mut seen = HashSet::new();
         self.saved_grid_media()
             .enumerate()
-            .filter(|(index, media)| {
+            .filter(move |(index, media)| {
                 !self
                     .library
                     .posters
@@ -165,12 +165,43 @@ impl State {
                     && crate::ui::poster_grid::visible(self, *index)
                     && seen.insert(Self::poster_key(media))
             })
-            .map(|(_, media)| Media {
+            .map(|(_, media)| media)
+    }
+
+    #[cfg(test)]
+    pub(in crate::ui) fn missing_library_posters(&self) -> Vec<Media> {
+        self.missing_poster_media()
+            .take(12)
+            .map(|media| Media {
                 key: Self::poster_key(media).clone(),
                 title: media.title.clone(),
                 parent: None,
             })
+            .collect()
+    }
+
+    pub(in crate::ui) fn library_poster_requests(&self) -> Vec<Media> {
+        self.missing_poster_media()
+            .filter(|media| {
+                // Only tracked shows request full metadata. Other saved shows
+                // need a poster lookup even when no series details exist.
+                self.library
+                    .series
+                    .details
+                    .contains_key(Self::poster_key(media))
+                    || !self
+                        .library
+                        .series
+                        .states
+                        .iter()
+                        .any(|state| state.key == *Self::poster_key(media) && state.tracked)
+            })
             .take(12)
+            .map(|media| Media {
+                key: Self::poster_key(media).clone(),
+                title: media.title.clone(),
+                parent: None,
+            })
             .collect()
     }
 
@@ -192,16 +223,7 @@ impl State {
         {
             return;
         }
-        // A full series metadata request also supplies its poster. Let that
-        // request finish before falling back to a separate artwork lookup.
-        let missing: Vec<_> = self
-            .missing_library_posters()
-            .into_iter()
-            .filter(|media| {
-                media.key.kind != scry_library::MediaKind::Series
-                    || self.library.series.details.contains_key(&media.key)
-            })
-            .collect();
+        let missing = self.library_poster_requests();
         if missing.is_empty() {
             return;
         }

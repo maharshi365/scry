@@ -1,6 +1,24 @@
 use super::*;
 
 #[test]
+fn episode_search_preserves_unicode_and_number_title_boundary_matching() {
+    let mut s = init();
+    s.detail.meta = Some(series(3));
+    s.detail.meta.as_mut().unwrap().videos[1].title = "ÉTÉ 猫".into();
+    for (query, expected) in [
+        (" été ", vec![1]),
+        ("2 été", vec![1]),
+        ("猫", vec![1]),
+        ("missing", vec![]),
+        ("", vec![0, 1, 2]),
+    ] {
+        s.detail.episodes.search.text = query.into();
+        assert_eq!(s.season_episode_indices(), expected, "query {query:?}");
+        assert_eq!(s.episode_range(), 0..expected.len(), "query {query:?}");
+    }
+}
+
+#[test]
 fn episode_201_is_reachable_and_selection_uses_its_absolute_identity() {
     let mut s = init();
     s.detail.meta = Some(series(250));

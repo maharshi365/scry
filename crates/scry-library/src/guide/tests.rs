@@ -28,6 +28,55 @@ fn show(library: &mut Library, id: &str, episodes: u32) -> Media {
 }
 
 #[test]
+fn collection_snapshots_follow_edits_refresh_and_policy_changes() {
+    let mut library = Library::memory().unwrap();
+    let parent = show(&mut library, "office", 2);
+    let snapshot = library
+        .guide_update(GuideAction::CreateCollection("Original".into()), 10_000)
+        .unwrap();
+    let id = snapshot.collections[0].playlist.id;
+    let snapshot = library
+        .guide_update(
+            GuideAction::Membership {
+                collection: id,
+                media: parent.clone(),
+                included: true,
+            },
+            10_000,
+        )
+        .unwrap();
+    assert_eq!(snapshot.collections[0].members, vec![parent.clone()]);
+    library
+        .guide_update(GuideAction::EnableCollection(id), 10_000)
+        .unwrap();
+    let snapshot = library
+        .guide_update(GuideAction::RenameCollection(id, "Renamed".into()), 10_000)
+        .unwrap();
+    assert_eq!(snapshot.collections[0].playlist.name, "Renamed");
+    assert!(snapshot.channels.iter().any(|channel| {
+        channel.source == ChannelSource::Collection(id) && channel.name == "Renamed"
+    }));
+    for action in [
+        GuideAction::Refresh,
+        GuideAction::Policy(SourcePolicy::default()),
+    ] {
+        let snapshot = library.guide_update(action, 10_000).unwrap();
+        assert_eq!(snapshot.collections[0].playlist.name, "Renamed");
+        assert_eq!(snapshot.collections[0].members, vec![parent.clone()]);
+    }
+    let snapshot = library
+        .guide_update(GuideAction::DeleteCollection(id), 10_000)
+        .unwrap();
+    assert!(snapshot.collections.is_empty());
+    assert!(
+        snapshot
+            .channels
+            .iter()
+            .all(|channel| { channel.source != ChannelSource::Collection(id) })
+    );
+}
+
+#[test]
 fn published_schedule_survives_refresh_membership_changes_and_reopen() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("guide.sqlite3");

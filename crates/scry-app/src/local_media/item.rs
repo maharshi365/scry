@@ -83,7 +83,7 @@ impl Item {
             if let Some(ordering) = &self.ordering {
                 let mapped = ordering.resolve(file);
                 for video in mapped {
-                    episodes.insert((video.file_season, video.file_episode, video.id.clone()), serde_json::json!({
+                    episodes.insert((video.file_season, video.file_episode, Cow::Borrowed(video.id.as_str())), serde_json::json!({
                         "id":video.id, "title":video.title, "season":video.file_season, "episode":video.file_episode,
                         "released":video.released
                     }));
@@ -92,7 +92,7 @@ impl Item {
             }
             if let Some(episode) = &file.episode {
                 for number in &episode.numbers {
-                    episodes.insert((episode.season, *number, format!("{id}:{}:{number}", episode.season)), serde_json::json!({
+                    episodes.insert((episode.season, *number, Cow::Owned(format!("{id}:{}:{number}", episode.season))), serde_json::json!({
                         "id":format!("{id}:{}:{number}", episode.season),
                         "title":format!("Episode {number}"), "season":episode.season, "episode":number
                     }));

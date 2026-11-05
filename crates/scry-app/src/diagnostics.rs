@@ -5,6 +5,7 @@ use scry_playback::{
     telemetry::{Report, Sample, Summary, Tracker},
 };
 use std::{
+    borrow::Cow,
     fs::{self, File},
     io::{BufRead, BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
@@ -189,8 +190,8 @@ fn probe(options: &Options) -> Result<()> {
             None
         };
         let source = match (&options.mode, &fixture) {
-            (Mode::Probe(source), _) => source.clone(),
-            (_, Some(fixture)) => fixture.path.to_string_lossy().into_owned(),
+            (Mode::Probe(source), _) => Cow::Borrowed(source.as_str()),
+            (_, Some(fixture)) => fixture.path.to_string_lossy(),
             _ => bail!("Diagnostic mode has no playback source"),
         };
         let player = Player::open(PlaybackTarget::DecodeOnly)?;

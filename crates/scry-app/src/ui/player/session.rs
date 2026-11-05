@@ -221,14 +221,21 @@ impl State {
     fn next_released_episode(&self) -> Option<scry_library::Media> {
         let meta = self.detail.meta.as_ref().filter(|m| m.kind == "series")?;
         let current = self.detail.episodes.selected.as_ref()?;
-        let mut videos: Vec<_> = meta
+        let videos = meta
             .videos
             .iter()
-            .filter(|v| v.season.is_some_and(|s| s > 0) && v.episode.is_some())
-            .collect();
-        videos.sort_by_key(|v| (v.season, v.episode));
-        let index = videos.iter().position(|v| &v.id == current)?;
-        let next = *videos.get(index + 1)?;
+            .enumerate()
+            .filter(|(_, v)| v.season.is_some_and(|s| s > 0) && v.episode.is_some());
+        // The original position preserves stable ordering for equal episode numbers.
+        let order =
+            |(index, video): &(usize, &scry_addons::Video)| (video.season, video.episode, *index);
+        let current = videos
+            .clone()
+            .filter(|(_, video)| &video.id == current)
+            .min_by_key(order)?;
+        let (_, next) = videos
+            .filter(|candidate| order(candidate) > order(&current))
+            .min_by_key(order)?;
         let released = next.released.as_deref()?;
         let is_released = chrono::DateTime::parse_from_rfc3339(released).map_or_else(
             |_| {
@@ -263,6 +270,29 @@ impl State {
     reason = "Episode fixtures and selected next episode must exist"
 )]
 mod tests {
+    #[test]
+    fn next_episode_preserves_stable_order_for_tied_numbers_and_duplicate_ids() {
+        let mut s = super::super::super::app::init();
+        s.detail.meta = Some(
+            serde_json::from_value(serde_json::json!({
+                "id":"show","type":"series","name":"Show","videos":[
+                    {"id":"current","season":2,"episode":1,"released":"2000-01-01"},
+                    {"id":"current","season":1,"episode":1,"released":"2000-01-01"},
+                    {"id":"tied","season":1,"episode":1,"released":"2000-01-01"},
+                    {"id":"later","season":1,"episode":2,"released":"2000-01-01"},
+                    {"id":"special","season":0,"episode":1,"released":"2000-01-01"}
+                ]
+            }))
+            .unwrap(),
+        );
+        s.detail.episodes.selected = Some("current".into());
+        assert_eq!(s.next_released_episode().unwrap().key.id, "tied");
+        s.detail.episodes.selected = Some("tied".into());
+        assert_eq!(s.next_released_episode().unwrap().key.id, "later");
+        s.detail.episodes.selected = Some("special".into());
+        assert!(s.next_released_episode().is_none());
+    }
+
     #[test]
     fn resume_uses_episode_order_and_requires_a_known_released_next_episode() {
         let mut s = super::super::super::app::init();

@@ -118,26 +118,41 @@ impl State {
     }
 
     pub(super) fn season_episode_indices(&self) -> Vec<usize> {
-        let season = self.active_season();
         let Some(meta) = &self.detail.meta else {
             return Vec::new();
         };
-        let query = self.detail.episodes.search.text.trim().to_lowercase();
-        let mut indices: Vec<_> = meta
-            .videos
-            .iter()
-            .enumerate()
-            .filter(|(_, video)| {
-                video.season == season
-                    && (query.is_empty()
-                        || format!("{} {}", video.episode.unwrap_or(0), video.title)
-                            .to_lowercase()
-                            .contains(&query))
-            })
-            .map(|(index, _)| index)
-            .collect();
+        let mut indices: Vec<_> = self.matching_episodes().map(|(index, _)| index).collect();
         indices.sort_by_key(|index| meta.videos[*index].episode);
         indices
+    }
+
+    fn matching_episodes(&self) -> impl Iterator<Item = (usize, &scry_addons::Video)> {
+        use std::fmt::Write as _;
+
+        let season = self.active_season();
+        let query = self.detail.episodes.search.text.trim().to_lowercase();
+        let mut searchable = String::new();
+        self.detail
+            .meta
+            .iter()
+            .flat_map(|meta| &meta.videos)
+            .enumerate()
+            .filter(move |(_, video)| {
+                if video.season != season {
+                    return false;
+                }
+                if query.is_empty() {
+                    return true;
+                }
+                searchable.clear();
+                let _ = write!(searchable, "{} {}", video.episode.unwrap_or(0), video.title);
+                if searchable.is_ascii() {
+                    searchable.make_ascii_lowercase();
+                    searchable.contains(&query)
+                } else {
+                    searchable.to_lowercase().contains(&query)
+                }
+            })
     }
 
     pub(super) fn visible_episode_indices(&self) -> Vec<usize> {
@@ -157,7 +172,14 @@ impl State {
     pub(super) fn select_season(&mut self, season: Option<u32>) {
         self.library.resume_request = None;
         self.detail.episodes.menu_open = false;
-        if !self.seasons().contains(&season) || self.active_season() == season {
+        if !self
+            .detail
+            .meta
+            .iter()
+            .flat_map(|meta| &meta.videos)
+            .any(|video| video.season == season)
+            || self.active_season() == season
+        {
             return;
         }
         self.library.quick_play = None;
@@ -169,13 +191,11 @@ impl State {
     }
 
     pub(super) fn episode_range(&self) -> Range<usize> {
-        self.detail
-            .episodes
-            .range(self.season_episode_indices().len())
+        self.detail.episodes.range(self.matching_episodes().count())
     }
 
     pub(super) fn move_episode_page(&mut self, next: bool) {
-        let count = self.season_episode_indices().len();
+        let count = self.matching_episodes().count();
         let range = self.detail.episodes.range(count);
         self.detail.episodes.offset = if next {
             range.start.saturating_add(EPISODES_PER_PAGE)

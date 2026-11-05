@@ -20,6 +20,42 @@ fn movie(namespace: &str, id: &str) -> Media {
 }
 
 #[test]
+fn episode_lists_hydrate_shared_and_namespaced_parents() -> anyhow::Result<()> {
+    let mut library = Library::memory()?;
+    let parents: Vec<_> = ["first", "second"]
+        .into_iter()
+        .map(|namespace| Media {
+            key: MediaKey::new(namespace, MediaKind::Series, "show"),
+            title: format!("{namespace} show"),
+            parent: None,
+        })
+        .collect();
+    library.upsert_media_batch(&parents)?;
+    let episodes: Vec<_> = parents
+        .iter()
+        .flat_map(|parent| {
+            (1..=3).map(|episode| Media {
+                key: MediaKey::new(
+                    &parent.key.namespace,
+                    MediaKind::Episode,
+                    episode.to_string(),
+                ),
+                title: format!("Episode {episode}"),
+                parent: Some(parent.key.clone()),
+            })
+        })
+        .collect();
+    library.upsert_media_batch(&episodes)?;
+    for (parent, expected) in parents.iter().zip(episodes.chunks(3)) {
+        assert_eq!(
+            library.list_episodes(&parent.key, Page::default())?,
+            expected
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn watchlist_mutations_resolve_parents_and_roll_back_metadata() -> anyhow::Result<()> {
     for added in [None, Some(true)] {
         let dir = tempfile::tempdir()?;

@@ -238,8 +238,11 @@ pub(super) fn view(s: &State, cx: &Cx<State>) -> El {
     } else {
         s.discover.generation
     };
+    // Re-entering an unchanged grid must report visibility for its new route.
     let cards = col()
-        .key(format!("{prefix}-cards-{source_generation}-{columns}"))
+        .key(format!(
+            "{prefix}-cards-{source_generation}-{columns}-{route_key}"
+        ))
         .w_full()
         .growth(GrowthSpec::default())
         .virtual_rows(

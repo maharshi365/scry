@@ -88,7 +88,7 @@ fn rank(title: &str, query: &str) -> u8 {
 #[derive(Default)]
 pub struct Results {
     // Plan order, not response order, determines which provider owns a duplicate.
-    batches: BTreeMap<usize, Vec<SearchResult>>,
+    batches: BTreeMap<usize, (Addon, Vec<Meta>)>,
     warnings: BTreeMap<usize, String>,
 }
 
@@ -96,21 +96,19 @@ impl Results {
     pub fn record(&mut self, index: usize, request: &Request, result: Result<Vec<Meta>, ()>) {
         match result {
             Ok(metas) => {
-                self.batches.insert(
-                    index,
+                // Do not retain an oversized provider allocation in a bounded batch.
+                let mut retained = Vec::with_capacity(metas.len().min(RESULT_LIMIT));
+                retained.extend(
                     metas
                         .into_iter()
                         .filter(|meta| {
                             matches!(meta.kind.as_str(), "movie" | "series")
                                 && !meta.id.trim().is_empty()
                         })
-                        .take(RESULT_LIMIT)
-                        .map(|meta| SearchResult {
-                            meta,
-                            addon: request.addon.clone(),
-                        })
-                        .collect(),
+                        .take(RESULT_LIMIT),
                 );
+                self.batches
+                    .insert(index, (request.addon.clone(), retained));
             }
             Err(()) => {
                 // Do not echo provider-controlled names, errors, URLs, or the query.
@@ -132,16 +130,19 @@ impl Results {
         let mut results: Vec<_> = self
             .batches
             .values()
-            .flatten()
-            .filter(|result| seen.insert((result.meta.kind.as_str(), result.meta.id.as_str())))
-            .map(|result| (rank(&normalize(&result.meta.name), &query), result))
+            .flat_map(|(addon, metas)| metas.iter().map(move |meta| (addon, meta)))
+            .filter(|(_, meta)| seen.insert((meta.kind.as_str(), meta.id.as_str())))
+            .map(|(addon, meta)| (rank(&normalize(&meta.name), &query), addon, meta))
             .collect();
         // Stable ties preserve catalog and provider response order.
-        results.sort_by_key(|(rank, _)| *rank);
+        results.sort_by_key(|(rank, _, _)| *rank);
         let results = results
             .into_iter()
             .take(RESULT_LIMIT)
-            .map(|(_, result)| result.clone())
+            .map(|(_, addon, meta)| SearchResult {
+                meta: meta.clone(),
+                addon: addon.clone(),
+            })
             .collect();
         (results, self.warnings.values().cloned().collect())
     }
@@ -337,6 +338,49 @@ mod tests {
         );
         assert_eq!(found[0].meta.name, "Query original");
         assert_eq!(found[0].addon.manifest.id, "first");
+    }
+
+    #[test]
+    fn retained_batches_do_not_keep_oversized_provider_buffers() {
+        let request = plan(vec![addon("provider", json!([searchable("movie")]))])
+            .unwrap()
+            .pop()
+            .unwrap();
+        let mut metas = Vec::with_capacity(4096);
+        metas.extend((0..150).map(|index| meta("movie", &index.to_string(), "Title")));
+        let mut results = Results::default();
+        results.record(0, &request, Ok(metas));
+        let (_, retained) = results.batches.get(&0).unwrap();
+        assert_eq!(retained.len(), RESULT_LIMIT);
+        assert!(
+            retained.capacity() <= RESULT_LIMIT,
+            "bounded search batches must release oversized provider buffers"
+        );
+    }
+
+    #[test]
+    fn snapshots_keep_owned_results_when_a_batch_is_replaced() {
+        let request = plan(vec![addon("provider", json!([searchable("movie")]))])
+            .unwrap()
+            .pop()
+            .unwrap();
+        let mut results = Results::default();
+        results.record(0, &request, Ok(vec![meta("movie", "first", "First title")]));
+        let (mut first, _) = results.snapshot("title");
+        first[0].addon.manifest.name = "Changed snapshot".into();
+        let (unchanged, _) = results.snapshot("title");
+        assert_eq!(unchanged[0].addon.manifest.name, "provider");
+
+        results.record(
+            0,
+            &request,
+            Ok(vec![meta("movie", "second", "Second title")]),
+        );
+        let (second, _) = results.snapshot("title");
+        assert_eq!(first[0].meta.id, "first");
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0].meta.id, "second");
+        assert_eq!(second[0].addon.manifest.id, "provider");
     }
 
     #[test]

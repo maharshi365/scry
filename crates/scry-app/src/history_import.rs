@@ -319,7 +319,6 @@ fn append_watched(
     inventory: &[scry_library::EpisodeRelease],
     entries: &mut BTreeMap<String, HistoryEntry>,
 ) {
-    let title = safe_title(&item.name);
     if item.kind == "series"
         && let Some(encoded) = item.state.watched.as_deref().filter(|v| !v.is_empty())
     {
@@ -349,10 +348,10 @@ fn append_watched(
                     }
                 }
                 if skipped_release {
-                    preview.issue(&title, "Some episode watches were skipped: release date is unknown or in the future");
+                    preview.issue(&item.name, "Some episode watches were skipped: release date is unknown or in the future");
                 }
             }
-            Err(reason) => preview.issue(&title, reason),
+            Err(reason) => preview.issue(&item.name, reason),
         }
     }
 }

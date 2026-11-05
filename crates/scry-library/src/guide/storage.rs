@@ -103,6 +103,13 @@ fn update(connection: &mut SqliteConnection, action: GuideAction, now: i64) -> R
         .transpose()?
         .unwrap_or_default();
     let mut groups = collections(connection)?;
+    let collections_changed = matches!(
+        &action,
+        GuideAction::CreateCollection(_)
+            | GuideAction::RenameCollection(..)
+            | GuideAction::DeleteCollection(_)
+            | GuideAction::Membership { .. }
+    );
     match action {
         GuideAction::Refresh => {}
         GuideAction::CreateCollection(name) => {
@@ -237,7 +244,9 @@ fn update(connection: &mut SqliteConnection, action: GuideAction, now: i64) -> R
             stored.policy = policy;
         }
     }
-    groups = collections(connection)?;
+    if collections_changed {
+        groups = collections(connection)?;
+    }
     super::scheduling::extend(
         connection,
         &mut stored.channels,

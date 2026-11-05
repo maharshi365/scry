@@ -555,6 +555,126 @@ fn library_grid_scrolls_and_history_restores_the_opened_poster_card() {
 }
 
 #[test]
+fn untracked_series_posters_do_not_wait_for_unrequested_full_metadata() {
+    use scry_library::{Media, MediaKey, MediaKind};
+    let mut s = init();
+    s.navigation.page = Page::Library;
+    let show = Media {
+        key: MediaKey::new("test", MediaKind::Series, "show"),
+        title: "Show".into(),
+        parent: None,
+    };
+    s.apply_library_entries(vec![show.clone()]);
+    s.posters.route = s.navigation.route_key;
+    s.posters.visible = 0..1;
+    assert_eq!(s.library_poster_requests(), vec![show.clone()]);
+    s.library.series.states = vec![scry_library::SeriesState {
+        key: show.key.clone(),
+        tracked: false,
+        watched: false,
+        progress: None,
+        summary: None,
+    }];
+    assert_eq!(s.library_poster_requests(), vec![show.clone()]);
+    s.library.series.states[0].tracked = true;
+    assert!(s.library_poster_requests().is_empty());
+    s.library
+        .series
+        .details
+        .insert(show.key.clone(), (None, std::time::Instant::now()));
+    assert_eq!(s.library_poster_requests(), vec![show]);
+}
+
+#[test]
+fn fresh_saved_pages_queue_movie_and_series_posters_after_route_changes() {
+    use scry_library::{Media, MediaKey, MediaKind, Progress};
+    let movie = Media {
+        key: MediaKey::new("test", MediaKind::Movie, "movie"),
+        title: "Movie".into(),
+        parent: None,
+    };
+    let show = MediaKey::new("test", MediaKind::Series, "show");
+    let episode = Media {
+        key: MediaKey::new("test", MediaKind::Episode, "episode"),
+        title: "Show episode".into(),
+        parent: Some(show.clone()),
+    };
+    let mut s = init();
+    s.navigate(Page::Library);
+    s.library
+        .series
+        .details
+        .insert(show.clone(), (None, std::time::Instant::now()));
+    s.apply_library_entries(vec![movie.clone()]);
+    s.apply_watching_entries(vec![(
+        episode,
+        Progress {
+            position_seconds: 10.0,
+            duration_seconds: 100.0,
+        },
+    )]);
+    let mut rt = rune::Runtime::new(s, view, (880.0, 600.0), rune::Env::default());
+    for page in [Page::Library, Page::Watching, Page::Library] {
+        rt.update(|s, _| s.navigate(page));
+        for _ in 0..4 {
+            rt.frame(0.0);
+        }
+        let requests = rt.state.library_poster_requests();
+        assert_eq!(
+            requests.len(),
+            1,
+            "page {page:?}, route {}, measured route {}, visible {:?}",
+            rt.state.navigation.route_key,
+            rt.state.posters.route,
+            rt.state.posters.visible
+        );
+        assert_eq!(
+            requests[0].key,
+            if page == Page::Library {
+                movie.key.clone()
+            } else {
+                show.clone()
+            },
+            "page {page:?}"
+        );
+    }
+}
+
+#[test]
+fn pending_series_metadata_does_not_hide_other_visible_poster_requests() {
+    use scry_library::{Media, MediaKey, MediaKind};
+    let mut s = init();
+    s.navigation.page = Page::Library;
+    let mut items: Vec<_> = (0..15)
+        .map(|index| Media {
+            key: MediaKey::new("test", MediaKind::Series, format!("show-{index}")),
+            title: format!("Show {index}"),
+            parent: None,
+        })
+        .collect();
+    s.library.series.states = items
+        .iter()
+        .map(|media| scry_library::SeriesState {
+            key: media.key.clone(),
+            tracked: true,
+            watched: false,
+            progress: None,
+            summary: None,
+        })
+        .collect();
+    let movie = Media {
+        key: MediaKey::new("test", MediaKind::Movie, "movie"),
+        title: "Movie".into(),
+        parent: None,
+    };
+    items.push(movie.clone());
+    s.apply_library_entries(items);
+    s.posters.route = s.navigation.route_key;
+    s.posters.visible = 0..10;
+    assert_eq!(s.library_poster_requests(), vec![movie]);
+}
+
+#[test]
 fn library_posters_are_bounded_visible_and_ignore_stale_or_unrelated_results() {
     use crate::services::LibraryPoster;
     use scry_library::{Media, MediaKey, MediaKind};

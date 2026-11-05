@@ -54,6 +54,7 @@ impl Disk {
         let mut header = vec![0; length];
         file.read_exact(&mut header).ok()?;
         let stored: Stored = serde_json::from_slice(&header).ok()?;
+        drop(header);
         if SystemTime::now().duration_since(stored.received).ok()? > RETENTION
             || !stored.policy.is_storable()
         {
@@ -112,7 +113,8 @@ impl Disk {
         struct StoredRef<'a> {
             policy: &'a CachePolicy,
             received: SystemTime,
-            headers: Vec<(&'a str, &'a str)>,
+            #[serde(serialize_with = "serialize_headers")]
+            headers: &'a http::HeaderMap,
             checksum: [u8; 32],
         }
 
@@ -120,11 +122,7 @@ impl Disk {
         let stored = StoredRef {
             policy: &entry.policy,
             received: entry.received,
-            headers: entry
-                .headers
-                .iter()
-                .filter_map(|(k, v)| Some((k.as_str(), v.to_str().ok()?)))
-                .collect(),
+            headers: &entry.headers,
             checksum: *blake3::hash(&entry.bytes).as_bytes(),
         };
         let header = serde_json::to_vec(&stored)?;
@@ -194,6 +192,17 @@ impl Disk {
     }
 }
 
+fn serialize_headers<S: serde::Serializer>(
+    headers: &http::HeaderMap,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.collect_seq(
+        headers
+            .iter()
+            .filter_map(|(key, value)| Some((key.as_str(), value.to_str().ok()?))),
+    )
+}
+
 fn owned(path: &Path) -> bool {
     let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
         return false;
@@ -242,6 +251,25 @@ mod tests {
         assert_eq!(disk.load("film").unwrap().bytes.as_slice(), b"updated");
         disk.store("film", &entry(b"private", "no-store"));
         assert!(!disk.key("film").exists());
+    }
+
+    #[test]
+    fn disk_headers_preserve_repeated_values_and_skip_non_text_values() {
+        let directory = tempfile::tempdir().unwrap();
+        let disk = Disk::new(directory.path().into());
+        let mut source = entry(b"poster", "max-age=60");
+        source.headers.append("x-label", "first".parse().unwrap());
+        source.headers.append("x-label", "second".parse().unwrap());
+        source
+            .headers
+            .insert("x-binary", http::HeaderValue::from_bytes(b"\xff").unwrap());
+        disk.store("film", &source);
+
+        let loaded = disk.load("film").unwrap();
+        let labels: Vec<_> = loaded.headers.get_all("x-label").iter().collect();
+        assert_eq!(labels, ["first", "second"]);
+        assert!(!loaded.headers.contains_key("x-binary"));
+        assert_eq!(loaded.bytes.as_slice(), b"poster");
     }
 
     #[test]

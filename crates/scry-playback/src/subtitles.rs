@@ -178,7 +178,13 @@ impl Snapshot {
             .min(256);
         let mut tracks = Vec::new();
         for index in 0..count {
-            let get = |name: &str| property(&format!("track-list/{index}/{name}"));
+            let mut key = format!("track-list/{index}/");
+            let prefix_len = key.len();
+            let mut get = |name: &str| {
+                key.truncate(prefix_len);
+                key.push_str(name);
+                property(&key)
+            };
             if get("type").as_deref() != Some("sub") {
                 continue;
             }
@@ -313,6 +319,44 @@ mod tests {
             vec![3]
         );
         assert_eq!(snapshot.selected, [Some(3), None]);
+    }
+
+    #[test]
+    fn snapshots_preserve_each_subtitle_field_and_both_selections() {
+        let mut properties = vec![("track-list/count".into(), "2".into())];
+        for (index, id, external) in [(0, "3", "no"), (1, "7", "yes")] {
+            for (key, value) in [
+                ("type", "sub"),
+                ("id", id),
+                ("lang", "eng"),
+                ("title", "Main subtitles"),
+                ("codec", "ass"),
+                ("external", external),
+            ] {
+                properties.push((format!("track-list/{index}/{key}"), value.into()));
+            }
+        }
+        properties.extend([
+            ("sid".into(), "3".into()),
+            ("secondary-sid".into(), "7".into()),
+        ]);
+        let engine = Engine(properties);
+        let snapshot = Snapshot::read(|name| engine.property(name));
+        assert_eq!(
+            snapshot.tracks,
+            [false, true]
+                .into_iter()
+                .zip([3, 7])
+                .map(|(external, id)| Track {
+                    id,
+                    language: "eng".into(),
+                    title: "Main subtitles".into(),
+                    codec: "ass".into(),
+                    external,
+                })
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(snapshot.selected, [Some(3), Some(7)]);
     }
 
     #[test]

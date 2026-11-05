@@ -70,22 +70,31 @@ fn count(text: &str) -> Option<u64> {
             return None;
         }
     }
-    text.replace(',', "").parse().ok()
+    text.bytes()
+        .filter(|byte| *byte != b',')
+        .try_fold(0u64, |value, digit| {
+            value.checked_mul(10)?.checked_add(u64::from(digit - b'0'))
+        })
 }
 
 fn size(text: &str) -> Option<u64> {
     let mut words = text.split_whitespace();
     let number = words.next()?;
-    let unit = words.next()?.to_ascii_uppercase();
+    let unit = words.next()?;
     // Torrentio's display formatter uses powers of 1024 even for MB/GB labels.
-    let multiplier: u128 = match unit.as_str() {
-        "B" => 1,
-        "KB" | "KIB" => 1024,
-        "MB" | "MIB" => 1024 * 1024,
-        "GB" | "GIB" => 1024 * 1024 * 1024,
-        "TB" | "TIB" => 1024u128.pow(4),
-        _ => return None,
-    };
+    let multiplier = [
+        ("B", 1u128),
+        ("KB", 1024),
+        ("KIB", 1024),
+        ("MB", 1024 * 1024),
+        ("MIB", 1024 * 1024),
+        ("GB", 1024 * 1024 * 1024),
+        ("GIB", 1024 * 1024 * 1024),
+        ("TB", 1024u128.pow(4)),
+        ("TIB", 1024u128.pow(4)),
+    ]
+    .into_iter()
+    .find_map(|(label, multiplier)| unit.eq_ignore_ascii_case(label).then_some(multiplier))?;
     let (whole, decimal) = number.split_once('.').unwrap_or((number, ""));
     let whole = u128::from(count(whole)?).checked_mul(multiplier)?;
     if decimal.len() > 6 || !decimal.bytes().all(|byte| byte.is_ascii_digit()) {

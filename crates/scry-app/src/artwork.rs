@@ -456,19 +456,17 @@ fn source_thumbnail(
     profile: Profile,
     disk: Option<&Mutex<crate::artwork_cache::DiskCache>>,
 ) -> std::result::Result<(u32, u32, Vec<u8>), ()> {
+    let Some(disk) = disk.filter(|_| response.storable) else {
+        return thumbnail(&response.bytes, profile);
+    };
     // Validate HTTP freshness before using derived pixels. A changed source gets
     // a different thumbnail key even when its URL is stable.
     let key = format!("{url}:{}", blake3::hash(&response.bytes).to_hex());
-    if response.storable
-        && let Some(cached) = disk.and_then(|disk| disk.lock().ok()?.load(&key))
-    {
+    if let Some(cached) = disk.lock().ok().and_then(|disk| disk.load(&key)) {
         return Ok(cached);
     }
     let (width, height, pixels) = thumbnail(&response.bytes, profile)?;
-    if response.storable
-        && let Some(disk) = disk
-        && let Ok(disk) = disk.lock()
-    {
+    if let Ok(disk) = disk.lock() {
         disk.store(&key, width, height, &pixels);
     }
     Ok((width, height, pixels))
