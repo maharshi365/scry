@@ -43,13 +43,12 @@ impl VideoHost for Host {
                 let RawWindowHandle::Win32(raw) = handle.as_raw() else {
                     bail!("Expected a Windows window");
                 };
-                let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
-                // SAFETY: class is NUL-terminated and the parent handle is borrowed live.
+                // SAFETY: the static class name is NUL-terminated; the parent is borrowed live.
                 // The child belongs to the UI thread. libmpv renders into it, never owns it.
                 let child = unsafe {
                     CreateWindowExW(
                         0,
-                        class.as_ptr(),
+                        windows_sys::w!("STATIC"),
                         ptr::null(),
                         WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN | SS_BLACKRECT,
                         0,

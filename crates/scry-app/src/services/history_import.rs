@@ -1,7 +1,7 @@
 use super::{Event, Services, metadata};
 use crate::history_import::{self, Preview};
 use scry_addons::Addon;
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 impl Services {
     pub(crate) fn preview_history(&mut self, generation: u64, path: PathBuf, addons: Vec<Addon>) {
@@ -12,6 +12,7 @@ impl Services {
             let loaded = tokio::task::spawn_blocking(move || history_import::read(&path)).await;
             let result: Result<Preview, String> = match loaded {
                 Ok(Ok((items, mut preview))) => {
+                    let addons = Arc::new(addons);
                     let total = items.len();
                     inbox
                         .send(Event::HistoryProgress(generation, 0, total))

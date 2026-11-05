@@ -14,13 +14,17 @@ pub struct Snapshot {
 impl Snapshot {
     #[must_use]
     pub fn read(property: impl Fn(&str) -> Option<String>) -> Self {
+        use std::fmt::Write as _;
+
         let count = property("track-list/count")
             .and_then(|v| v.parse::<usize>().ok())
             .unwrap_or(0)
             .min(256);
         let mut tracks = Vec::new();
+        let mut key = String::new();
         for index in 0..count {
-            let mut key = format!("track-list/{index}/");
+            key.clear();
+            let _ = write!(key, "track-list/{index}/");
             let prefix_len = key.len();
             let mut get = |name: &str| {
                 key.truncate(prefix_len);

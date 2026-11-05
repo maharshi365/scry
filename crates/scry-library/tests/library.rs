@@ -46,6 +46,13 @@ fn episode_lists_hydrate_shared_and_namespaced_parents() -> anyhow::Result<()> {
         })
         .collect();
     library.upsert_media_batch(&episodes)?;
+    for item in parents.iter().chain(&episodes) {
+        assert_eq!(library.get_media(&item.key)?.as_ref(), Some(item));
+    }
+    assert_eq!(
+        library.get_media(&MediaKey::new("missing", MediaKind::Episode, "1"))?,
+        None
+    );
     for (parent, expected) in parents.iter().zip(episodes.chunks(3)) {
         assert_eq!(
             library.list_episodes(&parent.key, Page::default())?,

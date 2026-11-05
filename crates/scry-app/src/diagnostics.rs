@@ -305,7 +305,7 @@ impl Fixture {
         let mut file = BufWriter::new(File::create(&fixture.path)?);
         // Original synthetic 32x24 YUV420 at 12 fps. No downloaded or encoded media.
         file.write_all(b"YUV4MPEG2 W32 H24 F12:1 Ip A1:1 C420jpeg\n")?;
-        let mut frame = vec![128u8; 32 * 24 * 3 / 2];
+        let mut frame = [128u8; 32 * 24 * 3 / 2];
         for n in 0..((seconds + 2.0) * 12.0).ceil() as usize {
             frame[..32 * 24].fill(32 + u8::try_from(n % 180)?);
             file.write_all(b"FRAME\n")?;

@@ -86,17 +86,17 @@ fn candidates(connection: &mut SqliteConnection, now: i64) -> Result<Vec<Candida
 
 fn automatic(
     channels: &mut Vec<Channel>,
-    id: String,
-    name: String,
+    id: impl AsRef<str> + Into<String>,
+    name: &str,
     kind: MediaKind,
-    source: ChannelSource,
+    source: impl FnOnce() -> ChannelSource,
 ) {
-    if channels.len() < MAX_CHANNELS && !channels.iter().any(|channel| channel.id == id) {
+    if channels.len() < MAX_CHANNELS && !channels.iter().any(|channel| channel.id == id.as_ref()) {
         channels.push(Channel {
-            id,
-            name,
+            id: id.into(),
+            name: name.into(),
             kind,
-            source,
+            source: source(),
             slots: Vec::new(),
         });
     }
@@ -140,7 +140,7 @@ pub(super) fn extend(
             .iter()
             .any(|candidate| matches_channel(candidate, kind, &source, collections))
         {
-            automatic(channels, id.into(), name.into(), kind, source);
+            automatic(channels, id, name, kind, || source);
         }
     }
     let mut genres = BTreeMap::<&str, Vec<&MediaKey>>::new();
@@ -165,9 +165,9 @@ pub(super) fn extend(
         automatic(
             channels,
             format!("genre-{genre}"),
-            genre.into(),
+            genre,
             MediaKind::Series,
-            ChannelSource::Genre(genre.into()),
+            || ChannelSource::Genre(genre.into()),
         );
     }
     for channel in channels {

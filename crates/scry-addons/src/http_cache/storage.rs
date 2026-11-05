@@ -15,7 +15,7 @@ const RETENTION: Duration = Duration::from_hours(7 * 24);
 
 #[derive(Clone)]
 pub(super) struct Disk {
-    path: PathBuf,
+    path: Arc<Path>,
     write: Arc<Mutex<()>>,
 }
 
@@ -30,7 +30,7 @@ struct Stored {
 impl Disk {
     pub(super) fn new(path: PathBuf) -> Self {
         Self {
-            path,
+            path: path.into(),
             write: Arc::new(Mutex::new(())),
         }
     }
@@ -42,7 +42,8 @@ impl Disk {
 
     pub(super) fn load(&self, key: &str) -> Option<Entry> {
         let mut file = fs::File::open(self.key(key)).ok()?;
-        if file.metadata().ok()?.len() > (MAX_BODY + MAX_HEADER + 4) as u64 {
+        let file_length = usize::try_from(file.metadata().ok()?.len()).ok()?;
+        if file_length > MAX_BODY + MAX_HEADER + 4 {
             return None;
         }
         let mut size = [0; 4];
@@ -60,7 +61,11 @@ impl Disk {
         {
             return None;
         }
-        let mut bytes = Vec::new();
+        let body_length = file_length.checked_sub(length + 4)?;
+        if body_length > MAX_BODY {
+            return None;
+        }
+        let mut bytes = Vec::with_capacity(body_length);
         file.take((MAX_BODY + 1) as u64)
             .read_to_end(&mut bytes)
             .ok()?;

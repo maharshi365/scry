@@ -316,6 +316,38 @@ fn duplicate_catalog_pages_advance_automatically_but_have_a_retry_bound() {
 }
 
 #[test]
+fn catalog_append_keeps_first_identity_and_preserves_history() {
+    let mut s = paged_catalog("movie");
+    let snapshot = s.discover.snapshot();
+    let mut first = catalog_title("movie", 40);
+    first.name = "First copy".into();
+    let mut duplicate = first.clone();
+    duplicate.name = "Later copy".into();
+    let mut invalid = catalog_title("movie", 41);
+    invalid.id = " ".into();
+    s.discover.paging.pending = Some(40);
+    s.apply_catalog_page(
+        s.discover.generation,
+        40,
+        Ok(vec![
+            catalog_title("movie", 0),
+            first,
+            duplicate,
+            catalog_title("series", 40),
+            invalid,
+            catalog_title("unsupported", 42),
+        ]),
+    );
+    assert_eq!(s.discover.results.len(), 42);
+    assert_eq!(s.discover.results[40].name, "First copy");
+    assert_eq!(s.discover.results[41].kind, "series");
+    assert_eq!(s.discover.paging.next_offset, 46);
+    s.discover.restore(snapshot);
+    assert_eq!(s.discover.results.len(), 40);
+    assert_eq!(s.discover.results[39].id, "title-39");
+}
+
+#[test]
 fn movie_and_tv_catalogs_load_on_scroll_append_without_jumping_and_stop_on_repeats() {
     for kind in ["movie", "series"] {
         let s = paged_catalog(kind);

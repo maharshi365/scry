@@ -53,6 +53,14 @@ pub(crate) fn hydrate_progress(
 
 impl MediaRecord {
     fn into_media(self, parents: &HashMap<i64, MediaKey>) -> Result<Media> {
+        let parent = self
+            .parent_id
+            .map(|id| parents.get(&id).cloned().context("missing media parent"))
+            .transpose()?;
+        self.with_parent(parent)
+    }
+
+    fn with_parent(self, parent: Option<MediaKey>) -> Result<Media> {
         Ok(Media {
             key: MediaKey::new(
                 self.namespace,
@@ -60,10 +68,7 @@ impl MediaRecord {
                 self.external_id,
             ),
             title: self.title,
-            parent: self
-                .parent_id
-                .map(|id| parents.get(&id).cloned().context("missing media parent"))
-                .transpose()?,
+            parent,
         })
     }
 }
@@ -177,13 +182,34 @@ pub(crate) fn get_media(
     connection: &mut SqliteConnection,
     key: &MediaKey,
 ) -> Result<Option<Media>> {
-    let records = media::table
+    let record = media::table
         .filter(media::namespace.eq(&key.namespace))
         .filter(media::kind.eq(key.kind.as_str()))
         .filter(media::external_id.eq(&key.id))
         .select(MediaRecord::as_select())
-        .load(connection)?;
-    Ok(hydrate(connection, records)?.into_iter().next())
+        .first::<MediaRecord>(connection)
+        .optional()?;
+    record
+        .map(|record| {
+            let parent = record
+                .parent_id
+                .map(|id| {
+                    let (namespace, kind, external_id) = media::table
+                        .find(id)
+                        .select((media::namespace, media::kind, media::external_id))
+                        .first::<(String, String, String)>(connection)
+                        .optional()?
+                        .context("missing media parent")?;
+                    Ok::<_, anyhow::Error>(MediaKey::new(
+                        namespace,
+                        MediaKind::parse(&kind)?,
+                        external_id,
+                    ))
+                })
+                .transpose()?;
+            record.with_parent(parent)
+        })
+        .transpose()
 }
 
 impl Library {

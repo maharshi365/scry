@@ -717,17 +717,17 @@ impl State {
         if self.player.subtitles.files.len() >= 16 {
             return;
         }
-        let source = source.clone();
         self.player.subtitles.request += 1;
         let request = self.player.subtitles.request;
+        let language = source
+            .subtitle
+            .label
+            .is_empty()
+            .then(|| language_label(&source.subtitle.lang));
         let title = format!(
             "{} · {} · #{request}",
             source.provider,
-            if source.subtitle.label.is_empty() {
-                language_label(&source.subtitle.lang)
-            } else {
-                source.subtitle.label.clone()
-            }
+            language.as_deref().unwrap_or(&source.subtitle.label)
         );
         self.player.subtitles.manual[self.player.subtitles.slot.index()] = true;
         self.player.subtitles.pending = Some((
@@ -738,7 +738,7 @@ impl State {
         ));
         self.player.subtitles.error = None;
         if let Some(services) = &mut self.runtime.services {
-            services.subtitle_file(self.player.generation, request, source.subtitle);
+            services.subtitle_file(self.player.generation, request, source.subtitle.clone());
         } else {
             self.apply_subtitle_load_failed(
                 self.player.generation,

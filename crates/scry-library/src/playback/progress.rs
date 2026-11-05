@@ -83,13 +83,12 @@ fn media_states_in(
     // A keyed scalar read keeps this query proportional to the requested batch.
     let records = diesel::sql_query("SELECT m.media_id IS NOT NULL AS stored, COALESCE((SELECT ew.watched FROM effective_watched ew WHERE ew.media_id=m.media_id),0) AS watched, p.position_seconds, p.duration_seconds, COALESCE(v.watched_seconds,0.0) AS watched_seconds FROM json_each(?) k LEFT JOIN media m ON m.namespace=json_extract(k.value,'$.namespace') AND m.kind=json_extract(k.value,'$.kind') AND m.external_id=json_extract(k.value,'$.id') LEFT JOIN progress p ON p.media_id=m.media_id LEFT JOIN viewing v ON v.media_id=m.media_id ORDER BY CAST(k.key AS INTEGER)")
         .bind::<diesel::sql_types::Text, _>(serde_json::to_string(keys)?)
-        .load::<Record>(connection)?;
-    Ok(keys
-        .iter()
-        .cloned()
-        .zip(records)
-        .map(|(key, record)| MediaState {
-            key,
+        .load_iter::<Record, diesel::connection::DefaultLoadingMode>(connection)?;
+    let mut states = Vec::with_capacity(keys.len());
+    for (key, record) in keys.iter().zip(records) {
+        let record = record?;
+        states.push(MediaState {
+            key: key.clone(),
             stored: record.stored,
             watched_seconds: record.watched_seconds,
             watched: WatchedState {
@@ -101,8 +100,9 @@ fn media_states_in(
                     duration_seconds,
                 },
             ),
-        })
-        .collect())
+        });
+    }
+    Ok(states)
 }
 
 fn set_watched(connection: &mut SqliteConnection, id: i64, value: bool) -> Result<()> {
@@ -345,9 +345,9 @@ impl Library {
                         media::external_id,
                         watched::is_watched.nullable(),
                     ))
-                    .load::<(String, String, String, Option<bool>)>(connection)?
-                    .into_iter()
-                    .map(|(namespace, kind, external_id, is_watched)| {
+                    .load_iter::<(String, String, String, Option<bool>), diesel::connection::DefaultLoadingMode>(connection)?
+                    .map(|record| {
+                        let (namespace, kind, external_id, is_watched) = record?;
                         Ok((
                             MediaKey::new(namespace, MediaKind::parse(&kind)?, external_id),
                             WatchedState {

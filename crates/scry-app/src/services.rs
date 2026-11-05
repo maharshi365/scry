@@ -469,6 +469,7 @@ impl Services {
             "Watched actions are busy; try again"
         );
         let (client, inbox) = (self.client.clone(), self.inbox.clone());
+        let addons = Arc::new(addons);
         self.watch_tasks.push(self.runtime.spawn(async move {
             let kind = if media.key.kind == scry_library::MediaKind::Movie {
                 "movie"
@@ -647,6 +648,7 @@ impl Services {
                     .await;
                 return;
             }
+            let addons = Arc::new(addons);
             let found = metadata::fetch_from(
                 &client,
                 &addons,
@@ -1286,8 +1288,11 @@ async fn player_loop(
                 && let Some(engine) = &player
             {
                 let mut failed = false;
-                for command in preferences.commands() {
-                    let refs: Vec<_> = command.iter().map(String::as_str).collect();
+                let commands = preferences.commands();
+                let mut refs = Vec::new();
+                for command in &commands {
+                    refs.clear();
+                    refs.extend(command.iter().map(String::as_str));
                     failed |= engine.command(&refs).is_err();
                 }
                 if failed {

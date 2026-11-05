@@ -1,6 +1,6 @@
 //! Provider preference and fallback for background library metadata requests.
 use scry_addons::{Addon, Client, Meta};
-use std::{collections::BTreeMap, time::Duration};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 const PROVIDERS: usize = 4;
 const DEADLINE: Duration = Duration::from_secs(12);
@@ -8,7 +8,7 @@ const OWNER_GRACE: Duration = Duration::from_millis(300);
 
 pub(super) async fn fetch<T>(
     client: &Client,
-    addons: &[Addon],
+    addons: &Arc<Vec<Addon>>,
     namespace: &str,
     kind: &str,
     id: &str,
@@ -19,7 +19,7 @@ pub(super) async fn fetch<T>(
 
 pub(super) async fn fetch_from<T>(
     client: &Client,
-    addons: &[Addon],
+    addons: &Arc<Vec<Addon>>,
     namespace: &str,
     kind: &str,
     id: &str,
@@ -27,9 +27,15 @@ pub(super) async fn fetch_from<T>(
 ) -> Option<T> {
     let providers = addons
         .iter()
-        .filter(|a| a.manifest.id == namespace)
-        .chain(addons.iter().filter(|a| a.manifest.id != namespace))
-        .filter(|a| a.supports("meta", kind, id));
+        .enumerate()
+        .filter(|(_, a)| a.manifest.id == namespace)
+        .chain(
+            addons
+                .iter()
+                .enumerate()
+                .filter(|(_, a)| a.manifest.id != namespace),
+        )
+        .filter(|(_, a)| a.supports("meta", kind, id));
     let mut remaining = providers.enumerate();
     let mut tasks = tokio::task::JoinSet::new();
     let mut pending = std::collections::BTreeSet::new();
@@ -47,19 +53,20 @@ pub(super) async fn fetch_from<T>(
         // Give the preferred provider a head start. Fast, usable responses need
         // no fallback traffic; stalled providers still allow bounded parallel work.
         while tasks.len() < if expanded { PROVIDERS } else { 1 } {
-            let Some((index, addon)) = remaining.next() else {
+            let Some((index, (addon_index, _))) = remaining.next() else {
                 break;
             };
             pending.insert(index);
-            let (client, addon, kind, id) = (
+            let (client, addons, kind, id) = (
                 client.clone(),
-                addon.clone(),
+                addons.clone(),
                 kind.to_owned(),
                 id.to_owned(),
             );
             tasks.spawn(async move {
-                let result = client.meta(&addon, &kind, &id).await;
-                (index, addon, result)
+                let addon = &addons[addon_index];
+                let result = client.meta(addon, &kind, &id).await;
+                (index, addon_index, result)
             });
         }
         let result = tokio::select! {
@@ -73,10 +80,10 @@ pub(super) async fn fetch_from<T>(
         let Some(result) = result else {
             break;
         };
-        if let Ok((index, addon, result)) = result {
+        if let Ok((index, addon_index, result)) = result {
             pending.remove(&index);
             if let Ok(meta) = result
-                && let Some(value) = project(&addon, meta)
+                && let Some(value) = project(&addons[addon_index], meta)
             {
                 usable.insert(index, value);
                 grace = grace.min(tokio::time::Instant::now() + OWNER_GRACE);
@@ -96,6 +103,96 @@ pub(super) async fn fetch_from<T>(
 mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn owner_within_grace_keeps_its_provider_identity_after_fallback_finishes() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let mut tasks = tokio::task::JoinSet::new();
+            let fallback_started = Arc::new(tokio::sync::Notify::new());
+            for _ in 0..2 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let fallback_started = fallback_started.clone();
+                tasks.spawn(async move {
+                    let mut request = [0; 4096];
+                    let received = socket.read(&mut request).await.unwrap();
+                    let owner = String::from_utf8_lossy(&request[..received]).contains("/owner/");
+                    if owner {
+                        fallback_started.notified().await;
+                        tokio::time::sleep(Duration::from_millis(25)).await;
+                    } else {
+                        fallback_started.notify_one();
+                    }
+                    let body = serde_json::json!({"meta":{
+                        "id":"film", "type":"movie", "name":if owner { "Owner" } else { "Fallback" }
+                    }}).to_string();
+                    socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+                });
+            }
+            while let Some(result) = tasks.join_next().await {
+                result.unwrap();
+            }
+        });
+        let addons = Arc::new(
+            ["fallback", "owner"]
+                .into_iter()
+                .map(|id| {
+                    serde_json::from_value(serde_json::json!({
+                        "manifest_url":format!("http://{address}/{id}/manifest.json"),
+                        "manifest":{"id":id,"name":id,"resources":["meta"]}
+                    }))
+                    .unwrap()
+                })
+                .collect(),
+        );
+        let client = Client::new().unwrap();
+        let found = fetch_from(&client, &addons, "owner", "movie", "film", |addon, meta| {
+            Some((addon.manifest.id.clone(), meta.name.clone()))
+        })
+        .await;
+        assert_eq!(found, Some(("owner".into(), "Owner".into())));
+        server.await.unwrap();
+    }
+
+    #[test]
+    #[ignore = "Matched release measurement of metadata provider task captures"]
+    fn measure_provider_capture_cost() {
+        use std::{hint::black_box, io::Write, time::Instant};
+
+        let catalogs: Vec<_> = (0..8)
+            .map(|index| {
+                serde_json::json!({
+                    "id":format!("catalog-{index}"), "type":"movie", "name":"Catalog".repeat(32)
+                })
+            })
+            .collect();
+        let addon: Addon = serde_json::from_value(serde_json::json!({
+            "manifest_url":"https://example.com/manifest.json",
+            "manifest":{"id":"owner","name":"Provider","resources":["meta"],"catalogs":catalogs}
+        }))
+        .unwrap();
+        let addons = Arc::new(vec![addon; 32]);
+        let kind = String::from("movie");
+        let id = String::from("tt1234567");
+        for _ in 0..3 {
+            let start = Instant::now();
+            for index in (0usize..48_000).map(|index| index % 4) {
+                black_box((black_box(&addons[index]).clone(), kind.clone(), id.clone()));
+            }
+            let owned = start.elapsed();
+            let start = Instant::now();
+            for index in (0usize..48_000).map(|index| index % 4) {
+                black_box((addons.clone(), black_box(index), kind.clone(), id.clone()));
+            }
+            writeln!(
+                std::io::stderr(),
+                "48,000 provider captures: deep clone {owned:?}; shared snapshot {:?}",
+                start.elapsed()
+            )
+            .unwrap();
+        }
+    }
 
     #[tokio::test]
     async fn usable_owner_does_not_request_fallback_providers() {
@@ -118,6 +215,7 @@ mod tests {
             "manifest_url":format!("http://{address}/{id}/manifest.json"),"manifest":{"id":id,"name":id,"resources":["meta"]}
         })).unwrap());
         let client = Client::new().unwrap();
+        let addons = Arc::new(Vec::from(addons));
         assert_eq!(
             fetch(&client, &addons, "owner", "movie", "film", |meta| Some(
                 meta.name.clone()
@@ -156,6 +254,7 @@ mod tests {
             "manifest_url":format!("http://{address}/{id}/manifest.json"),"manifest":{"id":id,"name":id,"resources":["meta"]}
         })).unwrap());
         let client = Client::new().unwrap();
+        let addons = Arc::new(Vec::from(addons));
         let name = tokio::time::timeout(
             Duration::from_secs(2),
             fetch(&client, &addons, "owner", "movie", "film", |meta| {
@@ -208,6 +307,7 @@ mod tests {
             })
             .collect();
         let client = Client::new().unwrap();
+        let addons = Arc::new(addons);
         let name = fetch(&client, &addons, "owner", "movie", "film", |meta| {
             Some(meta.name.clone())
         })

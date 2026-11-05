@@ -107,20 +107,25 @@ fn filter(
     menu_choice(key, title, selected, f)
 }
 
-fn providers(s: &State) -> Vec<(&str, usize)> {
-    let mut providers: Vec<(&str, usize)> = Vec::new();
-    let local = s.local_sources().count();
-    if local > 0 {
-        providers.push(("My Media", local));
-    }
-    for (addon, _) in &s.detail.sources.streams {
-        if let Some((_, count)) = providers
-            .iter_mut()
-            .find(|(name, _)| *name == addon.as_str())
-        {
-            *count += 1;
-        } else {
-            providers.push((addon, 1));
+fn source_providers(s: &State) -> impl Iterator<Item = &str> {
+    s.local_sources()
+        .next()
+        .map(|_| "My Media")
+        .into_iter()
+        .chain(
+            s.detail
+                .sources
+                .streams
+                .iter()
+                .map(|(addon, _)| addon.as_str()),
+        )
+}
+
+fn providers(s: &State) -> Vec<&str> {
+    let mut providers = Vec::new();
+    for provider in source_providers(s) {
+        if !providers.contains(&provider) {
+            providers.push(provider);
         }
     }
     providers
@@ -173,7 +178,7 @@ pub(super) fn provider_menu(s: &State, cx: &Cx<State>) -> Option<El> {
             s.detail.sources.menu_open = false;
         },
     ));
-    for (index, (provider, _)) in providers.into_iter().enumerate() {
+    for (index, provider) in providers.into_iter().enumerate() {
         let selected = s.detail.sources.provider.as_deref() == Some(provider);
         let provider = provider.to_owned();
         filters = filters.child(filter(
@@ -295,8 +300,9 @@ fn header(s: &State) -> El {
                 ),
         );
     }
-    let providers = providers(s);
-    if providers.len() > 1 {
+    let mut providers = source_providers(s);
+    let first = providers.next();
+    if providers.any(|provider| Some(provider) != first) {
         header = header.child(
             row().key("source-controls").w_full().child(
                 dropdown_trigger(
@@ -425,6 +431,7 @@ fn source_card(s: &State, index: usize, addon: &str, stream: &Stream) -> El {
     let t = theme();
     let supported = stream.validate_playback().is_ok();
     let name = source_name(stream, addon);
+    let action_label = supported.then(|| format!("Play {name} from {addon}"));
     let mut details = col().w_full().min_w(0.0).gap(6.0).clip_rounded(0.0);
     let mut lines = release_lines(stream);
     if let Some(release) = lines.next() {
@@ -468,7 +475,7 @@ fn source_card(s: &State, index: usize, addon: &str, stream: &Stream) -> El {
                         .min_w(86.0)
                         .clip_rounded(0.0)
                         .gap(6.0)
-                        .child(text(name.clone()).wrap().font(type_::TITLE).color(t.text)),
+                        .child(text(name).wrap().font(type_::TITLE).color(t.text)),
                 )
                 .child(details.w(0.0).grow(1.0))
                 .child(super::primitives::status::play(
@@ -476,7 +483,7 @@ fn source_card(s: &State, index: usize, addon: &str, stream: &Stream) -> El {
                     supported,
                 )),
         );
-    if supported {
+    if let Some(action_label) = action_label {
         let chosen = stream.clone();
         let title = s
             .detail
@@ -485,7 +492,7 @@ fn source_card(s: &State, index: usize, addon: &str, stream: &Stream) -> El {
             .map(|meta| meta.name.clone())
             .unwrap_or_default();
         card = super::primitives::interaction::action(card, false)
-            .label(format!("Play {name} from {addon}"))
+            .label(action_label)
             .on_press(move |s: &mut State| s.play(chosen.clone(), title.clone()));
     }
     card

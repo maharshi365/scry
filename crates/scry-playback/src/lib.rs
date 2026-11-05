@@ -191,14 +191,17 @@ impl Player {
     /// # Errors
     /// Returns an error for arguments containing NUL or a rejected player command.
     pub fn command(&self, args: &[&str]) -> Result<()> {
-        let strings = args
-            .iter()
-            .map(|s| CString::new(*s))
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        let mut pointers = Vec::with_capacity(strings.len() + 1);
-        pointers.extend(strings.iter().map(|s| s.as_ptr()));
+        let strings = command_buffer(args)?;
+        let mut pointers = Vec::with_capacity(args.len() + 1);
+        pointers.extend(
+            strings
+                .split_inclusive(|byte| *byte == 0)
+                .map(|arg| arg.as_ptr().cast::<c_char>()),
+        );
         pointers.push(ptr::null());
-        // SAFETY: mpv_command consumes the null-terminated argument array synchronously.
+        // SAFETY: strings contains NUL-terminated arguments with no interior NULs.
+        // It stays live and unchanged while mpv_command consumes the pointers and
+        // their null-terminated array synchronously.
         if unsafe { (self.command)(self.handle, pointers.as_ptr()) } < 0 {
             bail!("Player command failed");
         }
@@ -349,6 +352,24 @@ impl Player {
     }
 }
 
+fn command_buffer(args: &[&str]) -> Result<Vec<u8>> {
+    let capacity = args
+        .iter()
+        .try_fold(0_usize, |size, arg| {
+            size.checked_add(arg.len())?.checked_add(1)
+        })
+        .context("Player command arguments are too large")?;
+    let mut buffer = Vec::with_capacity(capacity);
+    for arg in args {
+        if arg.as_bytes().contains(&0) {
+            bail!("Player command argument contains NUL");
+        }
+        buffer.extend_from_slice(arg.as_bytes());
+        buffer.push(0);
+    }
+    Ok(buffer)
+}
+
 fn event_timeout(timeout: f64) -> f64 {
     // mpv converts seconds to an integer deadline. Keep nonfinite values out
     // of that conversion, while preserving its negative finite wait sentinel.
@@ -440,6 +461,17 @@ fn library_path() -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn command_arguments_preserve_empty_strings_and_utf8() -> Result<()> {
+        assert_eq!(
+            command_buffer(&["loadfile", "", "vidéo.mkv", "replace"])?,
+            b"loadfile\0\0vid\xc3\xa9o.mkv\0replace\0"
+        );
+        assert!(command_buffer(&[])?.is_empty());
+        assert!(command_buffer(&["set", "title", "bad\0value"]).is_err());
+        Ok(())
+    }
+
     #[test]
     fn nonfinite_event_timeouts_become_nonblocking_polls() {
         for timeout in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {

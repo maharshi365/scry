@@ -442,10 +442,13 @@ pub fn resource_url(
     if let Some(query) = search {
         // Extras use query-string escaping, but live in a path, not the URL query.
         // set_path preserves the escapes; push would encode the percent signs again.
-        let encoded: String = url::form_urlencoded::byte_serialize(query.as_bytes())
-            .map(|part| if part == "+" { "%20" } else { part })
-            .collect();
-        url.set_path(&format!("{}/search={encoded}.json", url.path()));
+        let mut path = format!("{}/search=", url.path());
+        path.extend(
+            url::form_urlencoded::byte_serialize(query.as_bytes())
+                .map(|part| if part == "+" { "%20" } else { part }),
+        );
+        path.push_str(".json");
+        url.set_path(&path);
     }
     Ok(url)
 }

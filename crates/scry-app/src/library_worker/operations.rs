@@ -102,18 +102,19 @@ pub(super) fn apply(library: &mut Library, command: Command) -> Result<Event> {
                 keys.len() <= MAX_PAGE_SIZE as usize,
                 "Too many visible movies"
             );
-            let mut states = Vec::new();
             anyhow::ensure!(
                 keys.iter().all(|key| key.kind == MediaKind::Movie),
                 "Expected a movie"
             );
-            for state in library.media_states(&keys)? {
-                states.push(MovieState {
+            let states = library
+                .media_states(&keys)?
+                .into_iter()
+                .map(|state| MovieState {
                     watched: state.watched.watched,
                     progress: state.progress,
                     key: state.key,
-                });
-            }
+                })
+                .collect();
             return Ok(Event::MovieStates { generation, states });
         }
         Command::Browse {

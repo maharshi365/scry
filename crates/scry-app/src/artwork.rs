@@ -143,15 +143,17 @@ impl State {
     }
 
     fn set_visible(&mut self, urls: &[String]) {
-        self.visible.clear();
-        for url in urls {
-            if matches!(self.profile, Profile::Player)
-                && self.visible.len() == self.profile.capacity()
-            {
-                break;
-            }
-            if valid_url(url) && !self.visible.contains(url) {
-                self.visible.push(url.clone());
+        if self.visible != urls {
+            self.visible.clear();
+            for url in urls {
+                if matches!(self.profile, Profile::Player)
+                    && self.visible.len() == self.profile.capacity()
+                {
+                    break;
+                }
+                if valid_url(url) && !self.visible.contains(url) {
+                    self.visible.push(url.clone());
+                }
             }
         }
         for (url, cancel) in &self.active {
@@ -585,6 +587,28 @@ mod tests {
         state.set_visible(&urls[70..]);
         assert_eq!(state.ready.0.len(), CAPACITY);
         assert!(urls[70..].iter().all(|url| state.ready.get(url).is_some()));
+    }
+
+    #[test]
+    fn unchanged_viewport_still_refreshes_cache_recency_and_cancels_offscreen_work() {
+        let mut state = State::default();
+        let urls = [url(0)];
+        state.set_visible(&urls);
+        state
+            .ready
+            .insert(url(0), rune::Pixels::new(), CAPACITY, &[]);
+        state
+            .ready
+            .insert(url(1), rune::Pixels::new(), CAPACITY, &[]);
+        let (sender, receiver) = watch::channel(false);
+        state.active.insert(url(1), sender);
+
+        state.set_visible(&urls);
+
+        assert_eq!(state.visible, urls);
+        assert_eq!(state.ready.0.back().map(|(key, _)| key), Some(&urls[0]));
+        assert!(*receiver.borrow(), "offscreen work must still be cancelled");
+        assert!(state.next().is_none(), "visible pixels must remain cached");
     }
 
     #[test]

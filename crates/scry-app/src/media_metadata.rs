@@ -73,17 +73,26 @@ fn runtime_seconds(value: &str) -> Option<f64> {
     if value.len() > 128 {
         return None;
     }
-    let value = value
-        .to_ascii_lowercase()
-        .replace("minutes", "m")
-        .replace("minute", "m")
-        .replace("mins", "m")
-        .replace("min", "m")
-        .replace("hours", "h")
-        .replace("hour", "h")
-        .replace("hrs", "h")
-        .replace("hr", "h");
-    let value: String = value.chars().filter(|c| !c.is_whitespace()).collect();
+    let mut value = value.to_owned();
+    value.make_ascii_lowercase();
+    for (word, symbol) in [
+        ("minutes", "m"),
+        ("minute", "m"),
+        ("mins", "m"),
+        ("min", "m"),
+        ("hours", "h"),
+        ("hour", "h"),
+        ("hrs", "h"),
+        ("hr", "h"),
+    ] {
+        let mut cursor = 0;
+        while let Some(offset) = value.get(cursor..)?.find(word) {
+            let start = cursor + offset;
+            value.replace_range(start..start + word.len(), symbol);
+            cursor = start + symbol.len();
+        }
+    }
+    value.retain(|c| !c.is_whitespace());
     let seconds = if let Some((hours, minutes)) = value.split_once('h') {
         let hours = hours.parse::<f64>().ok()?;
         let minutes = minutes.strip_suffix('m').unwrap_or(minutes);
@@ -113,20 +122,21 @@ pub(crate) fn known_runtimes(key: &MediaKey, meta: &Meta) -> Vec<(MediaKey, f64)
             .map(|seconds| vec![(key.clone(), seconds)])
             .unwrap_or_default();
     }
+    let series_runtime = std::cell::OnceCell::new();
     meta.videos
         .iter()
         .filter(|video| !video.id.trim().is_empty())
         .filter_map(|video| {
             // A series runtime is the provider's per-episode runtime. Prefer an
             // episode-specific value when supplied; never substitute a fixed guess.
-            let runtime = if video.runtime.is_empty() {
-                &meta.runtime
+            let seconds = if video.runtime.is_empty() {
+                *series_runtime.get_or_init(|| runtime_seconds(&meta.runtime))
             } else {
-                &video.runtime
-            };
+                runtime_seconds(&video.runtime)
+            }?;
             Some((
                 MediaKey::new(&key.namespace, MediaKind::Episode, &video.id),
-                runtime_seconds(runtime)?,
+                seconds,
             ))
         })
         .take(50_000)
@@ -161,6 +171,67 @@ mod tests {
         ] {
             assert_eq!(runtime_seconds(value), None);
         }
+    }
+
+    #[test]
+    fn runtime_units_preserve_case_whitespace_and_suffix_handling() {
+        for value in [
+            "1 HOUR 30 MINUTES",
+            "1hrs30mins",
+            "1hour30minute",
+            "1\u{2003}h\t30m",
+        ] {
+            assert_eq!(runtime_seconds(value), Some(5400.0), "{value:?}");
+        }
+        for value in ["30 mi nutes", "1 ho ur", "30 minutesminutes", "30 mín"] {
+            assert_eq!(runtime_seconds(value), None, "{value:?}");
+        }
+    }
+
+    #[test]
+    fn runtime_unit_replacements_preserve_cascades_without_repeating_a_pass() {
+        for (value, expected) in [
+            ("30minutesin", 1800.0),
+            ("30minutein", 1800.0),
+            ("30minsin", 1800.0),
+            ("1hoursr", 3600.0),
+            ("1hourrs", 3600.0),
+            ("1hourr", 3600.0),
+            ("1hrsr", 3600.0),
+            ("1HOURSR30MINUTESIN", 5400.0),
+        ] {
+            assert_eq!(runtime_seconds(value), Some(expected), "{value:?}");
+        }
+        for value in ["30minin", "30minutesinin", "1hrr", "1hourrr"] {
+            assert_eq!(runtime_seconds(value), None, "{value:?}");
+        }
+    }
+
+    #[test]
+    fn episode_runtimes_use_series_fallback_only_when_not_supplied() -> anyhow::Result<()> {
+        let meta: Meta = serde_json::from_value(serde_json::json!({
+            "id":"tt123", "type":"series", "name":"Show", "runtime":"45 minutes",
+            "videos":[
+                {"id":"tt123:1:1"},
+                {"id":"tt123:1:2", "runtime":"30 min"},
+                {"id":"tt123:1:3", "runtime":"unknown"},
+                {"id":"tt123:1:4"}
+            ]
+        }))?;
+        let key = MediaKey::new("imdb", MediaKind::Series, "tt123");
+        let runtimes: Vec<_> = known_runtimes(&key, &meta)
+            .into_iter()
+            .map(|(key, seconds)| (key.id, seconds))
+            .collect();
+        assert_eq!(
+            runtimes,
+            [
+                ("tt123:1:1".into(), 2700.0),
+                ("tt123:1:2".into(), 1800.0),
+                ("tt123:1:4".into(), 2700.0),
+            ]
+        );
+        Ok(())
     }
 
     #[test]

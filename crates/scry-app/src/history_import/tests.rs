@@ -249,7 +249,17 @@ fn unsupported_ids_and_video_mismatches_are_not_guessed() -> Result<()> {
         assert!(preview.input.entries.is_empty());
         assert!(preview.issues[0].reason.contains("Unsupported"));
     }
-    for video in ["tt999:1:2", "tt100:01:2", "tt100:1:0", ""] {
+    for video in [
+        "tt999:1:2",
+        "tt100:01:2",
+        "tt100:1:0",
+        "tt100:+1:2",
+        "tt100:1:+2",
+        "tt100:1:02",
+        "tt100:4294967296:2",
+        "tt100:1:2:3",
+        "",
+    ] {
         let mut preview = Preview::default();
         append(
             &mut preview,
@@ -263,6 +273,42 @@ fn unsupported_ids_and_video_mismatches_are_not_guessed() -> Result<()> {
         assert!(preview.input.entries.is_empty());
         assert!(preview.issues.iter().any(|i| i.reason.contains("video ID")));
     }
+    Ok(())
+}
+
+#[test]
+fn resume_updates_watched_episode_without_replacing_its_metadata() -> Result<()> {
+    let mut preview = Preview::default();
+    append(
+        &mut preview,
+        &item(
+            "series",
+            "tt100",
+            json!({"watched":bitmap("tt100:1:3",3,&[7])?,"video_id":"tt100:1:2","timeOffset":5000,"duration":10000}),
+        )?,
+        Some(&inventory()?),
+    );
+    assert!(preview.issues.is_empty(), "{:?}", preview.issues);
+    assert_eq!(preview.input.entries.len(), 3);
+    let resume = &preview.input.entries[1];
+    assert_eq!(resume.media.key.id, "tt100:1:2");
+    assert_eq!(resume.media.title, "Sample show · S1 E2 · tt100:1:2");
+    assert!(resume.watched);
+    assert!(resume.active);
+    assert_eq!(resume.progress, Progress::new(5.0, 10.0));
+    Ok(())
+}
+
+#[test]
+fn bitmap_rejects_repeated_episode_positions_with_different_release_dates() -> Result<()> {
+    let mut releases = crate::media_metadata::episode_inventory(
+        &MediaKey::new("imdb", MediaKind::Series, "tt100"),
+        &inventory()?,
+    );
+    let mut repeated = releases[1].clone();
+    repeated.released_at = Some(1);
+    releases.push(repeated);
+    assert!(bitfield::decode(&bitmap("tt100:1:3", 3, &[7])?, "tt100", &releases).is_err());
     Ok(())
 }
 

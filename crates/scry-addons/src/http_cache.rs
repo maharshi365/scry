@@ -28,7 +28,6 @@ pub struct Response {
     pub storable: bool,
 }
 
-#[derive(Clone)]
 struct Entry {
     policy: CachePolicy,
     bytes: Arc<Vec<u8>>,
@@ -69,7 +68,7 @@ struct Active {
 
 #[derive(Default)]
 struct State {
-    entries: VecDeque<(String, Entry)>,
+    entries: VecDeque<(String, Arc<Entry>)>,
     active: HashMap<Flight, Active>,
     invalidated: Option<SystemTime>,
     revision: u64,
@@ -89,7 +88,7 @@ pub struct HttpCache(Arc<Shared>, bool);
 trait Validation: Send + Sync {
     fn check(&self, bytes: &[u8]) -> Result<Option<Parsed>>;
 
-    fn cached(&self, entry: Entry, limit: usize) -> Option<(Entry, Option<Parsed>)> {
+    fn cached(&self, entry: Arc<Entry>, limit: usize) -> Option<(Arc<Entry>, Option<Parsed>)> {
         if entry.bytes.len() > limit {
             return None;
         }
@@ -204,9 +203,9 @@ impl HttpCache {
             .await?;
         match response {
             Payload::Json(value) => value
-                .downcast_ref::<T>()
-                .cloned()
-                .ok_or_else(|| anyhow!("Invalid HTTP response type")),
+                .downcast::<T>()
+                .map(Arc::unwrap_or_clone)
+                .map_err(|_| anyhow!("Invalid HTTP response type")),
             Payload::Bytes(response) => {
                 let value = serde_json::from_slice(&response.bytes)
                     .map_err(|_| anyhow!("Invalid add-on response"))?;
@@ -289,7 +288,7 @@ impl HttpCache {
         }
     }
 
-    async fn cached(&self, key: &str) -> Option<Entry> {
+    async fn cached(&self, key: &str) -> Option<Arc<Entry>> {
         {
             let mut state = self.0.state.lock().ok()?;
             if let Some(index) = state.entries.iter().position(|(k, _)| k == key) {
@@ -301,14 +300,16 @@ impl HttpCache {
         }
         let disk = self.0.disk.clone()?;
         let disk_key = key.to_owned();
-        let entry = tokio::task::spawn_blocking(move || disk.load(&disk_key))
-            .await
-            .ok()??;
+        let entry = Arc::new(
+            tokio::task::spawn_blocking(move || disk.load(&disk_key))
+                .await
+                .ok()??,
+        );
         self.remember(key, &entry);
         Some(entry)
     }
 
-    fn remember(&self, key: &str, entry: &Entry) -> bool {
+    fn remember(&self, key: &str, entry: &Arc<Entry>) -> bool {
         if let Ok(mut state) = self.0.state.lock() {
             if state
                 .entries
@@ -336,6 +337,7 @@ impl HttpCache {
     }
 
     async fn store(&self, key: &str, entry: Entry) {
+        let entry = Arc::new(entry);
         if !self.remember(key, &entry) {
             return;
         }
@@ -429,7 +431,7 @@ impl HttpCache {
                 headers,
                 limit,
                 &request,
-                cached.as_ref().filter(|_| matches),
+                cached.as_deref().filter(|_| matches),
                 &mut priority,
             ),
         )

@@ -6,6 +6,33 @@
 use super::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+#[tokio::test]
+async fn single_json_reader_keeps_the_validated_string_buffer() {
+    let (url, seen, release, server) = held_body(br#""owned payload""#, 1).await;
+    let cache = HttpCache::new(reqwest::Client::new(), None);
+    let validated = Arc::new(Mutex::new(None));
+    let observed = validated.clone();
+    let reader = tokio::spawn(async move {
+        cache
+            .json_checked(url, 100, true, move |value: &String| {
+                *observed.lock().unwrap() = Some(value.as_ptr() as usize);
+                Ok(())
+            })
+            .await
+            .unwrap()
+    });
+    seen.await.unwrap();
+    release.send(()).unwrap();
+    let value = reader.await.unwrap();
+    server.await.unwrap();
+    assert_eq!(value, "owned payload");
+    assert_eq!(
+        Some(value.as_ptr() as usize),
+        *validated.lock().unwrap(),
+        "a lone reader must receive the validated payload without copying its buffer"
+    );
+}
+
 #[test]
 fn stale_directives_preserve_case_quotes_and_first_valid_value() {
     let request = http::Request::get("https://addon.example/meta/movie/film.json")

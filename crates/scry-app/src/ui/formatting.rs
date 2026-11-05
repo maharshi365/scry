@@ -1,13 +1,14 @@
 //! Display formatting, independent of the visual system.
+use std::borrow::Cow;
 
-pub(super) fn release_year(value: &str) -> String {
+pub(super) fn release_year(value: &str) -> Cow<'_, str> {
     if let Some(year) = value.trim().strip_suffix(['-', '–', '—']) {
         let year = year.trim();
         if year.len() == 4 && year.bytes().all(|byte| byte.is_ascii_digit()) {
-            return format!("{year} to Present");
+            return Cow::Owned(format!("{year} to Present"));
         }
     }
-    value.to_owned()
+    Cow::Borrowed(value)
 }
 
 pub(super) fn build_version(version: &str) -> String {

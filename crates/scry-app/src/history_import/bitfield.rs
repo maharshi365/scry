@@ -43,16 +43,17 @@ pub(super) fn decode<'inventory>(
     }
     let mut sorted: Vec<_> = inventory.iter().collect();
     sorted.sort_by_key(|r| (r.season, r.episode, r.released_at));
-    let mut seen = BTreeSet::new();
+    let mut previous = None;
     for release in &sorted {
         let (Some(season), Some(episode)) = (release.season, release.episode) else {
             return Err(MAPPING);
         };
         if release.media.key.id != format!("{parent}:{season}:{episode}")
-            || !seen.insert((season, episode))
+            || previous == Some((season, episode))
         {
             return Err(MAPPING);
         }
+        previous = Some((season, episode));
     }
     // Do not apply Stremio's positional shifting heuristic: an offset can hide
     // inserted episodes and transfer a watched flag to the wrong episode.

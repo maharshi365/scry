@@ -235,13 +235,7 @@ impl Torrents {
                             .context("Invalid torrent cache path")?
                             .to_owned(),
                     ),
-                    trackers: Some(
-                        url::Url::parse(&magnet)?
-                            .query_pairs()
-                            .filter(|(key, _)| key == "tr")
-                            .map(|(_, value)| value.into_owned())
-                            .collect(),
-                    ),
+                    trackers: Some(trackers(stream).map(str::to_owned).collect()),
                     overwrite: true,
                     ..Default::default()
                 }),
@@ -326,16 +320,20 @@ pub fn magnet(stream: &Stream) -> Result<String> {
     let mut url = url::Url::parse("magnet:")?;
     url.query_pairs_mut()
         .append_pair("xt", &format!("urn:btih:{hash}"));
-    for source in stream.sources.iter().take(32) {
-        if let Some(tracker) = source.strip_prefix("tracker:")
-            && tracker.len() <= MAX_TRACKER_URL_BYTES
-            && url::Url::parse(tracker)
-                .is_ok_and(|u| matches!(u.scheme(), "udp" | "http" | "https"))
-        {
-            url.query_pairs_mut().append_pair("tr", tracker);
-        }
+    for tracker in trackers(stream) {
+        url.query_pairs_mut().append_pair("tr", tracker);
     }
     Ok(url.into())
+}
+
+fn trackers(stream: &Stream) -> impl Iterator<Item = &str> {
+    stream.sources.iter().take(32).filter_map(|source| {
+        source.strip_prefix("tracker:").filter(|tracker| {
+            tracker.len() <= MAX_TRACKER_URL_BYTES
+                && url::Url::parse(tracker)
+                    .is_ok_and(|url| matches!(url.scheme(), "udp" | "http" | "https"))
+        })
+    })
 }
 
 fn select_video(files: &[(impl AsRef<str>, u64)]) -> Option<usize> {
@@ -656,6 +654,31 @@ mod tests {
         let trackers: Vec<_> = url.query_pairs().filter(|(key, _)| key == "tr").collect();
         assert_eq!(trackers.len(), 1);
         assert_eq!(trackers[0].1, "https://tracker.example/announce");
+    }
+
+    #[test]
+    fn trackers_preserve_source_spelling_and_limit_before_filtering() {
+        let mut stream: Stream = serde_json::from_value(serde_json::json!({
+            "infoHash":"0123456789abcdef0123456789abcdef01234567",
+            "sources":[
+                "tracker:HTTPS://tracker.example/é?q=a%20b&key=one+two",
+                "tracker:udp://tracker.example:80/announce",
+                "tracker:file:///private"
+            ]
+        }))
+        .unwrap();
+        assert_eq!(
+            trackers(&stream).collect::<Vec<_>>(),
+            [
+                "HTTPS://tracker.example/é?q=a%20b&key=one+two",
+                "udp://tracker.example:80/announce"
+            ]
+        );
+        stream.sources = vec!["dht:ignored".into(); 32];
+        stream
+            .sources
+            .push("tracker:https://tracker.example/announce".into());
+        assert_eq!(trackers(&stream).count(), 0);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

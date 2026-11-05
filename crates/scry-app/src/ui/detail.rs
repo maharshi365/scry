@@ -189,7 +189,11 @@ fn hero(s: &State, compact: bool) -> El {
         }
         let year = super::formatting::release_year(&meta.year);
         let mut facts = String::new();
-        for value in [&meta.runtime, &year, &meta.imdb_rating] {
+        for value in [
+            meta.runtime.as_str(),
+            year.as_ref(),
+            meta.imdb_rating.as_str(),
+        ] {
             if !value.is_empty() {
                 if !facts.is_empty() {
                     facts.push_str(" / ");

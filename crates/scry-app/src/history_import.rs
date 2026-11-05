@@ -225,13 +225,21 @@ pub(crate) fn needs_metadata(item: &Item) -> bool {
 fn episode_id(parent: &str, id: &str) -> bool {
     let mut parts = id.split(':');
     parts.next() == Some(parent)
+        && parts.next().is_some_and(|v| canonical_number(v).is_some())
         && parts
             .next()
-            .is_some_and(|v| v.parse::<u32>().is_ok_and(|n| n.to_string() == v))
-        && parts
-            .next()
-            .is_some_and(|v| v.parse::<u32>().is_ok_and(|n| n > 0 && n.to_string() == v))
+            .is_some_and(|v| canonical_number(v).is_some_and(|n| n > 0))
         && parts.next().is_none()
+}
+
+fn canonical_number(value: &str) -> Option<u32> {
+    if value.is_empty()
+        || (value.len() > 1 && value.starts_with('0'))
+        || !value.bytes().all(|b| b.is_ascii_digit())
+    {
+        return None;
+    }
+    value.parse().ok()
 }
 
 pub(crate) fn append(preview: &mut Preview, item: &Item, meta: Option<&Meta>) {
@@ -376,31 +384,31 @@ fn append_resume(
                 } else {
                     ""
                 });
-            let media = if kind == MediaKind::Movie && video == item.id {
-                Some(parent.clone())
-            } else if kind == MediaKind::Series && episode_id(&item.id, video) {
-                Some(
-                    inventory
-                        .iter()
-                        .find(|r| r.media.key.id == video)
-                        .map_or_else(
-                            || Media {
-                                key: MediaKey::new("imdb", MediaKind::Episode, video),
-                                title: format!("{title} · {video}"),
-                                parent: Some(parent.key.clone()),
-                            },
-                            |r| r.media.clone(),
-                        ),
-                )
-            } else {
-                None
-            };
-            if let Some(media) = media {
-                let entry = entries.entry(media.key.id.clone()).or_insert(HistoryEntry {
-                    media,
-                    watched: false,
-                    progress: None,
-                    active: false,
+            if (kind == MediaKind::Movie && video == item.id)
+                || (kind == MediaKind::Series && episode_id(&item.id, video))
+            {
+                let entry = entries.entry(video.to_owned()).or_insert_with(|| {
+                    let media = if kind == MediaKind::Movie {
+                        parent.clone()
+                    } else {
+                        inventory
+                            .iter()
+                            .find(|r| r.media.key.id == video)
+                            .map_or_else(
+                                || Media {
+                                    key: MediaKey::new("imdb", MediaKind::Episode, video),
+                                    title: format!("{title} · {video}"),
+                                    parent: Some(parent.key.clone()),
+                                },
+                                |r| r.media.clone(),
+                            )
+                    };
+                    HistoryEntry {
+                        media,
+                        watched: false,
+                        progress: None,
+                        active: false,
+                    }
                 });
                 entry.progress = Some(sample);
                 entry.active = !item.removed || item.temp;

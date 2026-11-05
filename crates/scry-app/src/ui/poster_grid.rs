@@ -10,7 +10,7 @@ use super::{
 };
 use rune::{Cx, El, GrowthSpec, Tx, col};
 use scry_library::{Media, MediaKey, MediaKind};
-use std::borrow::Cow;
+use std::{borrow::Cow, rc::Rc};
 
 pub(super) struct PosterGridState {
     pub visible: std::ops::Range<usize>,
@@ -34,7 +34,7 @@ impl Default for PosterGridState {
 
 struct Entry<'a> {
     title: &'a str,
-    subtitle: String,
+    subtitle: Cow<'a, str>,
     poster: Option<&'a str>,
     media: Option<&'a Media>,
     identity: Option<Cow<'a, MediaKey>>,
@@ -80,7 +80,9 @@ fn entry(s: &State, index: usize) -> Entry<'_> {
         {
             "Next episode".into()
         } else {
-            info.map_or_else(String::new, |p| super::formatting::release_year(&p.year))
+            info.map_or(Cow::Borrowed(""), |p| {
+                super::formatting::release_year(&p.year)
+            })
         };
         return Entry {
             title: &media.title,
@@ -110,12 +112,12 @@ fn entry(s: &State, index: usize) -> Entry<'_> {
         title: &meta.name,
         poster: meta.poster.as_deref(),
         media: None,
-        identity: s.result_media(index).map(|m| Cow::Owned(m.key)),
+        identity: s.result_key(index).map(Cow::Owned),
         overlay: Overlay::Summary,
         subtitle: if s.discover.displayed_query.is_empty() {
             super::formatting::release_year(&meta.year)
         } else {
-            format!(
+            Cow::Owned(format!(
                 "{}{}{}",
                 super::formatting::release_year(&meta.year),
                 if meta.year.is_empty() { "" } else { " · " },
@@ -124,7 +126,7 @@ fn entry(s: &State, index: usize) -> Entry<'_> {
                 } else {
                     "Movie"
                 }
-            )
+            ))
         },
     }
 }
@@ -140,8 +142,8 @@ pub(super) fn movie_keys(s: &State) -> Vec<MediaKey> {
     } else {
         (0..s.discover.results.len())
             .filter(|index| visible(s, *index))
-            .filter_map(|index| s.result_media(index).map(|m| m.key))
-            .filter(|key| key.kind == MediaKind::Movie)
+            .filter(|index| s.discover.results[*index].kind != "series")
+            .filter_map(|index| s.result_key(index))
             .take(200)
             .collect()
     }
@@ -151,8 +153,8 @@ pub(super) fn series_keys(s: &State) -> Vec<MediaKey> {
     if s.navigation.page == Page::Detail {
         return s
             .library_media()
-            .map(|m| State::poster_key(&m).clone())
-            .filter(|key| key.kind == MediaKind::Series)
+            .filter(|media| State::poster_key(media).kind == MediaKind::Series)
+            .map(|media| media.parent.unwrap_or(media.key))
             .into_iter()
             .collect();
     }
@@ -162,7 +164,7 @@ pub(super) fn series_keys(s: &State) -> Vec<MediaKey> {
         .filter(|(index, _)| visible(s, *index))
         .map(|(_, media)| State::poster_key(media))
         .filter(|key| key.kind == MediaKind::Series)
-        .cloned();
+        .map(Cow::Borrowed);
     let discovered_count = if s.navigation.page == Page::Discover {
         s.discover.results.len()
     } else {
@@ -170,11 +172,13 @@ pub(super) fn series_keys(s: &State) -> Vec<MediaKey> {
     };
     let discovered = (0..discovered_count)
         .filter(|index| visible(s, *index))
-        .filter_map(|index| s.result_media(index).map(|media| media.key));
+        .filter(|index| s.discover.results[*index].kind == "series")
+        .filter_map(|index| s.result_key(index))
+        .map(Cow::Owned);
     let mut keys = Vec::new();
     for key in saved.chain(discovered) {
-        if key.kind == MediaKind::Series && !keys.contains(&key) {
-            keys.push(key);
+        if !keys.contains(key.as_ref()) {
+            keys.push(key.into_owned());
         }
         if keys.len() == 200 {
             break;
@@ -417,13 +421,13 @@ fn card(s: &State, entry: &Entry<'_>, index: usize, prefix: &str, reduced_motion
     } else {
         format!("{prefix}-{index}")
     };
-    let item = entry.media.cloned();
-    let result = entry
+    let saved = entry.media.is_some();
+    let item = entry
         .media
-        .is_none()
-        .then(|| s.result_media(index))
-        .flatten();
-    let menu = entry.media.cloned().or_else(|| result.clone());
+        .cloned()
+        .or_else(|| s.result_media(index))
+        .map(Rc::new);
+    let menu = item.clone();
     let poster_key = format!("{prefix}-poster-{index}");
     let route = s.navigation.route_key;
     let hovered = s
@@ -486,22 +490,20 @@ fn card(s: &State, entry: &Entry<'_>, index: usize, prefix: &str, reduced_motion
     )
     .on_press(move |s: &mut State| {
         s.navigation.anchor = Some(key.clone());
-        if let Some(media) = &item {
+        if saved && let Some(media) = &item {
             if s.navigation.page == Page::Watching && resume {
                 s.resume_library_media(media);
             } else {
                 s.open_library_media(media);
             }
-        } else if let Some(result) = &result
-            && let Some(index) = (0..s.discover.results.len()).find(|&index| {
-                s.result_media(index)
-                    .is_some_and(|media| media.key == result.key)
-            })
+        } else if let Some(result) = &item
+            && let Some(index) = (0..s.discover.results.len())
+                .find(|&index| s.result_key(index).is_some_and(|key| key == result.key))
         {
             s.open_result(index);
         }
     })
     .on_secondary_press(move |s: &mut State, p, _| {
-        s.open_title_menu(p, menu.clone());
+        s.open_title_menu(p, menu.as_deref().cloned());
     })
 }

@@ -3,6 +3,7 @@ use crate::library_worker::Command;
 use rune::{El, el};
 use rune_kit::MenuItem;
 use scry_library::{Media, MediaKind};
+use std::rc::Rc;
 
 pub(super) enum Target {
     Title(Media),
@@ -135,6 +136,15 @@ impl State {
 
     pub(super) fn result_media(&self, index: usize) -> Option<Media> {
         let meta = self.discover.results.get(index)?;
+        Some(Media {
+            key: self.result_key(index)?,
+            title: meta.name.clone(),
+            parent: None,
+        })
+    }
+
+    pub(super) fn result_key(&self, index: usize) -> Option<scry_library::MediaKey> {
+        let meta = self.discover.results.get(index)?;
         let namespace = self
             .discover
             .results
@@ -146,19 +156,15 @@ impl State {
                     .map(|(a, _)| a.manifest.id.as_str())
             })
             .unwrap_or("unknown");
-        Some(Media {
-            key: super::library_view::key(
-                namespace,
-                if meta.kind == "series" {
-                    MediaKind::Series
-                } else {
-                    MediaKind::Movie
-                },
-                &meta.id,
-            ),
-            title: meta.name.clone(),
-            parent: None,
-        })
+        Some(super::library_view::key(
+            namespace,
+            if meta.kind == "series" {
+                MediaKind::Series
+            } else {
+                MediaKind::Movie
+            },
+            &meta.id,
+        ))
     }
 }
 
@@ -168,6 +174,7 @@ pub(super) fn view(s: &State) -> Option<El> {
         .min_width(250.0)
         .on_close(|s: &mut State| s.shell.context_menu = None);
     if let Some(Target::Title(media)) = item {
+        let media = Rc::new(media.clone());
         if s.navigation.page == Page::Watching {
             let media = media.clone();
             menu = menu.item(MenuItem::new("Choose another stream").on_select(
@@ -177,7 +184,7 @@ pub(super) fn view(s: &State) -> Option<El> {
                 },
             ));
         }
-        if let Some(dismiss) = dismiss_watching(s, media) {
+        if let Some(dismiss) = dismiss_watching(s, &media) {
             menu = menu.item(dismiss);
         }
         if matches!(media.key.kind, MediaKind::Movie | MediaKind::Series) {
@@ -185,7 +192,7 @@ pub(super) fn view(s: &State) -> Option<El> {
             menu = menu.item(MenuItem::new("Add to a Guide collection…").on_select(
                 move |s: &mut State| {
                     s.shell.context_menu = None;
-                    s.guide.adding = Some(media.clone());
+                    s.guide.adding = Some(media.as_ref().clone());
                     s.guide.collections_open = true;
                     s.navigate(Page::Guide);
                 },
@@ -201,10 +208,13 @@ pub(super) fn view(s: &State) -> Option<El> {
             menu = menu.item(MenuItem::new(title).on_select(move |s: &mut State| {
                 s.shell.context_menu = None;
                 if choice >= 2 {
-                    s.mark_media_watched(media.clone(), choice == 2);
+                    s.mark_media_watched(media.as_ref().clone(), choice == 2);
                     return;
                 }
-                s.db(Command::SetWatchlist(media.clone(), choice == 0), true);
+                s.db(
+                    Command::SetWatchlist(media.as_ref().clone(), choice == 0),
+                    true,
+                );
             }));
         }
     } else if let Some(Target::Season {
@@ -215,14 +225,15 @@ pub(super) fn view(s: &State) -> Option<El> {
     }) = item
     {
         menu = menu.group_label(super::episodes::season_label(*season));
+        let target = Rc::new((parent.clone(), episodes.clone(), inventory.clone()));
         for (title, watched) in [
             ("Mark all episodes watched", true),
             ("Mark all episodes unwatched", false),
         ] {
-            let (parent, episodes) = (parent.clone(), episodes.clone());
-            let inventory = inventory.clone();
+            let target = target.clone();
             menu = menu.item(MenuItem::new(title).on_select(move |s: &mut State| {
                 s.shell.context_menu = None;
+                let (parent, episodes, inventory) = target.as_ref();
                 s.db(
                     Command::SetEpisodesWatched {
                         parent: parent.clone(),

@@ -166,9 +166,9 @@ impl State {
             .videos
             .iter()
             .find(|v| &v.id == id)
-            .map(|v| v.title.clone())
+            .map(|v| v.title.as_str())
             .filter(|v| !v.trim().is_empty())
-            .unwrap_or_else(|| id.clone());
+            .unwrap_or(id);
         Some(Media {
             key: key(&parent.key.namespace, MediaKind::Episode, id),
             title: format!("{} · {title}", parent.title),

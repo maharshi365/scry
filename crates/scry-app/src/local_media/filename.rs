@@ -140,55 +140,55 @@ pub(super) fn parse(path: &Path) -> Parsed {
 }
 
 fn technical(value: &str) -> bool {
-    let lower = value.to_ascii_lowercase();
-    [lower.as_str(), lower.split('-').next().unwrap_or(&lower)]
+    [value, value.split('-').next().unwrap_or(value)]
         .into_iter()
         .any(|value| {
-            matches!(
-                value,
-                "480p"
-                    | "720p"
-                    | "1080p"
-                    | "1080i"
-                    | "2160p"
-                    | "4k"
-                    | "uhd"
-                    | "ultrahd"
-                    | "bluray"
-                    | "blu-ray"
-                    | "bdrip"
-                    | "brrip"
-                    | "webrip"
-                    | "web-dl"
-                    | "web-rip"
-                    | "hdtv"
-                    | "dvdrip"
-                    | "x264"
-                    | "x265"
-                    | "h264"
-                    | "h265"
-                    | "hevc"
-                    | "avc"
-                    | "av1"
-                    | "vp9"
-                    | "hdr"
-                    | "hdr10"
-                    | "hdr10plus"
-                    | "dovi"
-                    | "webdl"
-                    | "aac"
-                    | "ac3"
-                    | "eac3"
-                    | "dts"
-                    | "truehd"
-                    | "atmos"
-                    | "10bit"
-                    | "xvid"
-                    | "divx"
-                    | "proper"
-                    | "rerip"
-                    | "remux"
-            )
+            [
+                "480p",
+                "720p",
+                "1080p",
+                "1080i",
+                "2160p",
+                "4k",
+                "uhd",
+                "ultrahd",
+                "bluray",
+                "blu-ray",
+                "bdrip",
+                "brrip",
+                "webrip",
+                "web-dl",
+                "web-rip",
+                "hdtv",
+                "dvdrip",
+                "x264",
+                "x265",
+                "h264",
+                "h265",
+                "hevc",
+                "avc",
+                "av1",
+                "vp9",
+                "hdr",
+                "hdr10",
+                "hdr10plus",
+                "dovi",
+                "webdl",
+                "aac",
+                "ac3",
+                "eac3",
+                "dts",
+                "truehd",
+                "atmos",
+                "10bit",
+                "xvid",
+                "divx",
+                "proper",
+                "rerip",
+                "remux",
+            ]
+            .iter()
+            .any(|technical| value.eq_ignore_ascii_case(technical))
         })
 }
 

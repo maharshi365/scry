@@ -268,7 +268,7 @@ impl State {
         self.discover.request.error = None;
         self.discover.request.warnings.clear();
         self.discover.request.status.clear();
-        let Some((addon, catalog)) = self.discover.catalog.clone() else {
+        let Some((addon, catalog)) = self.discover.catalog.as_ref() else {
             self.discover.request.loading = false;
             return;
         };
@@ -286,7 +286,7 @@ impl State {
         self.discover.paging.pending = Some(0);
         self.discover.request.status = "Loading catalog…".into();
         if let Some(services) = &mut self.runtime.services {
-            services.catalog(self.discover.generation, addon, catalog, 0);
+            services.catalog(self.discover.generation, addon.clone(), catalog.clone(), 0);
         }
     }
 
@@ -339,7 +339,7 @@ impl State {
         let Some((addon, catalog)) = self
             .discover
             .catalog
-            .clone()
+            .as_ref()
             .filter(|(_, catalog)| catalog.supports_paging())
         else {
             return;
@@ -347,7 +347,12 @@ impl State {
         let offset = self.discover.paging.next_offset;
         self.discover.paging.pending = Some(offset);
         if let Some(services) = &mut self.runtime.services {
-            services.catalog(self.discover.generation, addon, catalog, offset);
+            services.catalog(
+                self.discover.generation,
+                addon.clone(),
+                catalog.clone(),
+                offset,
+            );
         }
     }
 
@@ -372,21 +377,29 @@ impl State {
                     .discover
                     .results
                     .iter()
-                    .map(|meta| (meta.kind.clone(), meta.id.clone()))
+                    .map(|meta| (meta.kind.as_str(), meta.id.as_str()))
                     .collect();
-                let mut added = 0;
-                let titles = Arc::make_mut(&mut self.discover.results.entries);
-                for meta in metas {
-                    if matches!(meta.kind.as_str(), "movie" | "series")
-                        && !meta.id.trim().is_empty()
-                        && seen.insert((meta.kind.clone(), meta.id.clone()))
-                    {
-                        titles.push(CatalogEntry {
-                            meta,
-                            namespace: None,
-                        });
-                        added += 1;
-                    }
+                let accepted: Vec<_> = metas
+                    .iter()
+                    .map(|meta| {
+                        matches!(meta.kind.as_str(), "movie" | "series")
+                            && !meta.id.trim().is_empty()
+                            && seen.insert((meta.kind.as_str(), meta.id.as_str()))
+                    })
+                    .collect();
+                drop(seen);
+                let added = accepted.iter().filter(|accepted| **accepted).count();
+                if added > 0 {
+                    Arc::make_mut(&mut self.discover.results.entries).extend(
+                        metas
+                            .into_iter()
+                            .zip(accepted)
+                            .filter(|(_, accepted)| *accepted)
+                            .map(|(meta, _)| CatalogEntry {
+                                meta,
+                                namespace: None,
+                            }),
+                    );
                 }
                 self.discover.paging.next_offset = offset.saturating_add(count);
                 self.discover.paging.no_progress_pages = if added > 0 {

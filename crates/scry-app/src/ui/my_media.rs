@@ -173,15 +173,16 @@ impl State {
                 .into();
                 // The local inventory is authoritative here, including unmatched episodes.
                 self.navigate(Page::Detail);
-                self.detail.meta = Some(meta.clone());
+                let movie = (meta.kind == "movie").then(|| (meta.kind.clone(), meta.id.clone()));
+                self.detail.meta = Some(meta);
                 self.detail.preview = false;
                 self.detail.episodes = super::episodes::EpisodesState::default();
                 self.detail.sources.reset();
                 self.detail.request = super::request::RequestState::default();
                 self.library.snapshot = None;
                 self.register_library_detail();
-                if meta.kind == "movie" {
-                    self.find_streams(meta.kind.clone(), meta.id.clone());
+                if let Some((kind, id)) = movie {
+                    self.find_streams(kind, id);
                 }
             }
             Err(_) => self.my_media.error = Some("Cannot open this local title".into()),

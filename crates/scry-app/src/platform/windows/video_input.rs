@@ -98,16 +98,15 @@ impl Clicks {
 }
 
 pub(super) fn create(parent: HWND, host: Host) -> Result<HWND> {
-    let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
     // mpv owns a nested video window on another thread. A nearly transparent
     // sibling receives input without subclassing that foreign-thread window.
     // Alpha must be nonzero: Windows passes clicks through zero-alpha pixels.
-    // SAFETY: parent is live on this UI thread, class is NUL-terminated, and
-    // Windows owns this child until its parent is destroyed.
+    // SAFETY: parent is live on this UI thread and the static class name is
+    // NUL-terminated. Windows owns this child until its parent is destroyed.
     let hwnd = unsafe {
         CreateWindowExW(
             WS_EX_LAYERED,
-            class.as_ptr(),
+            windows_sys::w!("STATIC"),
             ptr::null(),
             WS_CHILD | WS_CLIPSIBLINGS | SS_NOTIFY,
             0,

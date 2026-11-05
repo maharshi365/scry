@@ -4,10 +4,7 @@ use crate::{
     ui::State,
 };
 use scry_library::MediaKind;
-use std::{
-    collections::VecDeque,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 impl State {
     pub(in crate::ui) fn observe_library_progress(&mut self) {
@@ -86,10 +83,12 @@ impl State {
         let final_save = self
             .library
             .playing
-            .clone()
+            .as_ref()
             .filter(|m| m.key.kind != MediaKind::Series)
             .zip(self.library.last_sample)
-            .map(|(m, (p, d))| Command::SavePlayback(m, p, d, self.library.watched_pending));
+            .map(|(m, (p, d))| {
+                Command::SavePlayback(m.clone(), p, d, self.library.watched_pending)
+            });
         let final_finish = self
             .library
             .playing
@@ -101,24 +100,19 @@ impl State {
             };
             // This runs on the shutdown thread, while Rune keeps pumping native
             // messages. Drain completions to release worker backpressure.
-            let mut commands = VecDeque::new();
-            if let Some(command) = final_save {
-                commands.push_back(command);
-            }
-            if let Some(command) = final_finish {
-                commands.push_back(command);
-            }
-            commands.push_back(Command::Flush(1));
-            while let Some(command) = commands.front() {
-                let retry = command.clone();
-                if worker.send(retry).is_ok() {
-                    commands.pop_front();
-                } else if matches!(
-                    worker.try_recv(),
-                    Err(std::sync::mpsc::TryRecvError::Disconnected)
-                ) {
-                    return;
-                } else {
+            for command in [final_save, final_finish, Some(Command::Flush(1))]
+                .into_iter()
+                .flatten()
+            {
+                loop {
+                    if worker.send(command.clone()).is_ok() {
+                        break;
+                    } else if matches!(
+                        worker.try_recv(),
+                        Err(std::sync::mpsc::TryRecvError::Disconnected)
+                    ) {
+                        return;
+                    }
                     std::thread::sleep(Duration::from_millis(10));
                 }
             }
