@@ -80,9 +80,7 @@ fn entry(s: &State, index: usize) -> Entry<'_> {
         {
             "Next episode".into()
         } else {
-            s.series_progress_label(&media.key).unwrap_or_else(|| {
-                info.map_or_else(String::new, |p| super::formatting::release_year(&p.year))
-            })
+            info.map_or_else(String::new, |p| super::formatting::release_year(&p.year))
         };
         return Entry {
             title: &media.title,
@@ -114,13 +112,7 @@ fn entry(s: &State, index: usize) -> Entry<'_> {
         media: None,
         identity: s.result_media(index).map(|m| Cow::Owned(m.key)),
         overlay: Overlay::Summary,
-        subtitle: if meta.kind == "series"
-            && let Some(summary) = s
-                .result_media(index)
-                .and_then(|media| s.series_progress_label(&media.key))
-        {
-            summary
-        } else if s.discover.displayed_query.is_empty() {
+        subtitle: if s.discover.displayed_query.is_empty() {
             super::formatting::release_year(&meta.year)
         } else {
             format!(

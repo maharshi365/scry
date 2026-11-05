@@ -51,7 +51,7 @@ fn large_visible_series_set_is_not_evicted_until_it_leaves_the_viewport() {
 }
 
 #[test]
-fn undated_watched_specials_share_the_counter_and_poster_completion() {
+fn undated_watched_specials_share_the_summary_and_poster_completion() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("library.sqlite3");
     let show = Media {
@@ -89,8 +89,15 @@ fn undated_watched_specials_share_the_counter_and_poster_completion() {
     rt.poll = Some(poll);
     wait_for_watched_series(&mut rt, &show.key);
     assert_eq!(
-        rt.state.series_progress_label(&show.key).as_deref(),
-        Some("1 / 1 episodes watched · 100%")
+        rt.state
+            .library
+            .series
+            .states
+            .iter()
+            .find(|state| state.key == show.key)
+            .and_then(|state| state.summary)
+            .map(|summary| (summary.watched_episodes, summary.total_episodes)),
+        Some((1, 1))
     );
     assert!(rt.find("title-poster-0-watched").is_some());
 }

@@ -19,23 +19,6 @@ pub(in crate::ui) struct SeriesUi {
 }
 
 impl State {
-    pub(in crate::ui) fn series_progress_label(&self, key: &MediaKey) -> Option<String> {
-        let summary = self
-            .library
-            .series
-            .states
-            .iter()
-            .find(|state| state.key == *key)?
-            .summary?;
-        let fraction = summary.fraction()?;
-        Some(format!(
-            "{} / {} episodes watched · {:.0}%",
-            summary.watched_episodes,
-            summary.total_episodes,
-            fraction * 100.0
-        ))
-    }
-
     pub(in crate::ui) fn request_series_states(&mut self) {
         let keys = super::super::poster_grid::series_keys(self);
         self.library.series.details.retain(|_, (meta, fetched)| {

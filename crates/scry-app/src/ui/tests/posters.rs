@@ -39,6 +39,84 @@ fn gallery_and_search_show_present_for_ongoing_series() {
 }
 
 #[test]
+fn tracked_series_keep_dates_and_status_overlays_on_posters() {
+    let mut rt = gallery();
+    let meta = serde_json::from_value(serde_json::json!({
+        "id":"tt123", "type":"series", "name":"Show", "year":"2022–"
+    }))
+    .unwrap();
+    rt.state.discover.results = vec![meta].into();
+    let media = scry_library::Media {
+        key: scry_library::MediaKey::new("imdb", scry_library::MediaKind::Series, "tt123"),
+        title: "Show".into(),
+        parent: None,
+    };
+    let progress = scry_library::Progress {
+        position_seconds: 1.0,
+        duration_seconds: 2.0,
+    };
+    rt.state.library.entries = Some(vec![media.clone()]);
+    rt.state.library.watching = vec![(media.clone(), progress)];
+    rt.state.library.posters.cache.insert(
+        media.key.clone(),
+        Some(crate::services::LibraryPoster {
+            poster: None,
+            year: "2022–".into(),
+        }),
+    );
+    rt.state.library.series.states = vec![scry_library::SeriesState {
+        key: media.key,
+        tracked: true,
+        watched: false,
+        progress: Some(progress),
+        summary: Some(scry_library::SeriesProgress {
+            total_episodes: 2,
+            released_episodes: 2,
+            watched_episodes: 1,
+            completed_equivalents: 1.0,
+            resume_equivalents: 1.0,
+        }),
+    }];
+    for (page, query, expected) in [
+        (Page::Library, "", "2022 to Present"),
+        (Page::Watching, "", "2022 to Present"),
+        (Page::Discover, "", "2022 to Present"),
+        (Page::Discover, "show", "2022 to Present · TV show"),
+    ] {
+        for watched in [false, true] {
+            rt.update(|s, _| {
+                s.navigation.page = page;
+                s.discover.displayed_query = query.into();
+                s.library.series.states[0].watched = watched;
+                s.library.grid_generation += 1;
+                s.discover.generation += 1;
+            });
+            advance(&mut rt);
+            let prefix = match page {
+                Page::Library => "library",
+                Page::Watching => "watching",
+                _ => "title",
+            };
+            let subtitle_key = format!("{prefix}-info-0");
+            let subtitle = rt
+                .elements()
+                .into_iter()
+                .find(|e| e.key.as_deref() == Some(&subtitle_key))
+                .unwrap();
+            assert_eq!(subtitle.text.as_deref(), Some(expected));
+            if watched {
+                assert!(rt.find(&format!("{prefix}-poster-0-watched")).is_some());
+            } else {
+                assert!(
+                    rt.find(&format!("{prefix}-poster-0-progress-track"))
+                        .is_some()
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn gallery_cards_are_unframed_and_reserve_two_title_lines() {
     let rt = gallery();
     let elements = rt.elements();
