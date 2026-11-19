@@ -42,7 +42,31 @@ struct Server {
     token: String,
 }
 
+/// A retained movie or episode selection; it can contain only part of the video.
+#[derive(Clone, Debug)]
+pub struct CachedStream {
+    pub key: String,
+    pub info_hash: String,
+    pub file_idx: usize,
+}
+
+/// Builds the same cache identity for stream lookup and playback.
+#[must_use]
+pub fn media_key(kind: &str, id: &str) -> String {
+    url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("kind", kind)
+        .append_pair("id", id)
+        .finish()
+}
+
 impl Torrents {
+    /// Lists locally retained video selections without starting the torrent engine.
+    /// # Errors
+    /// Returns an error if the cache cannot be read or contains unsafe paths.
+    pub async fn cached_streams(folder: PathBuf) -> Result<Vec<CachedStream>> {
+        tokio::task::spawn_blocking(move || cache::cached_streams(&folder)).await?
+    }
+
     /// Returns the configured disk cache budget in bytes.
     #[must_use]
     pub fn cache_budget(&self) -> u64 {
@@ -160,16 +184,27 @@ impl Torrents {
     /// # Errors
     /// Returns an error for invalid torrent sources, metadata timeouts, or file initialization failures.
     pub async fn play(&self, stream: &Stream) -> Result<String> {
+        self.play_selection(stream, None).await
+    }
+
+    /// Plays a stream, replacing the cached selection for this movie or episode.
+    /// # Errors
+    /// Returns an error if the cache, torrent metadata, or video cannot be prepared.
+    pub async fn play_media(&self, stream: &Stream, key: &str) -> Result<String> {
+        self.play_selection(stream, Some(key)).await
+    }
+
+    async fn play_selection(&self, stream: &Stream, key: Option<&str>) -> Result<String> {
         tracing::info!("Torrent playback preparation started");
         self.stop().await;
-        let result = self.prepare(stream).await;
+        let result = self.prepare(stream, key).await;
         if result.is_err() {
             self.stop().await;
         }
         result
     }
 
-    async fn prepare(&self, stream: &Stream) -> Result<String> {
+    async fn prepare(&self, stream: &Stream, key: Option<&str>) -> Result<String> {
         let hash = info_hash(stream)?.to_ascii_lowercase();
         let cache = self.cache.clone();
         let (hash, entry, cached) = tokio::task::spawn_blocking(move || {
@@ -208,9 +243,15 @@ impl Torrents {
         };
         drop(listed.info);
         let metadata = listed.torrent_bytes;
-        let (entry, metadata) = tokio::task::spawn_blocking(move || {
+        let cache = self.cache.clone();
+        let key = key.map(str::to_owned);
+        let selected_hash = hash.clone();
+        let (entry, metadata, media) = tokio::task::spawn_blocking(move || {
+            let media = key
+                .map(|key| cache.bind(&selected_hash, &key, index))
+                .transpose()?;
             cache::Cache::save_metadata(&entry, &metadata)?;
-            Ok::<_, anyhow::Error>((entry, metadata))
+            Ok::<_, anyhow::Error>((entry, metadata, media))
         })
         .await??;
         let initial_peers = listed.seen_peers;
@@ -250,8 +291,7 @@ impl Torrents {
         )
         .await
         .context("Torrent file initialization timed out")??;
-        let cache = self.cache.clone();
-        tokio::task::spawn_blocking(move || cache.trim(&hash)).await??;
+        self.retain_selection(entry, hash, media).await?;
         self.session.unpause(&handle).await?;
         tracing::info!("Torrent started; local media stream available");
         Ok(format!(
@@ -282,6 +322,22 @@ impl Torrents {
             bail!("Unexpected torrent metadata response");
         };
         Ok(listed)
+    }
+
+    async fn retain_selection(
+        &self,
+        entry: PathBuf,
+        hash: String,
+        media: Option<String>,
+    ) -> Result<()> {
+        let cache = self.cache.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Some(media) = media {
+                cache::Cache::save_media(&entry, &media)?;
+            }
+            cache.trim(&hash)
+        })
+        .await?
     }
 
     pub async fn stop(&self) {

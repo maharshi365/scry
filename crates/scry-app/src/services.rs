@@ -81,6 +81,7 @@ pub enum Event {
     IntroSegments(u64, Option<introdb::Segment>),
     StreamingPreferences(Result<streaming_settings::Preferences, String>),
     TorrentCacheCleared(Result<(), String>),
+    TorrentCache(Vec<scry_torrents::CachedStream>),
     SubtitlePreferences(Result<scry_playback::subtitles::Preferences, String>),
     SubtitlePreferencesSaved(Result<(), String>),
     Subtitles(u64, scry_playback::subtitles::Snapshot),
@@ -162,7 +163,8 @@ impl Inbox {
 #[derive(Clone)]
 pub enum Source {
     Stream(Stream),
-    Channel(Stream, i64),
+    MediaStream(Stream, String),
+    Channel(Stream, i64, String),
     Local(PathBuf),
 }
 
@@ -289,6 +291,18 @@ impl Services {
                 .await
                 .map_err(|_| "Cannot clear the torrent cache. Stop playback and try again.".into());
             inbox.send(Event::TorrentCacheCleared(result)).await;
+        });
+    }
+
+    pub fn refresh_torrent_cache(&self) {
+        let folder = self.data.join("torrent-cache");
+        let inbox = self.inbox.clone();
+        self.runtime.spawn(async move {
+            if let Ok(cached) = Torrents::cached_streams(folder).await {
+                inbox.send(Event::TorrentCache(cached)).await;
+            } else {
+                tracing::warn!("Cannot read torrent cache selections");
+            }
         });
     }
 
@@ -676,6 +690,7 @@ impl Services {
     }
 
     pub fn streams(&mut self, generation: u64, addons: Vec<Addon>, kind: String, id: String) {
+        self.refresh_torrent_cache();
         if let Some(task) = self.stream_task.take() {
             task.abort();
         }
@@ -1353,7 +1368,7 @@ async fn player_loop(
         // Keep networking warm for torrent-to-torrent switches, as enginefs does.
         // play() removes the old torrent before preparing its replacement. Explicit
         // stop, direct playback, and shutdown still release the cache lock.
-        if !matches!(&command, Control::Play(_, _, Source::Stream(stream) | Source::Channel(stream, _)) if stream.url.is_none())
+        if !matches!(&command, Control::Play(_, _, Source::Stream(stream) | Source::MediaStream(stream, _) | Source::Channel(stream, _, _)) if stream.url.is_none())
             && let Some(session) = torrents.take()
         {
             session.stop().await;
@@ -1374,7 +1389,11 @@ async fn player_loop(
                 last_wait_log = Instant::now();
                 let source_kind = match &source {
                     Source::Local(_) => "local",
-                    Source::Stream(stream) | Source::Channel(stream, _) if stream.url.is_none() => {
+                    Source::Stream(stream)
+                    | Source::MediaStream(stream, _)
+                    | Source::Channel(stream, _, _)
+                        if stream.url.is_none() =>
+                    {
                         "torrent"
                     }
                     _ => "direct",
@@ -1405,7 +1424,11 @@ async fn player_loop(
                 let result: Result<Box<dyn PlaybackEngine>> = {
                     let prepare = async {
                         let scheduled_start = match &source {
-                            Source::Channel(_, starts_at) => Some(*starts_at),
+                            Source::Channel(_, starts_at, _) => Some(*starts_at),
+                            _ => None,
+                        };
+                        let cache_key = match &source {
+                            Source::MediaStream(_, key) | Source::Channel(_, _, key) => Some(key.clone()),
                             _ => None,
                         };
                         let url = match source {
@@ -1419,7 +1442,7 @@ async fn player_loop(
                                     .map_err(|()| anyhow::anyhow!("Invalid local video path"))?
                                     .to_string()
                             }
-                            Source::Stream(mut stream) | Source::Channel(mut stream, _) => {
+                            Source::Stream(mut stream) | Source::MediaStream(mut stream, _) | Source::Channel(mut stream, _, _) => {
                                 if let Some(url) = direct_url(&mut stream)? {
                                     tracing::info!("Direct stream selected");
                                     url
@@ -1436,7 +1459,12 @@ async fn player_loop(
                                         tracing::error!(reason = %crate::logging::error_detail(&error), "Torrent engine startup failed");
                                         anyhow::anyhow!("Cannot start torrent engine")
                                     })?;
-                                    session.play(&stream).await
+                                    let prepared = if let Some(key) = cache_key {
+                                        session.play_media(&stream, &key).await
+                                    } else {
+                                        session.play(&stream).await
+                                    };
+                                    prepared
                                         .map_err(|error| {
                                             tracing::error!(reason = %crate::logging::error_detail(&error), "Torrent preparation failed");
                                             anyhow::anyhow!("Torrent could not resolve metadata or select a video file")

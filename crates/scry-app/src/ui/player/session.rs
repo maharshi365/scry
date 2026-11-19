@@ -25,6 +25,7 @@ impl State {
         if let Some(services) = &mut self.runtime.services {
             services.cancel_subtitles();
             services.intro_segments(self.player.generation, None);
+            services.refresh_torrent_cache();
         }
         self.player.torrent_stats = None;
         self.player.torrent_source = false;
@@ -112,6 +113,20 @@ impl State {
     }
 
     pub(in crate::ui) fn play_source(&mut self, source: Source, title: String) {
+        let source = match source {
+            Source::Stream(stream) => {
+                if let Some((kind, id)) = &self.player.meta_id {
+                    let key = scry_torrents::media_key(
+                        kind,
+                        self.player.video_id.as_deref().unwrap_or(id),
+                    );
+                    Source::MediaStream(stream, key)
+                } else {
+                    Source::Stream(stream)
+                }
+            }
+            source => source,
+        };
         self.library.stream_candidate = None;
         self.library.replaying = None;
         self.player.error = None;
@@ -149,7 +164,7 @@ impl State {
                 self.player.audio = super::audio::Audio::default();
                 self.player.subtitles.defaults = self.settings.subtitle_preferences.clone();
                 self.player.torrent_stats = None;
-                self.player.torrent_source = matches!(&source, Source::Stream(stream) | Source::Channel(stream, _) if stream.url.is_none() && stream.info_hash.is_some());
+                self.player.torrent_source = matches!(&source, Source::Stream(stream) | Source::MediaStream(stream, _) | Source::Channel(stream, _, _) if stream.url.is_none() && stream.info_hash.is_some());
                 self.player.interaction.reset();
                 self.player.seek_preview = None;
                 self.player.muted = false;
@@ -158,7 +173,9 @@ impl State {
                 self.player.subtitles.searching = true;
                 if let Some(services) = &mut self.runtime.services {
                     let stream = match &source {
-                        Source::Stream(stream) | Source::Channel(stream, _) => Some(stream.clone()),
+                        Source::Stream(stream)
+                        | Source::MediaStream(stream, _)
+                        | Source::Channel(stream, _, _) => Some(stream.clone()),
                         Source::Local(_) => None,
                     };
                     let identity = self.player.meta_id.as_ref().map(|(kind, id)| {
@@ -172,7 +189,7 @@ impl State {
                         .meta_id
                         .as_ref()
                         .zip(self.player.video_id.as_deref())
-                        .filter(|_| matches!(source, Source::Stream(_)))
+                        .filter(|_| matches!(source, Source::Stream(_) | Source::MediaStream(_, _)))
                         .map(|((kind, series), video)| (kind.as_str(), series.as_str(), video));
                     services.intro_segments(self.player.generation, episode);
                     services.subtitles(

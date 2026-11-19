@@ -16,6 +16,7 @@ use scry_addons::Stream;
 pub(super) struct SourcesState {
     pub request: super::request::RequestState,
     pub streams: Vec<(String, Stream)>,
+    pub cached: Vec<scry_torrents::CachedStream>,
     pub provider: Option<String>,
     pub sort: SourceSort,
     pub menu_open: bool,
@@ -27,6 +28,7 @@ impl Default for SourcesState {
         Self {
             request: super::request::RequestState::default(),
             streams: Vec::new(),
+            cached: Vec::new(),
             provider: None,
             sort: SourceSort::Best,
             menu_open: false,
@@ -433,6 +435,28 @@ fn source_card(s: &State, index: usize, addon: &str, stream: &Stream) -> El {
     let name = source_name(stream, addon);
     let action_label = supported.then(|| format!("Play {name} from {addon}"));
     let mut details = col().w_full().min_w(0.0).gap(6.0).clip_rounded(0.0);
+    let cached = stream.url.is_none()
+        && s.detail.meta.as_ref().is_some_and(|meta| {
+            let key = scry_torrents::media_key(
+                &meta.kind,
+                s.detail.episodes.selected.as_deref().unwrap_or(&meta.id),
+            );
+            s.detail.sources.cached.iter().any(|cached| {
+                cached.key == key
+                    && stream
+                        .info_hash
+                        .as_ref()
+                        .is_some_and(|hash| hash.eq_ignore_ascii_case(&cached.info_hash))
+                    && stream.file_idx.is_none_or(|index| index == cached.file_idx)
+            })
+        });
+    if cached {
+        details = details.child(super::primitives::feedback::status(
+            &format!("stream-cached-{index}"),
+            "Cached",
+            super::primitives::feedback::Tone::Success,
+        ));
+    }
     let mut lines = release_lines(stream);
     if let Some(release) = lines.next() {
         details = details.child(

@@ -133,6 +133,9 @@ fn apply(s: &mut State, event: Event) {
             }
         }
         Event::TorrentCacheCleared(result) => {
+            if result.is_ok() {
+                s.detail.sources.cached.clear();
+            }
             s.settings.streaming.clearing = false;
             s.settings.streaming.cache_error = result.is_err();
             s.settings.streaming.cache_message = Some(match result {
@@ -268,6 +271,7 @@ fn apply(s: &mut State, event: Event) {
             }
             s.try_resume_stream();
         }
+        Event::TorrentCache(cached) => s.detail.sources.cached = cached,
         Event::Streams(id, streams, warnings, done)
             if s.runtime
                 .streams
@@ -393,6 +397,7 @@ fn apply(s: &mut State, event: Event) {
             s.player.audio = super::player::audio::Audio::default();
             if let Some(services) = &mut s.runtime.services {
                 services.cancel_subtitles();
+                services.refresh_torrent_cache();
             }
             s.player.ready = false;
             s.player.seek_preview = None;

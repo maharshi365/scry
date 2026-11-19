@@ -392,6 +392,12 @@ impl State {
         self.stop();
         self.player.video_id = Some(media.key.id.clone());
         let title = media.title.clone();
+        let kind = if media.key.kind == MediaKind::Movie {
+            "movie"
+        } else {
+            "series"
+        };
+        let cache_key = scry_torrents::media_key(kind, &media.key.id);
         self.library.playing = Some(media);
         self.library.next_episode = None;
         self.library.resume_position = None;
@@ -401,7 +407,7 @@ impl State {
         self.library.saved_sample = None;
         self.library.last_save = std::time::Instant::now();
         self.player.meta_id = None;
-        self.play_source(Source::Channel(stream, starts_at), title);
+        self.play_source(Source::Channel(stream, starts_at, cache_key), title);
         self.set_fullscreen(fullscreen);
         self.player.background = artwork;
         self.guide_join_started();

@@ -11,6 +11,8 @@ const MAX_METADATA_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ENTRIES: usize = 4096;
 const MAX_RETAINED_ENTRIES: usize = 128;
 const MAX_ENTRY_PATHS: usize = 16_384;
+const MAX_MEDIA_KEY_BYTES: usize = 8192;
+const MAX_MEDIA_BYTES: u64 = 64 * 1024;
 
 pub(crate) struct Cache {
     root: PathBuf,
@@ -20,6 +22,62 @@ pub(crate) struct Cache {
 }
 
 impl Cache {
+    pub(crate) fn bind(&self, hash: &str, key: &str, index: usize) -> Result<String> {
+        if key.is_empty() || key.len() > MAX_MEDIA_KEY_BYTES || key.contains(['\n', '\r', '\t']) {
+            bail!("Invalid torrent media identity");
+        }
+        let mut owners = Vec::new();
+        for (count, item) in fs::read_dir(&self.root)?.enumerate() {
+            if count >= MAX_ENTRIES {
+                bail!("Torrent cache has too many entries");
+            }
+            let item = item?;
+            if !item.file_name().to_str().is_some_and(is_hash) || !item.file_type()?.is_dir() {
+                continue;
+            }
+            let path = item.path();
+            let mut previous = read_owners(&path)?;
+            let same_entry = item.file_name() == hash;
+            if same_entry {
+                if previous.iter().any(|(previous_key, previous_index)| {
+                    previous_key == key && *previous_index != index
+                }) {
+                    // The engine has released this pack before replacing a video in it.
+                    entry_size(&path)?;
+                    fs::remove_dir_all(path.join("data"))?;
+                    fs::create_dir(path.join("data"))?;
+                    fs::remove_file(path.join("media"))?;
+                    previous.clear();
+                }
+                owners = previous;
+            } else if previous.iter().any(|(previous_key, _)| previous_key == key) {
+                entry_size(&path)?;
+                fs::remove_dir_all(path)?;
+            }
+        }
+        owners.retain(|(previous_key, _)| previous_key != key);
+        owners.push((key.to_owned(), index));
+        if owners.len() > super::MAX_TORRENT_FILES {
+            bail!("Torrent cache has too many media identities");
+        }
+        let mut record = String::new();
+        for (key, index) in owners {
+            use std::fmt::Write;
+            writeln!(record, "{key}\t{index}")?;
+        }
+        if record.len() as u64 > MAX_MEDIA_BYTES {
+            bail!("Torrent media identities exceed cache limit");
+        }
+        Ok(record)
+    }
+
+    pub(crate) fn save_media(entry: &Path, record: &str) -> Result<()> {
+        let temporary = entry.join("media.tmp");
+        fs::write(&temporary, record)?;
+        fs::rename(temporary, entry.join("media"))?;
+        Ok(())
+    }
+
     pub(crate) fn budget(&self) -> u64 {
         self.budget
     }
@@ -130,6 +188,72 @@ impl Cache {
 
 fn is_hash(name: &str) -> bool {
     name.len() == 40 && name.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn read_owners(entry: &Path) -> Result<Vec<(String, usize)>> {
+    let path = entry.join("media");
+    match fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) => Err(error.into()),
+        Ok(metadata) => {
+            if !metadata.is_file() || metadata.len() > MAX_MEDIA_BYTES {
+                bail!("Invalid torrent media identity");
+            }
+            let record = fs::read_to_string(path)?;
+            record
+                .lines()
+                .enumerate()
+                .map(|(count, line)| {
+                    if count >= super::MAX_TORRENT_FILES {
+                        bail!("Torrent cache has too many media identities");
+                    }
+                    let (key, index) = line
+                        .split_once('\t')
+                        .context("Invalid torrent media identity")?;
+                    if key.is_empty() || key.len() > MAX_MEDIA_KEY_BYTES {
+                        bail!("Invalid torrent media identity");
+                    }
+                    Ok((key.to_owned(), index.parse()?))
+                })
+                .collect()
+        }
+    }
+}
+
+pub(crate) fn cached_streams(root: &Path) -> Result<Vec<crate::CachedStream>> {
+    let root = root.join("v1");
+    let entries = match fs::read_dir(&root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
+    check_directory(&root)?;
+    let mut cached = Vec::new();
+    for (count, item) in entries.enumerate() {
+        if count >= MAX_ENTRIES {
+            bail!("Torrent cache has too many entries");
+        }
+        let item = item?;
+        let name = item.file_name();
+        let Some(hash) = name.to_str().filter(|name| is_hash(name)) else {
+            continue;
+        };
+        if !item.file_type()?.is_dir() {
+            continue;
+        }
+        let path = item.path();
+        let owners = read_owners(&path)?;
+        if !owners.is_empty() && entry_size(&path.join("data"))? > 0 {
+            for (key, file_idx) in owners {
+                cached.push(crate::CachedStream {
+                    key,
+                    info_hash: hash.to_owned(),
+                    file_idx,
+                });
+            }
+        }
+    }
+    Ok(cached)
 }
 
 pub(crate) fn clear(root: &Path) -> Result<()> {
