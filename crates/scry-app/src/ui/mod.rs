@@ -31,6 +31,7 @@ mod source_picker;
 mod source_ranking;
 mod stats;
 
+pub(crate) use app::headless;
 use library_view::LibraryUi;
 use navigation::{NavigationState, Page};
 use player::state::PlayerState;

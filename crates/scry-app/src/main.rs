@@ -10,10 +10,19 @@ mod logging;
 mod media_metadata;
 mod search;
 mod services;
+mod single_instance;
 mod storage;
 mod ui;
 
 fn main() -> anyhow::Result<()> {
+    let _instance = if ui::headless() {
+        None
+    } else {
+        let Some(instance) = single_instance::acquire()? else {
+            return Ok(());
+        };
+        Some(instance)
+    };
     let _logging = logging::init()?;
     let result = run();
     if let Err(error) = &result {

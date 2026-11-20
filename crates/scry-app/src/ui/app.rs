@@ -112,7 +112,7 @@ impl Drop for State {
     }
 }
 
-pub(super) fn headless() -> bool {
+pub(crate) fn headless() -> bool {
     std::env::args().any(|a| {
         matches!(
             a.as_str(),
