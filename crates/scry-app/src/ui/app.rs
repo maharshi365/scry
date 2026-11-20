@@ -164,14 +164,6 @@ fn setup(s: &mut State, wake: rune::Waker) {
 pub(super) fn run() -> anyhow::Result<()> {
     // State owns service shutdown and persistence that must run on every quit path.
     rune::orderly_exit();
-    if std::env::args().any(|arg| arg == "--playground") {
-        super::playground::run(std::env::args().skip(1).collect());
-        return Ok(());
-    }
-    run_app()
-}
-
-fn run_app() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
     let mut rune_args = Vec::new();
     let mut startup_play = None;

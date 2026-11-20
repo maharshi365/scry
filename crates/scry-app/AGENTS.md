@@ -31,7 +31,7 @@
   `primitives/feedback.rs` for non-interactive status and recovery messages.
 - Use `primitives/motion.rs` for motion intent. Hover feedback is immediate
   and belongs only to the active target; do not animate passive settings rows.
-- Keep playground examples isolated from real services and data. Add a named
+- Keep UI test fixtures isolated from real services and data. Add a named
   fixture and interaction/layout coverage for new shared patterns; inspect
   rendered scenes before accepting visual changes.
 - Extend UI behavior tests and the design-policy test when adding shared

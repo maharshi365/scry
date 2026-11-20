@@ -11,14 +11,10 @@ fn shared_scrollers_and_input_metadata_stay_in_primitives() {
 }
 
 #[test]
-fn source_recovery_uses_the_shared_dialog_in_player_and_playground() {
-    for source in [
-        include_str!("../player/mod.rs"),
-        include_str!("../playground.rs"),
-    ] {
-        assert!(source.contains("feedback::source_recovery("));
-        assert!(!source.contains(".fill(tokens::danger())"));
-    }
+fn source_recovery_uses_the_shared_dialog_in_player() {
+    let source = include_str!("../player/mod.rs");
+    assert!(source.contains("feedback::source_recovery("));
+    assert!(!source.contains(".fill(tokens::danger())"));
 }
 
 fn raw_visual_value(text: &str) -> bool {
@@ -172,7 +168,7 @@ fn motion_policy_rejects_local_tuning_but_allows_shared_intent() {
     }
     for source in [
         ".transition(primitives::motion::fade())",
-        "motion::surface(panel)",
+        "motion::notification()",
         "motion::playback_feedback(elapsed)",
         "motion::poster_zoom(artwork, Zoom::Hovered)",
         "motion::loading_pose(motion)",

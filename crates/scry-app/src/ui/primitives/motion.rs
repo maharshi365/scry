@@ -58,10 +58,6 @@ pub(in crate::ui) fn poster_zoom(content: El, zoom: Zoom) -> El {
         .scale_motion(tokens::motion::POSTER_ZOOM_CURVE)
 }
 
-pub(in crate::ui) fn surface(content: El) -> El {
-    content.transition(Transition::scale(tokens::motion::SURFACE_SCALE))
-}
-
 pub(in crate::ui) fn fade() -> Transition {
     Transition::opacity()
 }

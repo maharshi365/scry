@@ -212,7 +212,6 @@ pub(in crate::ui) mod motion {
     pub const PLAYBACK_FRAME: std::time::Duration = std::time::Duration::from_millis(16);
     pub const PLAYBACK_GROWTH: f32 = 0.25;
     pub const SPINNER_PERIOD: f64 = 0.8;
-    pub const SURFACE_SCALE: f32 = 0.99;
     pub const NOTIFICATION_OFFSET: f32 = -24.0;
     pub const HOVER: rune::Anim = rune::Anim::INSTANT;
     pub const POSTER_ZOOM: f32 = 1.04;
