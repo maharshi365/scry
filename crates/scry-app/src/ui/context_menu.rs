@@ -205,7 +205,13 @@ pub(super) fn view(s: &State) -> Option<El> {
             ("Mark as unwatched", 3),
         ] {
             let media = media.clone();
-            menu = menu.item(MenuItem::new(title).on_select(move |s: &mut State| {
+            let entry = MenuItem::new(title).danger(choice == 1);
+            let entry = if choice == 1 {
+                entry.description("Remove from your library; local files are kept.")
+            } else {
+                entry
+            };
+            menu = menu.item(entry.on_select(move |s: &mut State| {
                 s.shell.context_menu = None;
                 if choice >= 2 {
                     s.mark_media_watched(media.as_ref().clone(), choice == 2);
@@ -271,9 +277,11 @@ fn dismiss_watching(s: &State, media: &Media) -> Option<MenuItem> {
     }
     let key = media.key.clone();
     Some(
-        MenuItem::new("Dismiss from Currently watching").on_select(move |s: &mut State| {
-            s.shell.context_menu = None;
-            s.db(Command::DismissWatching(key.clone()), true);
-        }),
+        MenuItem::new("Dismiss from Currently watching")
+            .description("Hide this title without changing watch history.")
+            .on_select(move |s: &mut State| {
+                s.shell.context_menu = None;
+                s.db(Command::DismissWatching(key.clone()), true);
+            }),
     )
 }

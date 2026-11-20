@@ -130,7 +130,7 @@ impl State {
         use std::fmt::Write as _;
 
         let season = self.active_season();
-        let query = self.detail.episodes.search.text.trim().to_lowercase();
+        let query = self.detail.episodes.search.text.trim();
         let mut searchable = String::new();
         self.detail
             .meta
@@ -146,12 +146,7 @@ impl State {
                 }
                 searchable.clear();
                 let _ = write!(searchable, "{} {}", video.episode.unwrap_or(0), video.title);
-                if searchable.is_ascii() {
-                    searchable.make_ascii_lowercase();
-                    searchable.contains(&query)
-                } else {
-                    searchable.to_lowercase().contains(&query)
-                }
+                rune_kit::search::Fold::default().contains(&searchable, query)
             })
     }
 

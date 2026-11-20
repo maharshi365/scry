@@ -1,4 +1,4 @@
-//! Rune currently drops side-button events. Subclass only the app's own window.
+//! Browser commands and side buttons over native video. Subclass only the app's window.
 use crate::platform::{HistoryDirection, NavigationInput};
 use anyhow::{Result, bail};
 use rune::raw_window_handle::RawWindowHandle;

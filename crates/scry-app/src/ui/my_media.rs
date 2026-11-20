@@ -333,7 +333,7 @@ fn filters(s: &State) -> El {
 }
 
 fn visible_items(media: &MediaUi) -> impl Iterator<Item = &Item> {
-    let filter = media.filter.text.to_lowercase();
+    let filter = media.filter.text.as_str();
     media
         .index
         .items
@@ -347,12 +347,8 @@ fn visible_items(media: &MediaUi) -> impl Iterator<Item = &Item> {
                 || media.kind == MediaFilter::Movies && kind == "movie"
                 || media.kind == MediaFilter::Shows && kind == "series")
                 && (!media.review_only || i.matched.is_none() && !i.keep_unmatched)
-                && (filter.is_empty()
-                    || i.matched
-                        .as_ref()
-                        .map_or(&i.title, |m| &m.name)
-                        .to_lowercase()
-                        .contains(&filter))
+                && rune_kit::search::Fold::default()
+                    .contains(i.matched.as_ref().map_or(&i.title, |m| &m.name), filter)
         })
         .take(200)
 }
@@ -618,4 +614,38 @@ pub(super) fn scene(s: &mut State) {
         });
     }
     s.my_media.status = "3 titles indexed. 2 need review.".into();
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::*;
+
+    #[test]
+    fn title_filter_folds_display_names_and_keeps_kind_and_review_rules() -> anyhow::Result<()> {
+        let mut s = crate::ui::app::init();
+        scene_ordering(&mut s);
+        let media = &mut s.my_media;
+        let item = media
+            .index
+            .items
+            .first_mut()
+            .ok_or_else(|| anyhow::anyhow!("missing fixture"))?;
+        let id = item.id.clone();
+        item.title = "Unmatched filename".into();
+        item.matched
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("missing match"))?
+            .name = "Été ＡＰＩ".into();
+        media.filter.text = " ete api ".into();
+        assert_eq!(
+            visible_items(media).map(|i| &i.id).collect::<Vec<_>>(),
+            [&id]
+        );
+        media.review_only = true;
+        assert!(visible_items(media).next().is_none());
+        media.review_only = false;
+        media.kind = MediaFilter::Shows;
+        assert!(visible_items(media).next().is_none());
+        Ok(())
+    }
 }

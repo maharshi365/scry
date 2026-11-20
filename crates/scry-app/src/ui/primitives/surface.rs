@@ -1,7 +1,7 @@
 use super::super::design::tokens::{self, accent, edge, panel, theme, type_};
 use super::text::label;
 use rune::{Align, El, Icon, ScrollSpec, Side, col, el, icon, text};
-use rune_kit::popover;
+use rune_kit::{ScrollBar, popover};
 
 pub(in crate::ui) fn card() -> El {
     surface(col())
@@ -131,6 +131,7 @@ pub(in crate::ui) fn scroll(key: impl Into<String>, content: El) -> El {
             stick_bottom: false,
         })
         .child(content)
+        .scroll_bar(tokens::kit())
 }
 
 /// Attach at the window root, after the trigger, to escape page clipping.

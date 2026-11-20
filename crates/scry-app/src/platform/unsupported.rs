@@ -1,4 +1,4 @@
-use super::{Fullscreen, NavigationInput, VideoHost};
+use super::{NavigationInput, VideoHost};
 use anyhow::{Result, bail};
 use scry_playback::PlaybackTarget;
 
@@ -29,23 +29,5 @@ impl Window {
         _: &NavigationInput,
     ) -> Result<()> {
         Ok(())
-    }
-
-    /// # Errors
-    /// This operation does not fail.
-    pub fn set_fullscreen(&self, _: Fullscreen) -> Result<()> {
-        Ok(())
-    }
-
-    /// # Errors
-    /// Returns an error because subtitle selection is not supported on this platform.
-    pub fn pick_subtitle(&self) -> Result<Option<std::path::PathBuf>> {
-        bail!("Subtitle file selection is not supported on this platform")
-    }
-
-    /// # Errors
-    /// Returns an error because file selection is not supported on this platform.
-    pub fn pick_history(&self) -> Result<Option<std::path::PathBuf>> {
-        bail!("History file selection is not supported on this platform")
     }
 }

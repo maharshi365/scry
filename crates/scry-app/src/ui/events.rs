@@ -82,6 +82,8 @@ pub(super) fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
     {
         changed |= super::profiling::poll(s, tx);
     }
+    #[cfg(not(windows))]
+    s.sync_fullscreen(tx);
     changed | s.navigation.present(tx)
 }
 

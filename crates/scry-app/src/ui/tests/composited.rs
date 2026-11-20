@@ -70,7 +70,7 @@ fn live_video_pixels_do_not_push_controls_below_a_small_window() {
         state.player.playing = true;
         state.player.ready = true;
         let VideoPresentation::Pixels(pixels) = state.shell.host.presentation() else {
-            panic!("Expected a composited Linux surface");
+            panic!("Expected a composited video surface");
         };
         let pixels = pixels.clone();
         pixels.set(1280, 720, vec![128; 1280 * 720 * 4]);

@@ -1,6 +1,24 @@
 use super::*;
 
 #[test]
+fn side_buttons_travel_once_over_nested_controls_without_activating_them() {
+    let mut state = init();
+    state.navigate(Page::Addons);
+    state.navigate(Page::Settings);
+    let mut rt = rune::Runtime::new(state, view, (1280.0, 820.0), rune::Env::default());
+    rt.frame(0.0);
+    let [x, y, w, h] = rect(&rt, "nav-my-media");
+    rt.button_down(x + w / 2.0, y + h / 2.0, rune::PointerButton::Back);
+    rt.button_up(x + w / 2.0, y + h / 2.0, rune::PointerButton::Back);
+    rt.frame(0.0);
+    assert_eq!(rt.state.navigation.page, Page::Addons);
+    rt.button_down(x + w / 2.0, y + h / 2.0, rune::PointerButton::Forward);
+    rt.button_up(x + w / 2.0, y + h / 2.0, rune::PointerButton::Forward);
+    rt.frame(0.0);
+    assert_eq!(rt.state.navigation.page, Page::Settings);
+}
+
+#[test]
 fn series_opens_a_season_without_a_preview() {
     let mut state = init();
     scene_discover(&mut state);

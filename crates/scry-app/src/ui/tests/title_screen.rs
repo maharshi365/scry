@@ -151,7 +151,12 @@ fn paging_beyond_the_first_episode_page_loads_its_watched_marker() {
     settle_library(&mut rt, |s| s.library.snapshot.is_some());
     let viewport = rect(&rt, "episodes-scroll-0-0-Some(1)");
     for _ in 0..3 {
-        rt.wheel(viewport[0] + 20.0, viewport[1] + 20.0, -100_000.0);
+        // Achievement notices can cover the top-right of the episode viewport.
+        rt.wheel(
+            viewport[0] + 20.0,
+            viewport[1] + viewport[3] * 0.75,
+            -100_000.0,
+        );
         for _ in 0..30 {
             rt.frame(1.0 / 60.0);
         }

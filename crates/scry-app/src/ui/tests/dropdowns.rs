@@ -9,14 +9,18 @@ pub(super) fn assert_flat_panel(rt: &rune::Runtime<State>, key: &str) {
     for element in &elements {
         let mut parent = element.parent;
         let mut inside = false;
+        let mut scrollbar = false;
         while let Some(index) = parent {
+            scrollbar |= elements[index].key.as_deref() == Some("scroll-bar");
             if index == panel {
                 inside = true;
                 break;
             }
             parent = elements[index].parent;
         }
-        if inside && !matches!(element.role, "button" | "tab") {
+        // A scrollbar thumb is a control, not a nested panel surface.
+        let thumb = scrollbar && element.key.as_deref() == Some("thumb");
+        if inside && !thumb && !matches!(element.role, "button" | "tab") {
             assert_eq!(
                 element.radius, 0.0,
                 "{key} contains an inner rounded panel: {:?}",

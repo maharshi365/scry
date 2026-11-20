@@ -250,7 +250,7 @@ fn notices(mut panel: El, history: &SettingsUi, preview: &Preview) -> El {
 }
 
 impl State {
-    #[cfg(target_os = "linux")]
+    #[cfg(not(windows))]
     fn select_history(&mut self, tx: &mut rune::Tx) {
         if self.settings.history.busy() {
             return;
@@ -271,7 +271,7 @@ impl State {
         );
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
     fn select_history(&mut self, _: &mut rune::Tx) {
         if self.settings.history.busy() {
             return;

@@ -2,6 +2,15 @@
 use std::path::Path;
 
 #[test]
+fn shared_scrollers_and_input_metadata_stay_in_primitives() {
+    let surface = include_str!("../primitives/surface.rs");
+    assert!(surface.contains(".scroll_bar(tokens::kit())"));
+    let input = include_str!("../primitives/input.rs");
+    assert!(input.contains(".dir(rune::Direction::Auto)"));
+    assert!(input.contains("input.description(description)"));
+}
+
+#[test]
 fn source_recovery_uses_the_shared_dialog_in_player_and_playground() {
     for source in [
         include_str!("../player/mod.rs"),

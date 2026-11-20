@@ -26,6 +26,9 @@ pub(super) struct ShellState {
     pub host_error: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     pub native_navigation: scry_app::platform::NavigationInput,
     pub context_menu: Option<(rune::PointerPress, Option<super::context_menu::Target>)>,
+    /// Last fullscreen state submitted to Rune's toggle API.
+    #[cfg(not(windows))]
+    pub fullscreen: bool,
 }
 
 pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
@@ -87,6 +90,8 @@ fn window_chrome(s: &State, cx: &mut Cx<State>, content: El) -> El {
         .w_full()
         .h_full()
         .fill(tokens::canvas())
+        .pointer_buttons([rune::PointerButton::Back, rune::PointerButton::Forward])
+        .on_press_tx(on_history_button)
         .on_window_focus(on_window_focus)
         .on_secondary_press(|s: &mut State, p, _| {
             s.shell.context_menu = Some((p, None));
@@ -132,12 +137,23 @@ fn on_window_focus(s: &mut State, focused: bool, tx: &mut rune::Tx) {
     }
 }
 
+fn on_history_button(s: &mut State, tx: &mut rune::Tx) {
+    match tx.button() {
+        rune::PointerButton::Back => s.travel(false),
+        rune::PointerButton::Forward => s.travel(true),
+        _ => return,
+    }
+    tx.instant();
+}
+
 fn fullscreen_player(s: &State, cx: &mut Cx<State>) -> El {
     let mut content = col()
         .key("fullscreen-player")
         .w_full()
         .h_full()
         .fill(tokens::video())
+        .pointer_buttons([rune::PointerButton::Back, rune::PointerButton::Forward])
+        .on_press_tx(on_history_button)
         .on_window_focus(on_window_focus)
         .child(player(s, cx));
     content = content.children(super::stats::toast(s));

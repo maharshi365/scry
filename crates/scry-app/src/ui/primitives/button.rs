@@ -307,8 +307,6 @@ impl Button {
     fn label(&self) -> El {
         let color = if self.busy {
             tokens::transparent()
-        } else if !self.enabled {
-            tokens::disabled()
         } else if matches!(self.variant, Variant::Danger) {
             tokens::danger()
         } else if matches!(self.variant, Variant::Primary) && !self.selected {

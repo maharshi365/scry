@@ -1,10 +1,33 @@
 use super::super::design::tokens::{self, control, type_};
 use rune::{El, KeyEvent, TextEdit, Tx};
 
+pub(in crate::ui) struct FieldText {
+    placeholder: &'static str,
+    description: Option<&'static str>,
+}
+
+impl FieldText {
+    pub fn described(placeholder: &'static str, description: &'static str) -> Self {
+        Self {
+            placeholder,
+            description: Some(description),
+        }
+    }
+}
+
+impl From<&'static str> for FieldText {
+    fn from(placeholder: &'static str) -> Self {
+        Self {
+            placeholder,
+            description: None,
+        }
+    }
+}
+
 pub(in crate::ui) fn dialog_input<S: 'static>(
     key: &'static str,
     edit: &TextEdit,
-    placeholder: &'static str,
+    placeholder: impl Into<FieldText>,
     get: fn(&mut S) -> &mut TextEdit,
     submit: impl Fn(&mut S) + 'static,
 ) -> El {
@@ -16,7 +39,7 @@ pub(in crate::ui) fn dialog_input<S: 'static>(
 pub(in crate::ui) fn input<S: 'static>(
     key: &'static str,
     edit: &TextEdit,
-    placeholder: &'static str,
+    placeholder: impl Into<FieldText>,
     get: fn(&mut S) -> &mut TextEdit,
     on_key: fn(&mut S, &KeyEvent, &mut Tx) -> bool,
     submit: impl Fn(&mut S) + 'static,
@@ -27,14 +50,20 @@ pub(in crate::ui) fn input<S: 'static>(
 pub(in crate::ui) fn input_with_change<S: 'static>(
     key: &'static str,
     edit: &TextEdit,
-    placeholder: &'static str,
+    placeholder: impl Into<FieldText>,
     get: fn(&mut S) -> &mut TextEdit,
     on_key: fn(&mut S, &KeyEvent, &mut Tx) -> bool,
     submit: impl Fn(&mut S) + 'static,
     change: impl Fn(&mut S, &mut Tx) + 'static,
 ) -> El {
-    rune_kit::TextInput::new(edit)
-        .placeholder(placeholder)
+    let content = placeholder.into();
+    let mut input = rune_kit::TextInput::new(edit)
+        .placeholder(content.placeholder)
+        .dir(rune::Direction::Auto);
+    if let Some(description) = content.description {
+        input = input.description(description);
+    }
+    input
         .text_style(type_::BODY)
         .height(control::INPUT_HEIGHT)
         .on_key(on_key)

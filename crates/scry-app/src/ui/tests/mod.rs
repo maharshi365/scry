@@ -15,6 +15,8 @@ use std::sync::Arc;
 mod audio;
 mod calendar;
 mod catalog;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod composited;
 mod context_menu;
 mod controls;
 mod design_contract;
@@ -23,8 +25,6 @@ mod episodes;
 mod history_import;
 mod layout;
 mod library;
-#[cfg(target_os = "linux")]
-mod linux;
 mod mechanical;
 mod my_media;
 mod navigation;

@@ -5,6 +5,52 @@ use crate::ui::{
 };
 
 #[test]
+fn shared_scrollbar_fits_and_scrolls_its_viewport_from_the_right_edge() {
+    struct Counter {
+        presses: u32,
+    }
+    fn rows(_: &Counter, _: &mut rune::Cx<Counter>) -> rune::El {
+        crate::ui::primitives::surface::scroll(
+            "scroll",
+            rune::col().w_full().children((0..40).map(|index| {
+                Button::new(format!("row-{index}"), format!("Row {index}"))
+                    .list_item()
+                    .on_press(|count: &mut Counter| count.presses += 1)
+            })),
+        )
+    }
+    fn bounds(rt: &rune::Runtime<Counter>, key: &str) -> [f32; 4] {
+        rt.elements()
+            .into_iter()
+            .find(|e| e.key.as_deref() == Some(key))
+            .unwrap()
+            .rect
+    }
+    for size in [(640.0, 480.0), (1280.0, 820.0)] {
+        let mut rt = rune::Runtime::new(Counter { presses: 0 }, rows, size, rune::Env::default());
+        rt.set_system_scroll_bars(rune::ScrollBars::Always);
+        rt.frame(0.0);
+        let viewport = bounds(&rt, "scroll");
+        assert!(viewport[2] > 0.0 && viewport[3] > 0.0);
+        assert!(viewport[0] >= 0.0 && viewport[0] + viewport[2] <= size.0);
+        let before = bounds(&rt, "row-5");
+        rt.wheel(
+            viewport[0] + viewport[2] - 1.0,
+            viewport[1] + viewport[3] / 2.0,
+            -180.0,
+        );
+        for _ in 0..60 {
+            rt.frame(1.0 / 60.0);
+        }
+        assert!(
+            bounds(&rt, "row-5")[1] < before[1],
+            "Wheel over the bar must scroll its viewport"
+        );
+        assert_eq!(rt.state.presses, 0, "Scrolling must not activate a row");
+    }
+}
+
+#[test]
 fn dropdown_variants_compose_with_sizes_and_gate_disabled_actions() {
     use crate::ui::primitives::button::{DropdownVariant, Size, dropdown_trigger};
     struct Control {
@@ -728,6 +774,16 @@ fn button_states_gate_actions_and_share_selection_styling() {
         .unwrap();
     assert_eq!(selected.fill, tokens::selected());
     assert_eq!(selected.label.as_deref(), Some("Choose, selected"));
+    let disabled_label = rt
+        .elements()
+        .into_iter()
+        .find(|e| e.text.as_deref() == Some("Unavailable"))
+        .unwrap();
+    assert_eq!(
+        disabled_label.text_color,
+        Some(tokens::theme().text),
+        "RuneKit dims the whole disabled control; its label must not be dimmed twice"
+    );
     for name in ["disabled", "busy"] {
         let (x, y) = rt.find(name).unwrap();
         rt.pointer_down(x, y);
@@ -812,7 +868,7 @@ fn input_changes_and_submission_share_the_callers_edit_state() {
         crate::ui::primitives::input::input_with_change(
             "editable",
             &s.edit,
-            "Value",
+            crate::ui::primitives::input::FieldText::described("Value", "Enter a display name."),
             |s: &mut Form| &mut s.edit,
             |_, _, _| false,
             |s| s.submitted.clone_from(&s.edit.text),
@@ -821,6 +877,13 @@ fn input_changes_and_submission_share_the_callers_edit_state() {
     }
     let mut rt = rune::Runtime::new(Form::default(), form, (400.0, 300.0), rune::Env::default());
     rt.frame(0.0);
+    let tree = rt.accessibility_tree();
+    let editor = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.description() == Some("Enter a display name."))
+        .expect("The shared field must describe its editor");
+    assert_eq!(editor.1.placeholder(), Some("Value"));
     let (x, y) = rt.find("editable").unwrap();
     rt.pointer_down(x, y);
     rt.pointer_up(x, y);

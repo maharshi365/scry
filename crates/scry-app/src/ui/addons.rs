@@ -425,7 +425,10 @@ pub(super) fn install_dialog(s: &State) -> El {
                     dialog_input(
                         "manifest",
                         &s.addons.install,
-                        "https://provider.example/manifest.json",
+                        super::primitives::input::FieldText::described(
+                            "https://provider.example/manifest.json",
+                            "Enter a Stremio-compatible provider manifest URL.",
+                        ),
                         |s: &mut State| &mut s.addons.install,
                         |s| {
                             if !s.addons.install_complete {

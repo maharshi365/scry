@@ -360,7 +360,7 @@ fn stepper(
 }
 
 impl State {
-    #[cfg(target_os = "linux")]
+    #[cfg(not(windows))]
     fn load_local_subtitle(&mut self, tx: &mut rune::Tx) {
         if !self.player.playing {
             return;
@@ -391,7 +391,7 @@ impl State {
         );
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
     fn load_local_subtitle(&mut self, _: &mut rune::Tx) {
         if !self.player.playing {
             return;

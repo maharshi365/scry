@@ -86,21 +86,31 @@ impl State {
         if self.player.fullscreen == fullscreen {
             return;
         }
-        match self.shell.window.set_fullscreen(if fullscreen {
+        #[cfg(windows)]
+        if let Err(error) = self.shell.window.set_fullscreen(if fullscreen {
             scry_app::platform::Fullscreen::Fullscreen
         } else {
             scry_app::platform::Fullscreen::Windowed
         }) {
-            Ok(()) => {
-                self.clear_player_feedback();
-                self.player.fullscreen = fullscreen;
-                self.shell
-                    .host
-                    .cover(None, None, self.player.interaction.scale);
-                self.player.stats_overlay.dismiss();
-                self.player.interaction.reset();
-            }
-            Err(error) => self.player.error = Some(error.to_string()),
+            self.player.error = Some(error.to_string());
+            return;
+        }
+        self.clear_player_feedback();
+        self.player.fullscreen = fullscreen;
+        self.shell
+            .host
+            .cover(None, None, self.player.interaction.scale);
+        self.player.stats_overlay.dismiss();
+        self.player.interaction.reset();
+    }
+
+    #[cfg(not(windows))]
+    pub(in crate::ui) fn sync_fullscreen(&mut self, tx: &mut rune::Tx) {
+        // Coalesce desired-state changes: Rune accepts a toggle, not an idempotent setter.
+        if self.shell.fullscreen != self.player.fullscreen {
+            self.shell.fullscreen = self.player.fullscreen;
+            tx.toggle_full_screen();
+            tx.instant();
         }
     }
 }

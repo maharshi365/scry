@@ -81,6 +81,8 @@ impl State {
                 host_error,
                 native_navigation: scry_app::platform::NavigationInput::default(),
                 context_menu: None,
+                #[cfg(not(windows))]
+                fullscreen: false,
             },
             artwork: super::artwork::ArtworkState::default(),
             posters: super::poster_grid::PosterGridState::default(),
@@ -160,6 +162,8 @@ fn setup(s: &mut State, wake: rune::Waker) {
 }
 
 pub(super) fn run() -> anyhow::Result<()> {
+    // State owns service shutdown and persistence that must run on every quit path.
+    rune::orderly_exit();
     if std::env::args().any(|arg| arg == "--playground") {
         super::playground::run(std::env::args().skip(1).collect());
         return Ok(());
@@ -227,6 +231,8 @@ fn run_app() -> anyhow::Result<()> {
         })
         .on_close(|s, tx| {
             s.set_fullscreen(false);
+            #[cfg(not(windows))]
+            s.sync_fullscreen(tx);
             s.save_library_progress();
             let finish_library = s.take_library_shutdown();
             s.shell.host.hide();

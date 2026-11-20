@@ -24,6 +24,7 @@ mod navigation;
 pub use browser::validate_browser_url;
 pub use navigation::{HistoryDirection, NavigationInput};
 
+#[cfg(windows)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fullscreen {
     Windowed,

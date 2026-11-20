@@ -7,6 +7,8 @@ fn episode_search_preserves_unicode_and_number_title_boundary_matching() {
     s.detail.meta.as_mut().unwrap().videos[1].title = "ÉTÉ 猫".into();
     for (query, expected) in [
         (" été ", vec![1]),
+        ("ete", vec![1]),
+        ("２ ete", vec![1]),
         ("2 été", vec![1]),
         ("猫", vec![1]),
         ("missing", vec![]),
