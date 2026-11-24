@@ -14,6 +14,8 @@ pub(crate) struct PlayerState {
     pub playing: bool,
     pub ready: bool,
     pub fullscreen: bool,
+    /// Playback continues in the window corner while another page is open.
+    pub mini: bool,
     pub interaction: super::interaction::Interaction,
     pub background: Option<String>,
     pub logo: Option<String>,
@@ -44,6 +46,7 @@ impl Default for PlayerState {
             playing: false,
             ready: false,
             fullscreen: false,
+            mini: false,
             interaction: super::interaction::Interaction::default(),
             background: None,
             logo: None,

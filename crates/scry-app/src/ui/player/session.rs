@@ -16,6 +16,7 @@ impl State {
         self.player.generation += 1;
         self.player.playing = false;
         self.player.ready = false;
+        self.player.mini = false;
         self.player.intro = None;
         self.player.seek_preview = None;
         self.player.interaction.reset();
@@ -62,6 +63,8 @@ impl State {
 
     pub(in crate::ui) fn play_media_source(&mut self, source: Source, title: String) {
         self.library.resume_request = None;
+        // Finish miniplayer progress before this source becomes the playing media.
+        self.close_miniplayer();
         self.save_library_progress();
         self.library.playing = self.library_media();
         self.library.watched_pending = 0.0;
@@ -224,6 +227,7 @@ impl State {
             self.player.error = Some(error.to_string());
             return;
         }
+        self.close_miniplayer();
         self.save_library_progress();
         self.library.playing = None;
         self.library.next_episode = None;

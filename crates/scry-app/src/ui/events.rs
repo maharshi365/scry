@@ -356,6 +356,7 @@ fn apply(s: &mut State, event: Event) {
             }
             if !s.player.interaction.feedback.loading()
                 && (s.navigation.page == Page::Player
+                    || s.player.mini
                     || (s.navigation.page == Page::Guide && !s.guide.collections_open))
             {
                 s.shell.host.show();
@@ -395,6 +396,7 @@ fn apply(s: &mut State, event: Event) {
             s.library.playing = None;
             s.refresh_library();
             s.player.playing = false;
+            s.player.mini = false;
             s.player.subtitles = super::player::subtitles::Subtitles::default();
             s.player.audio = super::player::audio::Audio::default();
             if let Some(services) = &mut s.runtime.services {

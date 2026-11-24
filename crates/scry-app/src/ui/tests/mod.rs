@@ -26,6 +26,7 @@ mod history_import;
 mod layout;
 mod library;
 mod mechanical;
+mod miniplayer;
 mod my_media;
 mod navigation;
 mod patterns;

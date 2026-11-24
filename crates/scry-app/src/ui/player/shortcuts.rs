@@ -1,7 +1,7 @@
 //! Bindings owned by the active player.
 use super::{
     super::{
-        Page, State,
+        State,
         shortcuts::{Binding, Focus, KeyMatch, Modifiers, resolve},
     },
     actions::PlayerAction,
@@ -29,6 +29,7 @@ const BINDINGS: &[Binding<PlayerAction>] = &[
     plain(KeyMatch::Text("h"), PlayerAction::SubtitleDelay(1)),
     plain(KeyMatch::Text("-"), PlayerAction::SubtitleSize(-1)),
     plain(KeyMatch::Text("="), PlayerAction::SubtitleSize(1)),
+    plain(KeyMatch::Text("i"), PlayerAction::ToggleMiniplayer),
     plain(KeyMatch::Text("f"), PlayerAction::ToggleFullscreen),
     plain(KeyMatch::Function(11), PlayerAction::ToggleFullscreen),
     plain(KeyMatch::Left, PlayerAction::SeekRelative(-5)),
@@ -37,9 +38,26 @@ const BINDINGS: &[Binding<PlayerAction>] = &[
     plain(KeyMatch::Down, PlayerAction::ChangeVolume(-5)),
 ];
 
+// Arrow keys stay with the page behind the miniplayer.
+const MINI_BINDINGS: &[Binding<PlayerAction>] = &[
+    plain(KeyMatch::Text(" "), PlayerAction::TogglePause),
+    plain(KeyMatch::Text("k"), PlayerAction::TogglePause),
+    plain(KeyMatch::Text("m"), PlayerAction::ToggleMute),
+    plain(KeyMatch::Text("j"), PlayerAction::SeekRelative(-10)),
+    plain(KeyMatch::Text("l"), PlayerAction::SeekRelative(10)),
+    plain(KeyMatch::Text("i"), PlayerAction::ToggleMiniplayer),
+];
+
 pub(in crate::ui) fn handle(s: &mut State, event: &KeyEvent, focus: Focus) -> bool {
-    if !matches!(s.navigation.page, Page::Player | Page::Guide) || !s.player.playing {
+    if !s.video_visible() {
         return false;
+    }
+    if s.player.mini {
+        let Some(action) = resolve(MINI_BINDINGS, event, focus) else {
+            return false;
+        };
+        s.player_action(action);
+        return true;
     }
     if event.key == rune::Key::Escape && s.player.subtitles.overlay.is_open() {
         s.player.subtitles.overlay.dismiss();

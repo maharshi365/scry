@@ -1,5 +1,5 @@
 //! Playback toggles use mpv OSD; buffering reveals the shared loading surface.
-use super::super::{Page, State, design::tokens};
+use super::super::{State, design::tokens};
 use scry_app::platform::VideoHost;
 use std::time::{Duration, Instant};
 
@@ -78,9 +78,7 @@ impl State {
     }
 
     pub(super) fn poll_player_feedback(&mut self, tx: &mut rune::Tx) -> bool {
-        let visible =
-            self.player.playing && matches!(self.navigation.page, Page::Player | Page::Guide);
-        if !visible {
+        if !self.video_visible() {
             let changed = self.player.interaction.feedback.loading;
             self.clear_player_feedback();
             return changed;
@@ -173,6 +171,7 @@ impl From<Cue> for super::super::primitives::feedback::VideoCue {
 
 #[cfg(test)]
 mod tests {
+    use super::super::super::Page;
     use super::*;
 
     #[test]

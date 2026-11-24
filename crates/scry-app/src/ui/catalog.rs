@@ -214,9 +214,7 @@ impl State {
 
     pub(super) fn choose_kind(&mut self, kind: &str) {
         self.remember();
-        if matches!(self.navigation.page, Page::Player | Page::Guide) {
-            self.stop();
-        }
+        self.leave_player(Page::Discover, true);
         self.leave_guide();
         self.navigation.page = Page::Discover;
         self.discover.kind = kind.into();
@@ -292,9 +290,7 @@ impl State {
 
     pub(super) fn submit_search(&mut self) {
         self.remember();
-        if matches!(self.navigation.page, Page::Player | Page::Guide) {
-            self.stop();
-        }
+        self.leave_player(Page::Discover, true);
         self.leave_guide();
         self.navigation.page = Page::Discover;
         self.detail.generation += 1;

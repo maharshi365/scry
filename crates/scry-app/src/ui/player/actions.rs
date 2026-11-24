@@ -15,6 +15,7 @@ pub(crate) enum PlayerAction {
     SubtitleDelay(i32),
     SubtitleSize(i32),
     ToggleFullscreen,
+    ToggleMiniplayer,
 }
 
 impl State {
@@ -79,6 +80,13 @@ impl State {
             PlayerAction::SubtitleDelay(direction) => self.adjust_subtitle_delay(direction),
             PlayerAction::SubtitleSize(direction) => self.adjust_subtitle_size(direction),
             PlayerAction::ToggleFullscreen => self.set_fullscreen(!self.player.fullscreen),
+            PlayerAction::ToggleMiniplayer => {
+                if self.player.mini {
+                    self.restore_miniplayer();
+                } else {
+                    self.open_miniplayer();
+                }
+            }
         }
     }
 

@@ -116,6 +116,11 @@ pub(in crate::ui) static EXPAND: Icon = Icon {
     view: 24.0,
     body: include_str!("../../../assets/icons/rune/maximize-2.svg"),
 };
+pub(in crate::ui) static MINIPLAYER: Icon = Icon {
+    name: "player-miniplayer",
+    view: 24.0,
+    body: include_str!("../../../assets/icons/rune/picture-in-picture-2.svg"),
+};
 pub(in crate::ui) static LEFT: Icon = Icon {
     name: "arrow-left",
     view: 24.0,
@@ -197,6 +202,7 @@ mod tests {
             source!(FULLSCREEN, "maximize"),
             source!(EXPAND, "maximize-2"),
             source!(EXIT_FULLSCREEN, "minimize"),
+            source!(MINIPLAYER, "picture-in-picture-2"),
             source!(LEFT, "arrow-left"),
             source!(RIGHT, "arrow-right"),
             source!(DOWN, "chevron-down"),

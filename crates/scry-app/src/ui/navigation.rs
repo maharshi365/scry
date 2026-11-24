@@ -77,9 +77,7 @@ impl State {
             return;
         }
         self.remember();
-        if matches!(self.navigation.page, Page::Player | Page::Guide) {
-            self.stop();
-        }
+        self.leave_player(page, true);
         self.leave_guide();
         self.navigation.page = page;
         self.shell.context_menu = None;
@@ -140,6 +138,15 @@ impl State {
     }
 
     pub(super) fn travel(&mut self, forward: bool) {
+        self.travel_from(forward, true);
+    }
+
+    /// Go back from the player and stop playback instead of opening the miniplayer.
+    pub(super) fn exit_player(&mut self) {
+        self.travel_from(false, false);
+    }
+
+    fn travel_from(&mut self, forward: bool, keep_playing: bool) {
         let route = if forward {
             self.navigation.forward.pop()
         } else {
@@ -158,9 +165,7 @@ impl State {
         } else {
             self.navigation.forward.push(current);
         }
-        if matches!(self.navigation.page, Page::Player | Page::Guide) {
-            self.stop();
-        }
+        self.leave_player(route.page, keep_playing);
         self.leave_guide();
         self.discover.generation += 1;
         self.detail.generation += 1;

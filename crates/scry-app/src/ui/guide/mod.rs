@@ -223,7 +223,10 @@ impl State {
             || previous.allow_torrents != policy.allow_torrents
         {
             self.leave_guide();
-            self.stop();
+            // Guide sources do not affect miniplayer playback.
+            if !self.player.mini {
+                self.stop();
+            }
         }
         self.guide_action(GuideAction::Policy(policy));
     }

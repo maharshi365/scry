@@ -4,6 +4,7 @@ pub(super) mod audio;
 mod feedback;
 mod interaction;
 mod intro;
+pub(super) mod mini;
 mod session;
 pub(super) mod shortcuts;
 pub(crate) mod state;
@@ -13,7 +14,9 @@ use super::{
     Page, State,
     controls::action,
     design::{
-        icons::{BACK, EXIT_FULLSCREEN, FORWARD, FULLSCREEN, MUTED, PAUSE, PLAY, VOLUME},
+        icons::{
+            BACK, EXIT_FULLSCREEN, FORWARD, FULLSCREEN, MINIPLAYER, MUTED, PAUSE, PLAY, VOLUME,
+        },
         tokens::{theme, type_, video},
     },
     formatting::clock,
@@ -30,11 +33,11 @@ use scry_app::platform::VideoHost;
 fn surface(
     s: &State,
     scale: f32,
-    compact: bool,
+    key: &'static str,
     motion: super::primitives::motion::LoadingMotion,
 ) -> El {
     let mut surface = el()
-        .key(if compact { "guide-video" } else { "video" })
+        .key(key)
         .w_full()
         .grow(1.0)
         .min_h(0.0)
@@ -65,7 +68,11 @@ fn surface(
             tx.instant();
         })
         .on_double_press_tx(|s: &mut State, tx| {
-            s.player_action(PlayerAction::ToggleFullscreen);
+            if s.player.mini {
+                s.restore_miniplayer();
+            } else {
+                s.player_action(PlayerAction::ToggleFullscreen);
+            }
             tx.instant();
         });
     if s.player.playing
@@ -77,7 +84,7 @@ fn surface(
         surface = surface.on_layout_tx(move |s: &mut State, rect, tx| {
             s.player.interaction.video_rect = Some(rect);
             s.player.interaction.scale = scale;
-            if s.player.playing && matches!(s.navigation.page, Page::Player | Page::Guide) {
+            if s.video_visible() {
                 s.shell.host.place(rect, scale);
                 s.cover_player();
                 if s.player.ready && !s.player.interaction.feedback.loading() {
@@ -128,7 +135,12 @@ pub(super) fn player(s: &State, cx: &rune::Cx<State>) -> El {
         )
     };
     let compact = s.navigation.page == Page::Guide && !s.player.fullscreen;
-    let surface = surface(s, cx.env().scale, compact, motion);
+    let surface = surface(
+        s,
+        cx.env().scale,
+        if compact { "guide-video" } else { "video" },
+        motion,
+    );
     if compact {
         return col()
             .key("guide-preview")
@@ -189,7 +201,7 @@ pub(super) fn player(s: &State, cx: &rune::Cx<State>) -> El {
                         .color(t.text)
                         .grow(1.0),
                 )
-                .child(action("player-back", "Sources", |s| s.travel(false))),
+                .child(action("player-back", "Sources", State::exit_player)),
         )
         .child(surface)
         .child(controls(s))
@@ -245,7 +257,7 @@ fn loading(s: &State, motion: super::primitives::motion::LoadingMotion) -> El {
     );
     if s.player.fullscreen {
         loading = loading
-            .child(action("player-back", "Sources", |s| s.travel(false)).absolute(16.0, 16.0));
+            .child(action("player-back", "Sources", State::exit_player).absolute(16.0, 16.0));
     }
     loading
 }
@@ -376,6 +388,7 @@ fn controls(s: &State) -> El {
         .child(subtitles::trigger(s))
         .child(audio::trigger(s))
         .child(stats::trigger(s))
+        .child(miniplayer_button(s))
         .child(fullscreen_button(s));
     control_panel(s, buttons)
 }
@@ -406,7 +419,7 @@ fn control_panel(s: &State, buttons: El) -> El {
     if s.player.fullscreen {
         controls
     } else {
-        controls.child(label("Space / K  play / pause     ← / →  seek 5s     J / L  seek 10s     ↑ / ↓  volume     M  mute").font(type_::CAPTION))
+        controls.child(label("Space / K  play / pause     ← / →  seek 5s     J / L  seek 10s     ↑ / ↓  volume     M  mute     I  miniplayer").font(type_::CAPTION))
     }
 }
 
@@ -428,6 +441,19 @@ fn buffered_range(s: &State) -> Option<(f64, f64)> {
     let start = (position / duration).clamp(0.0, 1.0);
     let end = ((position + cached) / duration).clamp(start, 1.0);
     (end > start).then_some((start, end))
+}
+
+fn miniplayer_button(s: &State) -> El {
+    keyboard_control(
+        Button::new("miniplayer", "Miniplayer (I)")
+            .variant(Variant::Ghost)
+            .icon(&MINIPLAYER)
+            .enabled(s.player.playing && s.player.ready && s.navigation.page == Page::Player)
+            .on_press_tx(|s: &mut State, tx| {
+                s.open_miniplayer();
+                tx.instant();
+            }),
+    )
 }
 
 fn fullscreen_button(s: &State) -> El {

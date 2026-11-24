@@ -228,6 +228,10 @@ pub(in crate::ui) mod player {
     pub const INTRO_LEAD_SECONDS: f64 = 2.0;
     pub const CONTROLS_INSET: f32 = 24.0;
     pub const CONTROLS_MAX_WIDTH: f32 = 1200.0;
+    // The miniplayer keeps a 16:9 video in the bottom-right window corner.
+    pub const MINI_WIDTH: f32 = 400.0;
+    pub const MINI_HEIGHT: f32 = MINI_WIDTH * 9.0 / 16.0;
+    pub const MINI_INSET: f32 = 24.0;
     pub const FEEDBACK_SIZE: f32 = 88.0;
     pub const OSD_HEIGHT: f32 = 720.0;
     // ASS uses BGR colors and inverted alpha (00 is opaque).

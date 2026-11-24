@@ -99,6 +99,7 @@ fn window_chrome(s: &State, cx: &mut Cx<State>, content: El) -> El {
     root = root.child(topbar(s, cx.titlebar_inset()));
     root = root
         .child(body.child(content))
+        .children(super::player::mini::view(s, cx))
         .children(super::stats::toast(s));
     root = root.children(super::discover::catalog_menu(s, cx));
     if s.navigation.page == Page::Detail {

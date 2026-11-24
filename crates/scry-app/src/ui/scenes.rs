@@ -72,6 +72,16 @@ pub(super) fn scene_player_fullscreen(s: &mut State) {
     s.player.sample.cache_s = Some(120.0);
 }
 
+pub(super) fn scene_miniplayer(s: &mut State) {
+    scene_library(s);
+    s.player.playing = true;
+    s.player.ready = true;
+    s.player.mini = true;
+    s.player.title = "Attack on Titan · S1 E2".into();
+    s.player.sample.duration_s = Some(1436.0);
+    s.player.sample.position_s = Some(312.0);
+}
+
 pub(super) fn scene_player_intro(s: &mut State) {
     scene_player_fullscreen(s);
     s.player.fullscreen = false;

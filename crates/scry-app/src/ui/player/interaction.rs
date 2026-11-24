@@ -95,7 +95,9 @@ impl State {
     pub(in crate::ui) fn native_video_click(&mut self, click: VideoClick, tx: &mut rune::Tx) {
         self.player.interaction.reveal(click.at);
         self.player_action(PlayerAction::TogglePause);
-        if click.double {
+        if click.double && self.player.mini {
+            self.restore_miniplayer();
+        } else if click.double {
             self.player_action(PlayerAction::ToggleFullscreen);
         }
         tx.instant();
@@ -111,7 +113,7 @@ impl State {
                     radius: super::super::design::tokens::overlay::RADIUS,
                 })
         };
-        let controls = (self.player.fullscreen && interaction.visible)
+        let controls = ((self.player.fullscreen || self.player.mini) && interaction.visible)
             .then_some(interaction.controls_rect)
             .flatten()
             .and_then(local_overlay);
@@ -197,17 +199,13 @@ impl State {
             && (self.navigation.page == super::Page::Player
                 || self.navigation.page == super::Page::Guide && self.player.fullscreen);
         let overlay_changed = self.poll_player_overlays(active, tx);
-        if !self.player.playing
-            || !matches!(
-                self.navigation.page,
-                super::Page::Player | super::Page::Guide
-            )
-        {
+        if !self.video_visible() {
             return self.poll_player_feedback(tx) || overlay_changed;
         }
         let now = Instant::now();
         let mut acted = false;
         let was = (self.player.interaction.visible, self.player.fullscreen);
+        let mini = self.player.mini;
         for click in clicks {
             if self.player.audio.overlay.is_open() {
                 self.player.audio.overlay.dismiss();
@@ -223,7 +221,7 @@ impl State {
             acted = true;
         }
         let feedback_changed = self.poll_player_feedback(tx);
-        if self.player.fullscreen {
+        if self.player.fullscreen || self.player.mini {
             let interaction = &mut self.player.interaction;
             let pointer = match self.shell.host.pointer_position(interaction.scale) {
                 VideoPointer::Unavailable => None,
@@ -248,7 +246,8 @@ impl State {
         let changed = overlay_changed
             || feedback_changed
             || acted
-            || was != (self.player.interaction.visible, self.player.fullscreen);
+            || was != (self.player.interaction.visible, self.player.fullscreen)
+            || mini != self.player.mini;
         if changed {
             tx.instant();
         }
